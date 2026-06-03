@@ -1,0 +1,1445 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Erebrus Drop</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #06111f;
+      --panel: #101c2d;
+      --panel-soft: #142338;
+      --panel-hover: #1a2e47;
+      --line: #28425f;
+      --line-soft: rgba(111, 143, 174, 0.22);
+      --text: #f2f8ff;
+      --muted: #9db1c4;
+      --faint: #6f8194;
+      --cyan: #25d7ff;
+      --blue: #4c7dff;
+      --green: #20d27b;
+      --amber: #f5b94b;
+      --red: #f25b5b;
+      --shadow: 0 22px 70px rgba(0, 0, 0, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 14% 0%, rgba(37, 215, 255, 0.16), transparent 28rem),
+        linear-gradient(135deg, #06111f 0%, #0a1728 44%, #08101d 100%);
+      color: var(--text);
+    }
+
+    body { min-height: 100vh; }
+    button, input, textarea { font: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    a { color: inherit; text-decoration: none; }
+
+    button {
+      border: 0;
+      border-radius: 8px;
+      min-height: 42px;
+      padding: 0 14px;
+      background: var(--panel-soft);
+      color: var(--text);
+      cursor: pointer;
+      transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
+    }
+
+    button:hover { background: var(--panel-hover); transform: translateY(-1px); }
+    button:disabled { cursor: not-allowed; opacity: 0.45; transform: none; }
+
+    .primary {
+      background: linear-gradient(135deg, var(--cyan), var(--blue));
+      color: #03111e;
+      font-weight: 800;
+    }
+
+    .danger { background: rgba(242, 91, 91, 0.16); color: #ffbaba; }
+
+    .icon-btn {
+      display: inline-grid;
+      place-items: center;
+      width: 42px;
+      min-width: 42px;
+      padding: 0;
+      border: 1px solid var(--line-soft);
+    }
+
+    .icon-btn.primary { border: 0; }
+
+    input, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #081524;
+      color: var(--text);
+      padding: 12px 13px;
+      outline: none;
+    }
+
+    input:focus, textarea:focus {
+      border-color: var(--cyan);
+      box-shadow: 0 0 0 3px rgba(37, 215, 255, 0.12);
+    }
+
+    textarea { min-height: 150px; resize: vertical; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { font-size: clamp(30px, 4vw, 48px); line-height: 1.02; letter-spacing: 0; }
+    h2 { font-size: clamp(24px, 3vw, 34px); margin-bottom: 4px; letter-spacing: 0; }
+    h3 { font-size: 14px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0; }
+    .muted { color: var(--muted); }
+    .faint { color: var(--faint); }
+    .hidden { display: none !important; }
+    .error { color: #ffbaba; }
+    .success { color: #a8ffd0; }
+
+    .login-shell {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 28px;
+    }
+
+    .login {
+      width: min(460px, 100%);
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      background: rgba(16, 28, 45, 0.86);
+      box-shadow: var(--shadow);
+      padding: 26px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .mark {
+      display: grid;
+      place-items: center;
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--cyan), var(--blue));
+      color: #03111e;
+      font-weight: 950;
+      flex: 0 0 auto;
+    }
+
+    .shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 268px minmax(0, 1fr) 312px;
+    }
+
+    .sidebar, .inspector {
+      background: rgba(13, 24, 39, 0.78);
+      backdrop-filter: blur(22px);
+      padding: 22px;
+    }
+
+    .sidebar { border-right: 1px solid var(--line-soft); }
+    .inspector { border-left: 1px solid var(--line-soft); }
+    main { padding: 24px; min-width: 0; }
+
+    .tabs {
+      display: grid;
+      gap: 8px;
+      margin-top: 26px;
+    }
+
+    .tab {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 10px;
+      text-align: left;
+      padding: 0 12px;
+      border: 1px solid transparent;
+    }
+
+    .tab.active {
+      background: rgba(37, 215, 255, 0.13);
+      border-color: rgba(37, 215, 255, 0.28);
+      color: var(--cyan);
+    }
+
+    .folder-list {
+      display: grid;
+      gap: 4px;
+      margin-top: 24px;
+    }
+
+    .folder-link {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-height: 34px;
+      padding: 0 8px;
+      border-radius: 8px;
+      color: var(--muted);
+      cursor: pointer;
+    }
+
+    .folder-link:hover { background: rgba(255, 255, 255, 0.05); color: var(--text); }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: start;
+      margin-bottom: 18px;
+    }
+
+    .headline {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .breadcrumbs {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      color: var(--muted);
+      min-height: 32px;
+    }
+
+    .crumb-button {
+      min-height: 30px;
+      padding: 0 9px;
+      background: transparent;
+      color: var(--cyan);
+      border: 1px solid rgba(37, 215, 255, 0.22);
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .panel {
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      background: rgba(16, 28, 45, 0.76);
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.16);
+      overflow: hidden;
+    }
+
+    .panel-pad { padding: 16px; }
+    .stack { display: grid; gap: 14px; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .split { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+
+    .file-table {
+      display: grid;
+      width: 100%;
+    }
+
+    .file-row {
+      display: grid;
+      grid-template-columns: 36px minmax(220px, 1fr) 112px 90px 56px;
+      align-items: center;
+      min-height: 68px;
+      gap: 12px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .file-row.header {
+      min-height: 42px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+
+    .file-row:not(.header):hover { background: rgba(37, 215, 255, 0.055); }
+    .file-row.selected { background: rgba(37, 215, 255, 0.1); }
+    .file-row:last-child { border-bottom: 0; }
+
+    .select-btn {
+      display: inline-grid;
+      place-items: center;
+      width: 28px;
+      min-width: 28px;
+      height: 28px;
+      min-height: 28px;
+      padding: 0;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.025);
+    }
+
+    .select-btn.active {
+      background: linear-gradient(135deg, var(--cyan), var(--blue));
+      border-color: transparent;
+      color: #03111e;
+    }
+
+    .select-placeholder {
+      width: 28px;
+      height: 28px;
+      display: block;
+    }
+
+    .file-main {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .file-icon {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      background: rgba(37, 215, 255, 0.11);
+      color: var(--cyan);
+      flex: 0 0 auto;
+    }
+
+    .file-meta { min-width: 0; }
+    .file-title {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text);
+      font-weight: 750;
+      background: transparent;
+      padding: 0;
+      min-height: 0;
+      border-radius: 0;
+      text-align: left;
+    }
+
+    .file-subtitle {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 13px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 28px;
+      padding: 0 9px;
+      border-radius: 999px;
+      border: 1px solid var(--line-soft);
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.035);
+      font-size: 13px;
+      width: max-content;
+    }
+
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 7px;
+    }
+
+    .selection-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border: 1px solid rgba(37, 215, 255, 0.28);
+      border-radius: 8px;
+      background: rgba(37, 215, 255, 0.08);
+      padding: 10px 12px;
+    }
+
+    .transfer-card {
+      border: 1px solid rgba(37, 215, 255, 0.28);
+      border-radius: 8px;
+      background: rgba(37, 215, 255, 0.08);
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .transfer-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-weight: 800;
+    }
+
+    .progress-track {
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--cyan), var(--green));
+      transition: width 160ms ease;
+    }
+
+    .empty {
+      display: grid;
+      place-items: center;
+      min-height: 260px;
+      text-align: center;
+      color: var(--muted);
+      padding: 28px;
+    }
+
+    .upload-zone {
+      display: grid;
+      place-items: center;
+      gap: 12px;
+      min-height: 260px;
+      border: 1px dashed rgba(37, 215, 255, 0.45);
+      border-radius: 8px;
+      background: rgba(37, 215, 255, 0.06);
+      padding: 28px;
+      text-align: center;
+    }
+
+    .upload-zone.dragging {
+      border-color: var(--green);
+      background: rgba(32, 210, 123, 0.09);
+    }
+
+    .media-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 12px;
+    }
+
+    .media-card {
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      background: rgba(16, 28, 45, 0.78);
+      padding: 14px;
+      display: grid;
+      gap: 14px;
+      min-height: 170px;
+    }
+
+    .media-art {
+      display: grid;
+      place-items: center;
+      height: 78px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, rgba(37, 215, 255, 0.13), rgba(76, 125, 255, 0.12));
+      color: var(--cyan);
+    }
+
+    .storage-ring {
+      --pct: 0deg;
+      width: 154px;
+      height: 154px;
+      border-radius: 50%;
+      margin: 4px auto 10px;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at center, #101c2d 0 58%, transparent 59%),
+        conic-gradient(var(--cyan) var(--pct), rgba(255, 255, 255, 0.08) 0);
+      border: 1px solid var(--line-soft);
+    }
+
+    .storage-number {
+      display: grid;
+      text-align: center;
+      font-weight: 900;
+      font-size: 24px;
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .stat {
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      padding: 10px;
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .stat b { display: block; margin-bottom: 2px; }
+    .activity {
+      display: grid;
+      gap: 10px;
+      margin-top: 6px;
+    }
+
+    .activity-item {
+      display: flex;
+      gap: 9px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .view { min-width: 0; }
+
+    svg {
+      width: 20px;
+      height: 20px;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+
+    @media (max-width: 1040px) {
+      .shell { grid-template-columns: 228px minmax(0, 1fr); }
+      .inspector {
+        grid-column: 1 / -1;
+        border-left: 0;
+        border-top: 1px solid var(--line-soft);
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+    }
+
+    @media (max-width: 780px) {
+      .shell { display: block; }
+      .sidebar {
+        border-right: 0;
+        border-bottom: 1px solid var(--line-soft);
+      }
+      .brand .muted { font-size: 13px; }
+      .tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .tab {
+        justify-content: center;
+        min-height: 48px;
+        padding: 0 8px;
+      }
+      .tab span:last-child { display: none; }
+      .folder-list {
+        display: flex;
+        gap: 8px;
+        margin-top: 16px;
+        overflow-x: auto;
+        padding-bottom: 4px;
+      }
+      .folder-list h3 { display: none; }
+      .folder-link {
+        flex: 0 0 auto;
+        min-height: 40px;
+        padding: 0 12px;
+        border: 1px solid var(--line-soft);
+        background: rgba(255, 255, 255, 0.03);
+      }
+      main, .sidebar, .inspector { padding: 16px; }
+      .topbar { grid-template-columns: 1fr; }
+      .toolbar { justify-content: flex-start; }
+      h2 { font-size: 28px; }
+      .selection-bar {
+        display: grid;
+        grid-template-columns: 1fr;
+        align-items: start;
+      }
+      .panel.file-table {
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+      }
+      .file-row {
+        grid-template-columns: 32px minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: start;
+        min-height: 0;
+        margin-bottom: 10px;
+        border: 1px solid var(--line-soft);
+        border-radius: 8px;
+        background: rgba(16, 28, 45, 0.72);
+        padding: 12px;
+      }
+      .file-row.header {
+        display: none;
+      }
+      .file-row > div:nth-child(3),
+      .file-row > div:nth-child(4) {
+        grid-column: 2;
+      }
+      .file-main { gap: 10px; }
+      .file-icon {
+        width: 36px;
+        height: 36px;
+      }
+      .file-title { font-size: 16px; }
+      .file-subtitle { font-size: 12px; }
+      .actions {
+        grid-column: 3;
+        grid-row: 1 / span 3;
+        justify-content: flex-end;
+        align-self: center;
+      }
+      .inspector { display: grid; grid-template-columns: 1fr; }
+      .split { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <section id="login" class="login-shell">
+    <div class="login stack">
+      <div class="brand">
+        <div class="mark">ED</div>
+        <div>
+          <strong>Erebrus Drop</strong>
+          <div class="muted" id="login-room">Private Drop Room</div>
+        </div>
+      </div>
+      <div>
+        <h1>Join Drop Room</h1>
+        <p class="muted" id="host-line">Ask the host for the password.</p>
+      </div>
+      <form id="login-form" class="stack">
+        <input id="password" type="password" autocomplete="current-password" placeholder="Room password">
+        <button class="primary" type="submit">Join Room</button>
+        <div id="login-message" class="error"></div>
+      </form>
+    </div>
+  </section>
+
+  <section id="app" class="shell hidden">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="mark">ED</div>
+        <div style="min-width: 0;">
+          <strong id="room-name">Erebrus Drop</strong>
+          <div class="muted" id="device-name"></div>
+        </div>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="Drop Room sections">
+        <button class="tab active" data-tab="files" title="Files">
+          <span data-icon="folder"></span><span>Files</span>
+        </button>
+        <button class="tab" data-tab="upload" title="Upload">
+          <span data-icon="upload"></span><span>Upload</span>
+        </button>
+        <button class="tab" data-tab="text" title="Text">
+          <span data-icon="text"></span><span>Text</span>
+        </button>
+        <button class="tab" data-tab="media" title="Media">
+          <span data-icon="play"></span><span>Media</span>
+        </button>
+      </div>
+
+      <div class="folder-list" id="folder-shortcuts">
+        <h3>Folders</h3>
+      </div>
+    </aside>
+
+    <main>
+      <section id="view-files" class="view stack">
+        <div class="topbar">
+          <div class="headline">
+            <div>
+              <h2>Files</h2>
+              <div class="muted">Browse, download, and organize this private room.</div>
+            </div>
+            <div class="breadcrumbs" id="breadcrumbs"></div>
+          </div>
+          <div class="toolbar">
+            <button class="icon-btn" id="up-folder" title="Parent folder" aria-label="Parent folder">
+              <span data-icon="arrow-up"></span>
+            </button>
+            <button class="icon-btn" id="refresh-files" title="Refresh" aria-label="Refresh files">
+              <span data-icon="refresh"></span>
+            </button>
+            <button class="icon-btn" id="select-visible" title="Select all files" aria-label="Select all files">
+              <span data-icon="files"></span>
+            </button>
+            <button class="icon-btn primary" id="quick-upload" title="Upload" aria-label="Upload files">
+              <span data-icon="upload"></span>
+            </button>
+          </div>
+        </div>
+
+        <div class="panel panel-pad">
+          <div class="split">
+            <input id="folder-name" placeholder="New folder name">
+            <button id="create-folder" title="Create folder">
+              <span data-icon="folder-plus"></span>
+              <span>Create</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="selection-bar hidden" id="selection-bar">
+          <div>
+            <strong id="selection-count">0 selected</strong>
+            <span class="muted" id="selection-size"></span>
+          </div>
+          <div class="row">
+            <button id="download-selected" class="primary" title="Download selected files">
+              <span data-icon="download"></span>
+              <span>Download</span>
+            </button>
+            <button id="clear-selection" title="Clear selection">
+              <span data-icon="x"></span>
+              <span>Clear</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="panel file-table">
+          <div class="file-row header">
+            <div></div>
+            <div>Name</div>
+            <div>Type</div>
+            <div>Size</div>
+            <div></div>
+          </div>
+          <div id="files"></div>
+        </div>
+      </section>
+
+      <section id="view-upload" class="view stack hidden">
+        <div>
+          <h2>Upload</h2>
+          <div class="muted">Send one or many files into the shown target folder.</div>
+        </div>
+        <div class="panel panel-pad stack">
+          <h3>Upload target</h3>
+          <div class="row">
+            <span class="pill" id="upload-target">Default folder</span>
+            <button id="open-upload-target" title="Open upload target">
+              <span data-icon="folder"></span>
+              <span>Open target</span>
+            </button>
+          </div>
+          <div class="muted" id="upload-target-help"></div>
+        </div>
+        <div class="upload-zone" id="drop-zone">
+          <div class="file-icon" style="width: 58px; height: 58px;">
+            <span data-icon="upload"></span>
+          </div>
+          <div>
+            <strong>Drop files here</strong>
+            <div class="muted">or choose files from this device</div>
+          </div>
+          <input id="upload-file" type="file" multiple>
+          <button id="upload-button" class="primary">Upload Files</button>
+          <div class="transfer-card hidden" id="upload-progress">
+            <div class="transfer-head">
+              <span id="upload-progress-title">Uploading</span>
+              <span id="upload-progress-percent">0%</span>
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill" id="upload-progress-fill"></div>
+            </div>
+            <div class="muted" id="upload-progress-detail">Preparing...</div>
+          </div>
+          <div id="upload-message" class="muted"></div>
+        </div>
+      </section>
+
+      <section id="view-text" class="view stack hidden">
+        <div>
+          <h2>Text</h2>
+          <div class="muted">Paste notes, links, copied SMS text, or snippets.</div>
+        </div>
+        <div class="panel panel-pad stack">
+          <input id="text-title" placeholder="Title">
+          <textarea id="text-body" placeholder="Paste text, links, SMS copy, or notes"></textarea>
+          <button id="send-text" class="primary">Send Text</button>
+          <div id="text-message" class="muted"></div>
+        </div>
+      </section>
+
+      <section id="view-media" class="view stack hidden">
+        <div>
+          <h2>Media</h2>
+          <div class="muted">Stream local audio and video without downloading first.</div>
+        </div>
+        <div class="media-grid" id="media"></div>
+      </section>
+    </main>
+
+    <section class="inspector">
+      <div class="panel panel-pad stack">
+        <h3>Storage</h3>
+        <div class="storage-ring" id="storage-ring">
+          <div class="storage-number">
+            <span id="storage-percent">0%</span>
+            <small class="muted">room used</small>
+          </div>
+        </div>
+        <div class="stat-grid">
+          <div class="stat"><b id="room-used">0 B</b><span class="muted">Room</span></div>
+          <div class="stat"><b id="drop-used">0 B</b><span class="muted">Drop</span></div>
+          <div class="stat"><b id="free-space">Unavailable</b><span class="muted">Free</span></div>
+          <div class="stat"><b id="max-upload">Unavailable</b><span class="muted">Upload cap</span></div>
+        </div>
+        <div class="muted" id="storage-text">Loading storage...</div>
+      </div>
+
+      <div class="panel panel-pad stack">
+        <h3>Session</h3>
+        <div class="muted" id="session-text"></div>
+        <div class="activity" id="activity"></div>
+        <button id="logout" class="danger">Logout</button>
+      </div>
+    </section>
+  </section>
+
+  <script>
+    const icons = {
+      'arrow-up': '<svg viewBox="0 0 24 24"><path d="m12 19 0-14"></path><path d="m5 12 7-7 7 7"></path></svg>',
+      check: '<svg viewBox="0 0 24 24"><path d="m20 6-11 11-5-5"></path></svg>',
+      download: '<svg viewBox="0 0 24 24"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>',
+      file: '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg>',
+      files: '<svg viewBox="0 0 24 24"><path d="M8 7h10a2 2 0 0 1 2 2v11"></path><path d="M4 3h10a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"></path></svg>',
+      folder: '<svg viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>',
+      'folder-plus': '<svg viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><path d="M12 11v6"></path><path d="M9 14h6"></path></svg>',
+      image: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="8" cy="10" r="2"></circle><path d="m21 15-5-5L5 19"></path></svg>',
+      lock: '<svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg>',
+      play: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="m10 8 6 4-6 4z"></path></svg>',
+      refresh: '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2"></path><path d="M3 12A9 9 0 0 1 18.5 5.8"></path><path d="M3 20v-6h6"></path><path d="M21 4v6h-6"></path></svg>',
+      text: '<svg viewBox="0 0 24 24"><path d="M4 7V4h16v3"></path><path d="M9 20h6"></path><path d="M12 4v16"></path></svg>',
+      upload: '<svg viewBox="0 0 24 24"><path d="M12 21V9"></path><path d="m7 14 5-5 5 5"></path><path d="M5 3h14"></path></svg>',
+      video: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="14" height="14" rx="2"></rect><path d="m17 9 4-2v10l-4-2"></path></svg>',
+      x: '<svg viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>'
+    };
+
+    const demoItems = [
+      { id: 'demo-folder', name: 'Screenshots', type: 'folder', path: '/Screenshots', sizeBytes: 0, mimeType: null, streamable: false },
+      { id: 'demo-pdf', name: 'boarding-pass.pdf', type: 'file', path: '/Inbox/boarding-pass.pdf', sizeBytes: 842120, mimeType: 'application/pdf', streamable: false },
+      { id: 'demo-image', name: 'receipt-photo.png', type: 'file', path: '/Inbox/receipt-photo.png', sizeBytes: 1284200, mimeType: 'image/png', streamable: false },
+      { id: 'demo-video', name: 'local-movie.mp4', type: 'file', path: '/Media/local-movie.mp4', sizeBytes: 104857600, mimeType: 'video/mp4', streamable: true }
+    ];
+
+    const state = {
+      room: null,
+      token: sessionStorage.getItem('dropToken') || '',
+      path: '/',
+      items: [],
+      demo: false,
+      selectedIds: new Set()
+    };
+
+    const $ = (id) => document.getElementById(id);
+    const authHeaders = () => state.token ? { Authorization: `Bearer ${state.token}` } : {};
+    const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[char]));
+
+    function icon(name) {
+      return icons[name] || icons.file;
+    }
+
+    function installIcons(root = document) {
+      root.querySelectorAll('[data-icon]').forEach((node) => {
+        node.innerHTML = icon(node.dataset.icon);
+      });
+    }
+
+    function fmt(bytes) {
+      if (bytes === null || bytes === undefined || bytes < 0) return 'Unavailable';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let size = Number(bytes);
+      let unit = 0;
+      while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit++; }
+      return `${size.toFixed(unit === 0 || size >= 10 ? 0 : 1)} ${units[unit]}`;
+    }
+
+    function fmtEta(seconds) {
+      if (!Number.isFinite(seconds) || seconds < 0) return 'ETA unavailable';
+      if (seconds < 1) return 'ETA now';
+      const total = Math.ceil(seconds);
+      const hours = Math.floor(total / 3600);
+      const minutes = Math.floor((total % 3600) / 60);
+      const secs = total % 60;
+      if (hours > 0) return `ETA ${hours}h ${minutes}m`;
+      if (minutes > 0) return `ETA ${minutes}m ${secs}s`;
+      return `ETA ${secs}s`;
+    }
+
+    function setUploadProgress({ title, sent, total, speed, done = false }) {
+      const progress = total > 0 ? Math.min(100, Math.round((sent / total) * 100)) : 0;
+      const eta = done || total <= 0 || speed <= 0 ? (done ? 'Done' : 'ETA unavailable') : fmtEta((total - sent) / speed);
+      $('upload-progress').classList.remove('hidden');
+      $('upload-progress-title').textContent = title;
+      $('upload-progress-percent').textContent = total > 0 ? `${progress}%` : '--';
+      $('upload-progress-fill').style.width = total > 0 ? `${progress}%` : '18%';
+      $('upload-progress-detail').textContent = `${fmt(sent)} / ${fmt(total)} · ${speed > 0 ? `${fmt(speed)}/s` : 'Calculating...'} · ${eta}`;
+    }
+
+    async function request(url, options = {}) {
+      if (state.demo) return demoRequest(url, options);
+      const response = await fetch(url, {
+        ...options,
+        headers: { ...(options.headers || {}), ...authHeaders() }
+      });
+      const contentType = response.headers.get('content-type') || '';
+      const data = contentType.includes('application/json') ? await response.json() : await response.text();
+      if (!response.ok) throw new Error(data.error || 'Request failed');
+      return data;
+    }
+
+    async function demoRequest(url, options = {}) {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      if (url.includes('/api/storage')) {
+        return {
+          dropUsedBytes: 167772160,
+          roomUsedBytes: 107479040,
+          availableBytes: 21474836480,
+          totalBytes: 128849018880,
+          maxUploadBytes: 2147483648,
+          lowStorage: false
+        };
+      }
+      if (url.includes('/api/files?')) {
+        const requested = state.path === '/' && inScopedMode() ? scopeRoot() : state.path;
+        const visible = requested === '/'
+          ? demoItems
+          : demoItems.filter((item) => item.path.startsWith(`${requested}/`) && item.path !== requested);
+        return { path: requested, items: visible };
+      }
+      if (url.includes('/api/folders')) {
+        const body = JSON.parse(options.body || '{}');
+        const name = (body.path || '/New Folder').split('/').filter(Boolean).pop();
+        demoItems.unshift({ id: `demo-${Date.now()}`, name, type: 'folder', path: body.path, sizeBytes: 0, mimeType: null, streamable: false });
+        return { ok: true };
+      }
+      if (url.includes('/api/text')) return { ok: true };
+      if (url.includes('/api/files/upload')) return { ok: true };
+      return {};
+    }
+
+    async function boot() {
+      try {
+        state.room = await request('/api/room');
+      } catch (_) {
+        startDemoMode();
+        return;
+      }
+      $('login-room').textContent = state.room.roomName;
+      $('host-line').textContent = state.room.authRequired
+        ? `Hosted by ${state.room.deviceName}. Ask the host for the password.`
+        : `Hosted by ${state.room.deviceName}.`;
+      if (!state.room.authRequired) {
+        await login('');
+      } else if (state.token) {
+        showApp();
+      }
+    }
+
+    function startDemoMode() {
+      state.demo = true;
+      state.token = 'demo-token';
+      state.room = {
+        roomName: 'Preview Drop Room',
+        deviceName: 'Sites preview',
+        authRequired: false,
+        defaultUploadPath: '/Inbox',
+        scopedToDefaultFolder: true,
+        scopePath: '/Inbox'
+      };
+      showApp();
+      addActivity('Preview mode is showing sample room data.');
+    }
+
+    async function login(password) {
+      const data = await request('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+      state.token = data.token;
+      sessionStorage.setItem('dropToken', data.token);
+      showApp();
+    }
+
+    function showApp() {
+      $('login').classList.add('hidden');
+      $('app').classList.remove('hidden');
+      $('room-name').textContent = state.room.roomName;
+      $('device-name').textContent = `Hosted by ${state.room.deviceName}`;
+      $('session-text').innerHTML = state.room.authRequired
+        ? `${icon('lock')} Password room. Token expires when the room stops or after 2 hours.`
+        : 'Open room on this local network.';
+      renderFolderShortcuts();
+      refreshUploadTarget();
+      refreshAll();
+    }
+
+    async function refreshAll() {
+      await Promise.all([loadFiles(), loadStorage()]);
+      renderMedia();
+    }
+
+    async function loadFiles() {
+      const data = await request(`/api/files?path=${encodeURIComponent(state.path)}`);
+      state.path = data.path;
+      state.items = data.items || [];
+      pruneSelection();
+      renderBreadcrumbs();
+      renderFiles();
+      renderFolderShortcuts();
+      refreshUploadTarget();
+    }
+
+    function defaultUploadPath() {
+      return state.room?.defaultUploadPath || '/Inbox';
+    }
+
+    function scopeRoot() {
+      return state.room?.scopedToDefaultFolder
+        ? (state.room.scopePath || defaultUploadPath())
+        : '/';
+    }
+
+    function inScopedMode() {
+      return state.room?.scopedToDefaultFolder === true;
+    }
+
+    function uploadTargetPath() {
+      return state.path === '/' ? defaultUploadPath() : state.path;
+    }
+
+    function refreshUploadTarget() {
+      const target = uploadTargetPath();
+      $('upload-target').textContent = target;
+      $('upload-target-help').textContent = state.path === '/'
+        ? `No folder is selected, so uploads go to the host default folder ${target}.`
+        : `You are browsing ${state.path}, so uploads go to this folder.`;
+    }
+
+    function renderBreadcrumbs() {
+      const scope = scopeRoot();
+      const scoped = inScopedMode();
+      const label = scoped ? `${scope.split('/').filter(Boolean).pop() || 'Drop'} folder` : 'Room';
+      const pathForParts = scoped && state.path.startsWith(scope)
+        ? state.path.substring(scope.length)
+        : state.path;
+      const parts = pathForParts.split('/').filter(Boolean);
+      const buttons = [`<button class="crumb-button" data-path="${scope}">${escapeHtml(label)}</button>`];
+      parts.forEach((part, index) => {
+        const suffix = `/${parts.slice(0, index + 1).join('/')}`;
+        const path = scoped ? `${scope}${suffix}` : suffix;
+        buttons.push(`<span class="faint">/</span><button class="crumb-button" data-path="${path}">${escapeHtml(part)}</button>`);
+      });
+      $('breadcrumbs').innerHTML = buttons.join('');
+      $('breadcrumbs').querySelectorAll('[data-path]').forEach((button) => {
+        button.addEventListener('click', () => {
+          state.path = button.dataset.path;
+          loadFiles();
+        });
+      });
+      $('up-folder').disabled = state.path === scope || state.path === '/';
+    }
+
+    function renderFolderShortcuts() {
+      const defaults = ['Inbox', 'Screenshots', 'Text', 'Media', 'Documents', 'Shared'];
+      const shortcuts = inScopedMode()
+        ? [{ name: scopeRoot().split('/').filter(Boolean).pop() || 'Drop', path: scopeRoot() }]
+        : defaults.map((name) => ({ name, path: `/${name}` }));
+      $('folder-shortcuts').innerHTML = '<h3>Folders</h3>' + shortcuts.map(({ name, path }) => `
+        <div class="folder-link" data-path="${path}">
+          ${icon('folder')}<span>${name}</span>
+        </div>
+      `).join('');
+      $('folder-shortcuts').querySelectorAll('[data-path]').forEach((item) => {
+        item.addEventListener('click', () => {
+          state.path = item.dataset.path;
+          loadFiles();
+        });
+      });
+    }
+
+    function itemIcon(item) {
+      if (item.type === 'folder') return 'folder';
+      if ((item.mimeType || '').startsWith('image/')) return 'image';
+      if ((item.mimeType || '').startsWith('video/') || (item.mimeType || '').startsWith('audio/')) return 'video';
+      if ((item.mimeType || '').startsWith('text/')) return 'text';
+      return 'file';
+    }
+
+    function displayType(item) {
+      if (item.type === 'folder') return 'Folder';
+      const mime = (item.mimeType || '').split(';')[0].trim().toLowerCase();
+      const ext = (item.name.split('.').pop() || '').toLowerCase();
+      if (mime.startsWith('image/')) return 'Image';
+      if (mime.startsWith('video/')) return 'Video';
+      if (mime.startsWith('audio/')) return 'Audio';
+      if (mime === 'text/plain') return 'Text';
+      if (mime === 'application/pdf') return 'PDF';
+      if (mime === 'application/json') return 'JSON';
+      if (mime === 'application/zip') return 'ZIP';
+      if (['doc', 'docx'].includes(ext)) return 'Document';
+      if (['xls', 'xlsx', 'csv'].includes(ext)) return 'Sheet';
+      if (['ppt', 'pptx'].includes(ext)) return 'Slides';
+      return 'File';
+    }
+
+    function selectedItems() {
+      return state.items.filter((item) => item.type !== 'folder' && state.selectedIds.has(item.id));
+    }
+
+    function pruneSelection() {
+      const visibleIds = new Set(state.items.filter((item) => item.type !== 'folder').map((item) => item.id));
+      Array.from(state.selectedIds).forEach((id) => {
+        if (!visibleIds.has(id)) state.selectedIds.delete(id);
+      });
+    }
+
+    function updateSelectionBar() {
+      const files = selectedItems();
+      const count = files.length;
+      $('selection-bar').classList.toggle('hidden', count === 0);
+      $('selection-count').textContent = `${count} selected`;
+      $('selection-size').textContent = count ? ` · ${fmt(files.reduce((sum, item) => sum + (item.sizeBytes || 0), 0))}` : '';
+    }
+
+    function renderFiles() {
+      if (!state.items.length) {
+        $('files').innerHTML = `
+          <div class="empty">
+            <div>
+              <div class="file-icon" style="margin: 0 auto 14px;">${icon('folder')}</div>
+              <strong>This folder is empty</strong>
+              <div class="muted">Upload files or create a folder to get started.</div>
+            </div>
+          </div>`;
+        updateSelectionBar();
+        return;
+      }
+
+      $('files').innerHTML = state.items.map((item) => {
+        const isFolder = item.type === 'folder';
+        const selected = state.selectedIds.has(item.id);
+        const open = isFolder
+          ? `<button class="file-title" data-open="${item.path}">${escapeHtml(item.name)}</button>`
+          : `<span class="file-title">${escapeHtml(item.name)}</span>`;
+        const action = isFolder
+          ? `<button class="icon-btn" data-open="${item.path}" title="Open folder" aria-label="Open ${escapeHtml(item.name)}">${icon('folder')}</button>`
+          : `<a href="/api/files/${item.id}/download?token=${encodeURIComponent(state.token)}" title="Download ${escapeHtml(item.name)}"><button class="icon-btn" aria-label="Download ${escapeHtml(item.name)}">${icon('download')}</button></a>`;
+        return `
+          <div class="file-row${selected ? ' selected' : ''}">
+            <div>
+              ${isFolder
+                ? '<span class="select-placeholder"></span>'
+                : `<button class="select-btn${selected ? ' active' : ''}" data-select="${item.id}" title="Select ${escapeHtml(item.name)}" aria-label="Select ${escapeHtml(item.name)}">${selected ? icon('check') : ''}</button>`}
+            </div>
+            <div class="file-main">
+              <div class="file-icon">${icon(itemIcon(item))}</div>
+              <div class="file-meta">
+                ${open}
+                <div class="file-subtitle">${escapeHtml(item.path || state.path)}</div>
+              </div>
+            </div>
+            <div><span class="pill">${escapeHtml(displayType(item))}</span></div>
+            <div class="muted">${isFolder ? '-' : fmt(item.sizeBytes)}</div>
+            <div class="actions">${action}</div>
+          </div>`;
+      }).join('');
+
+      $('files').querySelectorAll('[data-select]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const id = button.dataset.select;
+          if (state.selectedIds.has(id)) {
+            state.selectedIds.delete(id);
+          } else {
+            state.selectedIds.add(id);
+          }
+          renderFiles();
+        });
+      });
+      $('files').querySelectorAll('[data-open]').forEach((button) => {
+        button.addEventListener('click', () => {
+          state.path = button.dataset.open;
+          loadFiles();
+        });
+      });
+      updateSelectionBar();
+    }
+
+    function renderMedia() {
+      const media = state.items.filter((item) => item.streamable);
+      $('media').innerHTML = media.length ? media.map((item) => {
+        const url = `/api/files/${item.id}/stream?token=${encodeURIComponent(state.token)}`;
+        return `
+          <div class="media-card">
+            <div class="media-art">${icon('play')}</div>
+            <div>
+              <strong>${escapeHtml(item.name)}</strong>
+              <div class="muted">${fmt(item.sizeBytes)} · ${escapeHtml(displayType(item))}</div>
+            </div>
+            <a href="${url}" target="_blank"><button class="primary">${icon('play')} Open Stream</button></a>
+          </div>`;
+      }).join('') : `
+        <div class="empty panel">
+          <div>
+            <div class="file-icon" style="margin: 0 auto 14px;">${icon('play')}</div>
+            <strong>No streamable media here</strong>
+            <div class="muted">Audio and video files in the current folder appear here.</div>
+          </div>
+        </div>`;
+    }
+
+    async function loadStorage() {
+      const storage = await request('/api/storage');
+      const used = storage.roomUsedBytes || 0;
+      const total = storage.totalBytes || 0;
+      const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
+      $('storage-ring').style.setProperty('--pct', `${pct * 3.6}deg`);
+      $('storage-percent').textContent = `${pct}%`;
+      $('room-used').textContent = fmt(used);
+      $('drop-used').textContent = fmt(storage.dropUsedBytes);
+      $('free-space').textContent = fmt(storage.availableBytes);
+      $('max-upload').textContent = fmt(storage.maxUploadBytes);
+      $('storage-text').textContent = storage.lowStorage
+        ? 'Storage is running low. Ask the host to clean up before large uploads.'
+        : 'Storage has room for transfers.';
+    }
+
+    function addActivity(text) {
+      const node = document.createElement('div');
+      node.className = 'activity-item';
+      node.innerHTML = `${icon('refresh')}<span>${escapeHtml(text)}</span>`;
+      $('activity').prepend(node);
+      while ($('activity').children.length > 4) $('activity').lastElementChild.remove();
+    }
+
+    function uploadFileWithProgress({ file, target, sentBefore, totalBytes, startedAt, index, count }) {
+      return new Promise((resolve, reject) => {
+        if (state.demo) {
+          const nextSent = sentBefore + file.size;
+          setUploadProgress({
+            title: `Uploading ${index}/${count} ${file.name}`,
+            sent: nextSent,
+            total: totalBytes,
+            speed: nextSent / Math.max((performance.now() - startedAt) / 1000, 0.001)
+          });
+          setTimeout(resolve, 160);
+          return;
+        }
+        const xhr = new XMLHttpRequest();
+        const url = `/api/files/upload?path=${encodeURIComponent(target)}&name=${encodeURIComponent(file.name)}`;
+        xhr.open('POST', url);
+        if (state.token) xhr.setRequestHeader('Authorization', `Bearer ${state.token}`);
+        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+        xhr.upload.onprogress = (event) => {
+          const currentSent = event.lengthComputable ? event.loaded : 0;
+          const overallSent = sentBefore + currentSent;
+          const elapsed = Math.max((performance.now() - startedAt) / 1000, 0.001);
+          setUploadProgress({
+            title: `Uploading ${index}/${count} ${file.name}`,
+            sent: overallSent,
+            total: totalBytes,
+            speed: overallSent / elapsed
+          });
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+            return;
+          }
+          try {
+            const data = JSON.parse(xhr.responseText || '{}');
+            reject(new Error(data.error || 'Upload failed'));
+          } catch (_) {
+            reject(new Error(xhr.responseText || 'Upload failed'));
+          }
+        };
+        xhr.onerror = () => reject(new Error('Network error during upload'));
+        xhr.send(file);
+      });
+    }
+
+    async function uploadFiles(files) {
+      if (!files.length) return;
+      $('upload-button').disabled = true;
+      $('upload-message').textContent = `Uploading ${files.length} file(s)...`;
+      const target = uploadTargetPath();
+      const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+      const startedAt = performance.now();
+      let sentBefore = 0;
+      try {
+        for (let index = 0; index < files.length; index++) {
+          const file = files[index];
+          await uploadFileWithProgress({
+            file,
+            target,
+            sentBefore,
+            totalBytes,
+            startedAt,
+            index: index + 1,
+            count: files.length
+          });
+          sentBefore += file.size;
+          addActivity(`Uploaded ${file.name} to ${target}`);
+        }
+        const elapsed = Math.max((performance.now() - startedAt) / 1000, 0.001);
+        setUploadProgress({
+          title: `Uploaded ${files.length} file${files.length === 1 ? '' : 's'}`,
+          sent: totalBytes,
+          total: totalBytes,
+          speed: totalBytes / elapsed,
+          done: true
+        });
+        $('upload-file').value = '';
+        $('upload-message').textContent = 'Upload complete.';
+        refreshAll();
+      } catch (error) {
+        $('upload-message').textContent = error.message;
+      } finally {
+        $('upload-button').disabled = false;
+      }
+    }
+
+    async function downloadSelectedFiles() {
+      const files = selectedItems();
+      if (!files.length) return;
+      addActivity(`Started ${files.length} download${files.length === 1 ? '' : 's'}`);
+      for (const file of files) {
+        const link = document.createElement('a');
+        link.href = `/api/files/${file.id}/download?token=${encodeURIComponent(state.token)}`;
+        link.download = file.name;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        await new Promise((resolve) => setTimeout(resolve, 180));
+      }
+    }
+
+    $('login-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      $('login-message').textContent = '';
+      try {
+        await login($('password').value);
+      } catch (error) {
+        $('login-message').textContent = error.message;
+      }
+    });
+
+    document.querySelectorAll('.tab').forEach((tab) => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach((item) => item.classList.remove('active'));
+        document.querySelectorAll('.view').forEach((view) => view.classList.add('hidden'));
+        tab.classList.add('active');
+        $(`view-${tab.dataset.tab}`).classList.remove('hidden');
+        refreshUploadTarget();
+      });
+    });
+
+    $('open-upload-target').addEventListener('click', () => {
+      state.path = uploadTargetPath();
+      document.querySelector('[data-tab="files"]').click();
+      loadFiles();
+    });
+
+    $('up-folder').addEventListener('click', () => {
+      if (state.path === '/') return;
+      const parts = state.path.split('/').filter(Boolean);
+      parts.pop();
+      const nextPath = parts.length ? `/${parts.join('/')}` : '/';
+      const scope = scopeRoot();
+      state.path = inScopedMode() && (nextPath === '/' || !nextPath.startsWith(scope))
+        ? scope
+        : nextPath;
+      loadFiles();
+    });
+
+    $('refresh-files').addEventListener('click', refreshAll);
+    $('select-visible').addEventListener('click', () => {
+      const files = state.items.filter((item) => item.type !== 'folder');
+      const allSelected = files.length > 0 && files.every((item) => state.selectedIds.has(item.id));
+      files.forEach((item) => {
+        if (allSelected) {
+          state.selectedIds.delete(item.id);
+        } else {
+          state.selectedIds.add(item.id);
+        }
+      });
+      renderFiles();
+    });
+    $('download-selected').addEventListener('click', downloadSelectedFiles);
+    $('clear-selection').addEventListener('click', () => {
+      state.selectedIds.clear();
+      renderFiles();
+    });
+    $('quick-upload').addEventListener('click', () => document.querySelector('[data-tab="upload"]').click());
+
+    $('create-folder').addEventListener('click', async () => {
+      const name = $('folder-name').value.trim();
+      if (!name) return;
+      await request('/api/folders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: state.path === '/' ? `/${name}` : `${state.path}/${name}` })
+      });
+      addActivity(`Created folder ${name}`);
+      $('folder-name').value = '';
+      refreshAll();
+    });
+
+    $('upload-button').addEventListener('click', () => uploadFiles(Array.from($('upload-file').files || [])));
+    $('drop-zone').addEventListener('dragover', (event) => {
+      event.preventDefault();
+      $('drop-zone').classList.add('dragging');
+    });
+    $('drop-zone').addEventListener('dragleave', () => $('drop-zone').classList.remove('dragging'));
+    $('drop-zone').addEventListener('drop', (event) => {
+      event.preventDefault();
+      $('drop-zone').classList.remove('dragging');
+      uploadFiles(Array.from(event.dataTransfer.files || []));
+    });
+
+    $('send-text').addEventListener('click', async () => {
+      const title = $('text-title').value || 'Browser text';
+      await request('/api/text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          body: $('text-body').value,
+          source: 'browser'
+        })
+      });
+      $('text-body').value = '';
+      $('text-message').textContent = 'Text saved to the room.';
+      addActivity(`Saved text: ${title}`);
+      refreshAll();
+    });
+
+    $('logout').addEventListener('click', () => {
+      sessionStorage.removeItem('dropToken');
+      location.reload();
+    });
+
+    installIcons();
+    boot().catch((error) => {
+      $('login-message').textContent = error.message;
+    });
+  </script>
+</body>
+</html>
