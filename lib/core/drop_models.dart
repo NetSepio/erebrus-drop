@@ -75,6 +75,9 @@ class DropRoomConfig {
     required this.burnMode,
     required this.expiry,
     required this.defaultUploadPath,
+    this.hostFolderUri,
+    this.hostFolderName,
+    this.hostFolderPlatform,
   });
 
   final String name;
@@ -84,6 +87,9 @@ class DropRoomConfig {
   final bool burnMode;
   final Duration? expiry;
   final String defaultUploadPath;
+  final String? hostFolderUri;
+  final String? hostFolderName;
+  final String? hostFolderPlatform;
 
   bool get authRequired => password.trim().isNotEmpty;
 }
@@ -102,6 +108,9 @@ class DropRoomSession {
     required this.expiresAt,
     required this.roomDirectory,
     required this.defaultUploadPath,
+    this.hostFolderUri,
+    this.hostFolderName,
+    this.hostFolderPlatform,
   });
 
   final String id;
@@ -116,6 +125,12 @@ class DropRoomSession {
   final DateTime? expiresAt;
   final Directory roomDirectory;
   final String defaultUploadPath;
+  final String? hostFolderUri;
+  final String? hostFolderName;
+  final String? hostFolderPlatform;
+
+  bool get usesExternalHostFolder =>
+      hostFolderUri != null && hostFolderUri!.trim().isNotEmpty;
 }
 
 class StorageSnapshot {
@@ -125,6 +140,12 @@ class StorageSnapshot {
     required this.availableBytes,
     required this.totalBytes,
     required this.maxUploadBytes,
+    this.folderUsedBytes,
+    this.folderScanStatus = 'unavailable',
+    this.folderScannedAt,
+    this.folderScanMessage,
+    this.folderScannedFileCount,
+    this.folderScannedFolderCount,
   });
 
   final int dropUsedBytes;
@@ -132,6 +153,12 @@ class StorageSnapshot {
   final int? availableBytes;
   final int? totalBytes;
   final int maxUploadBytes;
+  final int? folderUsedBytes;
+  final String folderScanStatus;
+  final DateTime? folderScannedAt;
+  final String? folderScanMessage;
+  final int? folderScannedFileCount;
+  final int? folderScannedFolderCount;
 
   bool get lowStorage {
     final available = availableBytes;
@@ -149,6 +176,12 @@ class StorageSnapshot {
       'availableBytes': availableBytes,
       'totalBytes': totalBytes,
       'maxUploadBytes': maxUploadBytes,
+      'folderUsedBytes': folderUsedBytes,
+      'folderScanStatus': folderScanStatus,
+      'folderScannedAt': folderScannedAt?.toIso8601String(),
+      'folderScanMessage': folderScanMessage,
+      'folderScannedFileCount': folderScannedFileCount,
+      'folderScannedFolderCount': folderScannedFolderCount,
       'lowStorage': lowStorage,
     };
   }

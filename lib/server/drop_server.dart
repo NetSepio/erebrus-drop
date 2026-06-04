@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -9,21 +10,31 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../core/drop_models.dart';
+import '../core/host_folder_bridge.dart';
 import '../core/platform_network.dart';
 
 class DropServer {
   static const int defaultPort = 8787;
   static const int lastFallbackPort = 8799;
   static const int defaultMaxUploadBytes = 2 * 1024 * 1024 * 1024;
+  static const Duration _folderUsageScanTtl = Duration(minutes: 5);
+  static const Duration _folderUsageScanYield = Duration(milliseconds: 8);
+  static const int _folderUsageScanBatchSize = 25;
+  static const int _folderUsageScanMaxEntries = 20000;
 
   HttpServer? _server;
   DropRoomSession? _session;
   Directory? _dropDirectory;
+  final HostFolderBridge _hostFolderBridge = HostFolderBridge();
   _PasswordRecord? _passwordRecord;
   StorageSnapshot? _lastStorageSnapshot;
   DateTime? _lastStorageSnapshotAt;
   Future<StorageSnapshot>? _storageSnapshotInFlight;
   final Map<String, DateTime> _tokens = <String, DateTime>{};
+  _FolderUsageCache? _folderUsageCache;
+  Future<void>? _folderUsageScanInFlight;
+  bool _folderUsageRescanRequested = false;
+  int _folderUsageScanGeneration = 0;
 
   DropRoomSession? get session => _session;
 
@@ -33,12 +44,15 @@ class DropServer {
     if (_server != null) {
       return _session!;
     }
+    if ((config.hostFolderUri ?? '').trim().isEmpty) {
+      throw StateError(
+        'Select a Drop folder from phone storage before starting a room.',
+      );
+    }
 
-    final documents = await getApplicationDocumentsDirectory();
-    final dropDirectory = Directory('${documents.path}/ErebrusDrop');
-    final roomDirectory = Directory('${dropDirectory.path}/CurrentRoom');
+    final tempDirectory = await getTemporaryDirectory();
+    final roomDirectory = Directory('${tempDirectory.path}/ErebrusDropRuntime');
     await roomDirectory.create(recursive: true);
-    await _ensureDefaultFolders(roomDirectory);
 
     final localIp = await PlatformNetwork.bestLocalIp();
     final server = await _bindServer();
@@ -48,7 +62,7 @@ class DropServer {
         ? null
         : createdAt.add(config.expiry!);
 
-    _dropDirectory = dropDirectory;
+    _dropDirectory = null;
     _passwordRecord = config.authRequired
         ? _PasswordRecord.create(config.password)
         : null;
@@ -69,8 +83,12 @@ class DropServer {
       expiresAt: expiresAt,
       roomDirectory: roomDirectory,
       defaultUploadPath: _normalizeRoomPath(config.defaultUploadPath),
+      hostFolderUri: config.hostFolderUri,
+      hostFolderName: config.hostFolderName,
+      hostFolderPlatform: config.hostFolderPlatform,
     );
 
+    _scheduleFolderUsageScan(force: true);
     unawaited(_serve(server));
     return _session!;
   }
@@ -84,7 +102,60 @@ class DropServer {
     _lastStorageSnapshot = null;
     _lastStorageSnapshotAt = null;
     _storageSnapshotInFlight = null;
+    _folderUsageScanGeneration++;
+    _folderUsageCache = null;
+    _folderUsageRescanRequested = false;
     await server?.close(force: true);
+  }
+
+  Future<void> updateHostFolder({
+    required String? hostFolderUri,
+    required String? hostFolderName,
+    required String? hostFolderPlatform,
+  }) async {
+    final session = _requireSession();
+    _session = DropRoomSession(
+      id: session.id,
+      name: session.name,
+      deviceName: session.deviceName,
+      baseUrl: session.baseUrl,
+      localIp: session.localIp,
+      port: session.port,
+      authRequired: session.authRequired,
+      permission: session.permission,
+      createdAt: session.createdAt,
+      expiresAt: session.expiresAt,
+      roomDirectory: session.roomDirectory,
+      defaultUploadPath: '/',
+      hostFolderUri: hostFolderUri,
+      hostFolderName: hostFolderName,
+      hostFolderPlatform: hostFolderPlatform,
+    );
+    _folderUsageScanGeneration++;
+    _folderUsageCache = null;
+    _folderUsageRescanRequested = false;
+    _invalidateStorageSnapshot();
+    _scheduleFolderUsageScan(force: true);
+  }
+
+  Future<void> openFile(DropFileItem item) async {
+    final session = _requireSession();
+    if (session.usesExternalHostFolder) {
+      await _hostFolderBridge.openFile(
+        rootUri: session.hostFolderUri!,
+        path: item.path,
+      );
+      return;
+    }
+    final entity = _entityFromId(item.id);
+    if (entity is! File || !await entity.exists()) {
+      throw const FileSystemException('File was not found.');
+    }
+    await _hostFolderBridge.openLocalFile(
+      path: entity.path,
+      name: item.name,
+      mimeType: item.mimeType ?? _mimeType(entity.path),
+    );
   }
 
   Future<StorageSnapshot> storageSnapshot() async {
@@ -115,28 +186,249 @@ class DropServer {
 
   Future<StorageSnapshot> _buildStorageSnapshot() async {
     final dropDirectory = _dropDirectory;
-    final roomDirectory = _session?.roomDirectory;
+    final session = _session;
+    final roomDirectory = session?.roomDirectory;
     final storageStats = await PlatformNetwork.getStorageStats();
+    final external = session?.usesExternalHostFolder == true;
+    final folderUsage = external ? _folderUsageCacheFor(session!) : null;
+    if (external) {
+      _scheduleFolderUsageScan();
+    }
+    final externalUsedBytes = folderUsage?.usedBytes;
     return StorageSnapshot(
-      dropUsedBytes: dropDirectory == null
+      dropUsedBytes: external
+          ? externalUsedBytes ?? 0
+          : dropDirectory == null
           ? 0
           : await _directorySize(dropDirectory),
-      roomUsedBytes: roomDirectory == null
+      roomUsedBytes: external
+          ? externalUsedBytes ?? 0
+          : roomDirectory == null
           ? 0
           : await _directorySize(roomDirectory),
       availableBytes: storageStats['availableBytes'],
       totalBytes: storageStats['totalBytes'],
       maxUploadBytes: defaultMaxUploadBytes,
+      folderUsedBytes: externalUsedBytes,
+      folderScanStatus: external
+          ? folderUsage?.status ?? 'queued'
+          : 'unavailable',
+      folderScannedAt: folderUsage?.scannedAt,
+      folderScanMessage: folderUsage?.message,
+      folderScannedFileCount: folderUsage?.fileCount,
+      folderScannedFolderCount: folderUsage?.folderCount,
     );
+  }
+
+  _FolderUsageCache? _folderUsageCacheFor(DropRoomSession session) {
+    final cache = _folderUsageCache;
+    if (cache == null || cache.rootUri != session.hostFolderUri) {
+      return null;
+    }
+    return cache;
+  }
+
+  void _scheduleFolderUsageScan({bool force = false}) {
+    final session = _session;
+    if (session?.usesExternalHostFolder != true) {
+      return;
+    }
+    final rootUri = session!.hostFolderUri!;
+    final cache = _folderUsageCacheFor(session);
+    final now = DateTime.now();
+    if (!force && cache != null) {
+      final active = cache.status == 'queued' || cache.status == 'scanning';
+      final fresh =
+          cache.scannedAt != null &&
+          now.difference(cache.scannedAt!) < _folderUsageScanTtl;
+      if (active || fresh) {
+        return;
+      }
+    }
+
+    if (_folderUsageScanInFlight != null) {
+      _folderUsageRescanRequested = _folderUsageRescanRequested || force;
+      if (cache != null && cache.status != 'scanning') {
+        _folderUsageCache = cache.copyWith(
+          status: 'queued',
+          updatedAt: now,
+          message: 'Folder usage scan queued.',
+        );
+        _invalidateStorageSnapshot();
+      }
+      return;
+    }
+
+    final generation = ++_folderUsageScanGeneration;
+    _folderUsageCache = _FolderUsageCache(
+      rootUri: rootUri,
+      usedBytes: cache?.usedBytes,
+      fileCount: cache?.fileCount ?? 0,
+      folderCount: cache?.folderCount ?? 0,
+      status: 'queued',
+      scannedAt: cache?.scannedAt,
+      updatedAt: now,
+      message: cache?.usedBytes == null
+          ? 'Folder usage scan queued.'
+          : 'Updating cached folder usage.',
+    );
+    _invalidateStorageSnapshot();
+
+    late final Future<void> scan;
+    scan = _runFolderUsageScan(rootUri: rootUri, generation: generation)
+        .whenComplete(() {
+          if (identical(_folderUsageScanInFlight, scan)) {
+            _folderUsageScanInFlight = null;
+          }
+          if (_folderUsageRescanRequested) {
+            _folderUsageRescanRequested = false;
+            _scheduleFolderUsageScan(force: true);
+          }
+        });
+    _folderUsageScanInFlight = scan;
+  }
+
+  Future<void> _runFolderUsageScan({
+    required String rootUri,
+    required int generation,
+  }) async {
+    final previous = _folderUsageCache?.usedBytes;
+    final startedAt = DateTime.now();
+    _folderUsageCache = _FolderUsageCache(
+      rootUri: rootUri,
+      usedBytes: previous,
+      fileCount: 0,
+      folderCount: 0,
+      status: 'scanning',
+      updatedAt: startedAt,
+      message: previous == null
+          ? 'Scanning selected folder.'
+          : 'Refreshing folder usage.',
+    );
+    _invalidateStorageSnapshot();
+
+    var bytes = 0;
+    var fileCount = 0;
+    var folderCount = 0;
+    var visited = 0;
+    var skippedFolders = 0;
+    final pending = Queue<String>()..add('/');
+
+    while (pending.isNotEmpty) {
+      if (!_isFolderUsageScanCurrent(rootUri, generation)) {
+        return;
+      }
+      final path = pending.removeFirst();
+      List<HostFolderItem> items;
+      try {
+        items = await _hostFolderBridge.list(rootUri: rootUri, path: path);
+      } catch (_) {
+        skippedFolders++;
+        continue;
+      }
+
+      for (final item in items) {
+        if (!_isFolderUsageScanCurrent(rootUri, generation)) {
+          return;
+        }
+        visited++;
+        if (item.type == 'folder') {
+          folderCount++;
+          pending.add(_normalizeRoomPath(item.path));
+        } else {
+          fileCount++;
+          bytes += max(0, item.sizeBytes);
+        }
+
+        if (visited >= _folderUsageScanMaxEntries) {
+          _folderUsageCache = _FolderUsageCache(
+            rootUri: rootUri,
+            usedBytes: bytes,
+            fileCount: fileCount,
+            folderCount: folderCount,
+            status: 'partial',
+            scannedAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+            message:
+                'Scanned the first $_folderUsageScanMaxEntries items. Folder may be larger.',
+          );
+          _invalidateStorageSnapshot();
+          return;
+        }
+
+        if (visited % _folderUsageScanBatchSize == 0) {
+          _folderUsageCache = _FolderUsageCache(
+            rootUri: rootUri,
+            usedBytes: previous,
+            fileCount: fileCount,
+            folderCount: folderCount,
+            status: 'scanning',
+            scannedAt: _folderUsageCache?.scannedAt,
+            updatedAt: DateTime.now(),
+            message: 'Scanned $fileCount files in $folderCount folders...',
+          );
+          _invalidateStorageSnapshot();
+          await Future<void>.delayed(_folderUsageScanYield);
+        }
+      }
+    }
+
+    if (!_isFolderUsageScanCurrent(rootUri, generation)) {
+      return;
+    }
+    final completeAt = DateTime.now();
+    _folderUsageCache = _FolderUsageCache(
+      rootUri: rootUri,
+      usedBytes: bytes,
+      fileCount: fileCount,
+      folderCount: folderCount,
+      status: skippedFolders == 0 ? 'ready' : 'partial',
+      scannedAt: completeAt,
+      updatedAt: completeAt,
+      message: skippedFolders == 0
+          ? 'Scanned $fileCount files in $folderCount folders.'
+          : 'Scanned $fileCount files. $skippedFolders folders could not be read.',
+    );
+    _invalidateStorageSnapshot();
+  }
+
+  bool _isFolderUsageScanCurrent(String rootUri, int generation) {
+    return _folderUsageScanGeneration == generation &&
+        _session?.hostFolderUri == rootUri &&
+        _session?.usesExternalHostFolder == true;
+  }
+
+  void _requestFolderUsageRescan() {
+    _invalidateStorageSnapshot();
+    _scheduleFolderUsageScan(force: true);
   }
 
   Future<File> saveTextSnippet({
     required String title,
     required String body,
     String source = 'manual',
-    String folderPath = '/Text',
+    String folderPath = '/',
   }) async {
-    final textDirectory = Directory(_resolveRoomPath(folderPath).path);
+    final session = _requireSession();
+    if (session.usesExternalHostFolder) {
+      final temp = await _writeTempTextFile(title: title, body: body);
+      try {
+        final item = await _hostFolderBridge.copyFileInto(
+          rootUri: session.hostFolderUri!,
+          folderPath: _guestPathForRequest(folderPath),
+          sourcePath: temp.path,
+          name: _entityName(temp),
+          mimeType: 'text/plain',
+        );
+        _requestFolderUsageRescan();
+        return File(item.path);
+      } finally {
+        if (await temp.exists()) {
+          await temp.delete();
+        }
+      }
+    }
+    final textDirectory = Directory(_resolveGuestRoomPath(folderPath).path);
     await textDirectory.create(recursive: true);
     final timestamp = DateTime.now()
         .toIso8601String()
@@ -150,6 +442,14 @@ class DropServer {
   }
 
   Future<List<DropFileItem>> listFiles(String roomPath) async {
+    final session = _requireSession();
+    if (session.usesExternalHostFolder) {
+      final items = await _hostFolderBridge.list(
+        rootUri: session.hostFolderUri!,
+        path: _normalizeRoomPath(roomPath),
+      );
+      return items.map(_itemFromHostFolderItem).toList();
+    }
     final directory = Directory(_resolveRoomPath(roomPath).path);
     if (!await directory.exists()) {
       return <DropFileItem>[];
@@ -243,10 +543,20 @@ class DropServer {
           return;
         }
         final body = await _readJson(request);
-        final folderPath = body['path']?.toString() ?? '/Inbox/New Folder';
-        await Directory(
-          _resolveGuestRoomPath(folderPath).path,
-        ).create(recursive: true);
+        final folderPath = body['path']?.toString() ?? '/New Folder';
+        final session = _requireSession();
+        if (session.usesExternalHostFolder) {
+          await _hostFolderBridge.createFolder(
+            rootUri: session.hostFolderUri!,
+            path: _guestPathForRequest(folderPath),
+          );
+          _requestFolderUsageRescan();
+        } else {
+          await Directory(
+            _resolveGuestRoomPath(folderPath).path,
+          ).create(recursive: true);
+          _invalidateStorageSnapshot();
+        }
         await _json(request, {'ok': true}, statusCode: HttpStatus.created);
         return;
       }
@@ -261,11 +571,14 @@ class DropServer {
           title: body['title']?.toString() ?? 'Text snippet',
           body: body['body']?.toString() ?? '',
           source: body['source']?.toString() ?? 'browser',
-          folderPath: session.permission == RoomPermission.dropFolderOnly
-              ? session.defaultUploadPath
-              : '/Text',
+          folderPath: session.defaultUploadPath,
         );
-        await _json(request, {'ok': true, 'id': _idForFile(file)});
+        await _json(request, {
+          'ok': true,
+          'id': session.usesExternalHostFolder
+              ? _encodeId(file.path)
+              : _idForFile(file),
+        });
         return;
       }
       if (path == '/api/files/upload' && request.method == 'POST') {
@@ -309,6 +622,13 @@ class DropServer {
             await _unauthorized(request);
             return;
           }
+          if (_requireSession().usesExternalHostFolder) {
+            await _json(request, {
+              'error':
+                  'Delete for OS-selected folders is not enabled in this build.',
+            }, statusCode: HttpStatus.notImplemented);
+            return;
+          }
           final entity = _entityFromId(id, enforceGuestScope: true);
           if (entity is File && await entity.exists()) {
             await entity.delete();
@@ -321,6 +641,13 @@ class DropServer {
         if (request.method == 'PATCH') {
           if (!_isAuthorized(request)) {
             await _unauthorized(request);
+            return;
+          }
+          if (_requireSession().usesExternalHostFolder) {
+            await _json(request, {
+              'error':
+                  'Rename for OS-selected folders is not enabled in this build.',
+            }, statusCode: HttpStatus.notImplemented);
             return;
           }
           await _renameEntity(request, id);
@@ -380,10 +707,6 @@ class DropServer {
       request.uri.queryParameters['name'] ??
           'upload-${DateTime.now().millisecondsSinceEpoch}',
     );
-    final directory = Directory(_resolveGuestRoomPath(destinationPath).path);
-    await directory.create(recursive: true);
-    final target = File('${directory.path}/$name');
-    final temp = File('${directory.path}/.$name.part');
     final contentLength = request.contentLength;
     if (contentLength > defaultMaxUploadBytes) {
       await _json(request, {
@@ -391,6 +714,41 @@ class DropServer {
       }, statusCode: HttpStatus.requestEntityTooLarge);
       return;
     }
+    final session = _requireSession();
+    if (session.usesExternalHostFolder) {
+      final tempDirectory = await getTemporaryDirectory();
+      final tempUploadDirectory = Directory(
+        '${tempDirectory.path}/ErebrusDropUploads',
+      );
+      await tempUploadDirectory.create(recursive: true);
+      final temp = File(
+        '${tempUploadDirectory.path}/.${DateTime.now().microsecondsSinceEpoch}-$name.part',
+      );
+      await _writeRequestToFile(request, temp);
+      try {
+        final item = await _hostFolderBridge.copyFileInto(
+          rootUri: session.hostFolderUri!,
+          folderPath: _guestPathForRequest(destinationPath),
+          sourcePath: temp.path,
+          name: name,
+          mimeType: request.headers.contentType?.mimeType ?? _mimeType(name),
+        );
+        _requestFolderUsageRescan();
+        await _json(request, {
+          'ok': true,
+          'item': _itemFromHostFolderItem(item).toJson(),
+        }, statusCode: HttpStatus.created);
+      } finally {
+        if (await temp.exists()) {
+          await temp.delete();
+        }
+      }
+      return;
+    }
+    final directory = Directory(_resolveGuestRoomPath(destinationPath).path);
+    await directory.create(recursive: true);
+    final target = File('${directory.path}/$name');
+    final temp = File('${directory.path}/.$name.part');
     var received = 0;
     final sink = temp.openWrite();
     try {
@@ -426,13 +784,52 @@ class DropServer {
     String id, {
     required bool asAttachment,
   }) async {
+    final session = _requireSession();
+    if (session.usesExternalHostFolder) {
+      final path = _decodeId(id);
+      _guestPathForRequest(path);
+      final cached = await _hostFolderBridge.copyFileToCache(
+        rootUri: session.hostFolderUri!,
+        path: path,
+      );
+      final file = File(cached.path);
+      try {
+        await _downloadLocalFile(
+          request,
+          file,
+          mimeType: cached.mimeType,
+          fileName: cached.name,
+          asAttachment: asAttachment,
+        );
+      } finally {
+        if (await file.exists()) {
+          await file.delete();
+        }
+      }
+      return;
+    }
     final entity = _entityFromId(id, enforceGuestScope: true);
     if (entity is! File || !await entity.exists()) {
       await _notFound(request);
       return;
     }
+    await _downloadLocalFile(
+      request,
+      entity,
+      mimeType: _mimeType(entity.path),
+      fileName: _entityName(entity),
+      asAttachment: asAttachment,
+    );
+  }
+
+  Future<void> _downloadLocalFile(
+    HttpRequest request,
+    File entity, {
+    required String mimeType,
+    required String fileName,
+    required bool asAttachment,
+  }) async {
     final stat = await entity.stat();
-    final mimeType = _mimeType(entity.path);
     final range = request.headers.value(HttpHeaders.rangeHeader);
     final response = request.response;
     response.headers
@@ -442,7 +839,7 @@ class DropServer {
     if (asAttachment) {
       response.headers.set(
         HttpHeaders.contentDisposition,
-        'attachment; filename="${_entityName(entity)}"',
+        'attachment; filename="$fileName"',
       );
     }
 
@@ -508,6 +905,11 @@ class DropServer {
       'serverVersion': '1.0.0',
       'baseUrl': session.baseUrl,
       'defaultUploadPath': session.defaultUploadPath,
+      'hostFolderName': session.hostFolderName,
+      'hostFolderPlatform': session.hostFolderPlatform,
+      'storageSource': session.usesExternalHostFolder
+          ? 'external'
+          : 'appManaged',
       'scopePath': session.permission == RoomPermission.dropFolderOnly
           ? session.defaultUploadPath
           : '/',
@@ -609,20 +1011,6 @@ class DropServer {
     return session;
   }
 
-  Future<void> _ensureDefaultFolders(Directory roomDirectory) async {
-    const folders = [
-      'Inbox',
-      'Screenshots',
-      'Text',
-      'Media',
-      'Documents',
-      'Shared',
-    ];
-    for (final folder in folders) {
-      await Directory('${roomDirectory.path}/$folder').create(recursive: true);
-    }
-  }
-
   Future<int> _directorySize(Directory directory) async {
     if (!await directory.exists()) {
       return 0;
@@ -671,13 +1059,67 @@ class DropServer {
     );
   }
 
+  DropFileItem _itemFromHostFolderItem(HostFolderItem item) {
+    final isDirectory = item.type == 'folder';
+    final mimeType = isDirectory ? null : item.mimeType ?? _mimeType(item.name);
+    return DropFileItem(
+      id: _encodeId(item.path),
+      name: item.name,
+      type: isDirectory ? 'folder' : 'file',
+      path: _normalizeRoomPath(item.path),
+      sizeBytes: isDirectory ? 0 : item.sizeBytes,
+      createdAt: item.modifiedAt,
+      modifiedAt: item.modifiedAt,
+      mimeType: mimeType,
+      streamable:
+          mimeType?.startsWith('video/') == true ||
+          mimeType?.startsWith('audio/') == true,
+    );
+  }
+
+  Future<File> _writeTempTextFile({
+    required String title,
+    required String body,
+  }) async {
+    final tempDirectory = await getTemporaryDirectory();
+    final textDirectory = Directory('${tempDirectory.path}/ErebrusDropText');
+    await textDirectory.create(recursive: true);
+    final timestamp = DateTime.now()
+        .toIso8601String()
+        .replaceAll(':', '-')
+        .replaceAll('.', '-');
+    final safeTitle = _sanitizeName(title.isEmpty ? 'Text snippet' : title);
+    final file = File('${textDirectory.path}/$timestamp-$safeTitle.txt');
+    await file.writeAsString(body);
+    return file;
+  }
+
+  Future<void> _writeRequestToFile(HttpRequest request, File target) async {
+    var received = 0;
+    final sink = target.openWrite();
+    try {
+      await for (final chunk in request) {
+        received += chunk.length;
+        if (received > defaultMaxUploadBytes) {
+          throw const FileSystemException('Upload exceeds max room size');
+        }
+        sink.add(chunk);
+      }
+    } finally {
+      await sink.close();
+    }
+  }
+
   FileSystemEntity _entityFromId(String id, {bool enforceGuestScope = false}) {
     final path = _decodeId(id);
-    return File(
-      enforceGuestScope
-          ? _resolveGuestRoomPath(path).path
-          : _resolveRoomPath(path).path,
-    );
+    final resolvedPath = enforceGuestScope
+        ? _resolveGuestRoomPath(path).path
+        : _resolveRoomPath(path).path;
+    final directory = Directory(resolvedPath);
+    if (directory.existsSync()) {
+      return directory;
+    }
+    return File(resolvedPath);
   }
 
   String _idForFile(File file) => _encodeId(_relativeRoomPath(file));
@@ -721,6 +1163,9 @@ class DropServer {
       return normalized;
     }
     final scope = session.defaultUploadPath;
+    if (scope == '/') {
+      return normalized;
+    }
     if (normalized == '/') {
       return scope;
     }
@@ -817,6 +1262,49 @@ class DropServer {
   void _invalidateStorageSnapshot() {
     _lastStorageSnapshot = null;
     _lastStorageSnapshotAt = null;
+  }
+}
+
+class _FolderUsageCache {
+  const _FolderUsageCache({
+    required this.rootUri,
+    required this.usedBytes,
+    required this.fileCount,
+    required this.folderCount,
+    required this.status,
+    required this.updatedAt,
+    this.scannedAt,
+    this.message,
+  });
+
+  final String rootUri;
+  final int? usedBytes;
+  final int fileCount;
+  final int folderCount;
+  final String status;
+  final DateTime updatedAt;
+  final DateTime? scannedAt;
+  final String? message;
+
+  _FolderUsageCache copyWith({
+    int? usedBytes,
+    int? fileCount,
+    int? folderCount,
+    String? status,
+    DateTime? updatedAt,
+    DateTime? scannedAt,
+    String? message,
+  }) {
+    return _FolderUsageCache(
+      rootUri: rootUri,
+      usedBytes: usedBytes ?? this.usedBytes,
+      fileCount: fileCount ?? this.fileCount,
+      folderCount: folderCount ?? this.folderCount,
+      status: status ?? this.status,
+      updatedAt: updatedAt ?? this.updatedAt,
+      scannedAt: scannedAt ?? this.scannedAt,
+      message: message ?? this.message,
+    );
   }
 }
 

@@ -15,18 +15,26 @@
 - Browser multi-select for files, bulk file downloads, and upload progress with percent, speed, and ETA.
 - HTTP range request support for streamed file responses.
 - Storage snapshot via platform channel when available, with short cache/single-flight protection to avoid repeated scans during transfers.
+- Room storage requires an OS-visible Drop folder selected from phone storage or Files; app-private hosting fallback is disabled.
+- Start Room blocks hosting until the host selects or creates an `ErebrusDrop` folder in the OS folder picker.
+- Library shows the active Drop folder source, browses the active root, opens folders, and can hand files to the system viewer/previewer.
 - First-run onboarding with the required three slides.
 - Manual native Join flow can preview `/api/room`, authenticate to `/api/auth/login`, list remote files, create folders, send text, and download files.
-- Android app clients can multi-pick and upload files to the selected/default joined-room folder, with progress, speed, and ETA.
+- Android and iOS app clients can multi-pick and upload files to the selected/default joined-room folder, with progress, speed, and ETA.
 - Native joined-room downloads show progress, speed, and ETA.
 - QR scanner reads raw Drop Links and spec JSON Drop Code payloads, then opens Manual Join.
 - Android local-only hotspot can be requested through the platform channel; unsupported/OEM-denied devices show a manual guide.
 - Android foreground hosting service keeps a room higher priority while it is live.
 - App lifecycle-aware refresh avoids background UI polling while a room is being served.
-- Room creators can choose a default app-managed upload folder.
+- Room creators can choose and persist an OS-visible Drop folder source.
 - Default permission mode is `Drop folder only`, scoping guests to the creator-selected drop folder.
 - Android host-folder picker can request and persist a user-granted Storage Access Framework tree URI from Settings.
+- Android hosted rooms can list, create folders, save text, upload, download, stream, and open files from the selected Storage Access Framework folder.
+- iOS can host from user-selected Files/iCloud folders through saved folder bookmarks.
+- iOS hosted rooms can list, create folders, save text, upload, download, stream, and preview/open files from the selected Files folder.
 - Android/iOS platform-channel methods for local IP and storage stats.
+- Local IP selection prefers active Wi-Fi/LAN addresses and de-prioritizes carrier/VPN/CGNAT-looking addresses.
+- Android and iOS publish active rooms through mDNS/DNS-SD as `_erebrusdrop._tcp`.
 
 ## Files added for next spec phases
 
@@ -45,11 +53,10 @@
 
 ## Still needs plugin/native/device implementation
 
-- mDNS/DNS-SD discovery publishing and browsing.
-- Full external host-folder storage adapter:
-  - Android SAF tree list/read/write/delete/rename implementation for hosted rooms.
-  - iOS Files/iCloud/File Provider folder picker and security-scoped URL list/read/write implementation.
-- iOS document-picker upload for joined rooms.
+- mDNS/DNS-SD discovery browsing.
+- Remaining external host-folder storage adapter work:
+  - Android SAF delete/rename implementation for hosted rooms.
+  - iOS Files/iCloud delete/rename implementation for hosted rooms.
 - Share sheet intake.
 - Offline OCR through Android ML Kit and iOS Vision.
 - Persistent metadata database.
