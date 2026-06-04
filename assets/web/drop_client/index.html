@@ -785,16 +785,16 @@
     <section class="inspector">
       <div class="panel panel-pad stack">
         <h3>Storage</h3>
-        <div class="storage-ring" id="storage-ring">
-          <div class="storage-number">
-            <span id="storage-percent">0%</span>
-            <small class="muted">room used</small>
+          <div class="storage-ring" id="storage-ring">
+            <div class="storage-number">
+              <span id="storage-percent">0%</span>
+              <small class="muted" id="storage-ring-label">room used</small>
+            </div>
           </div>
-        </div>
-        <div class="stat-grid">
-          <div class="stat"><b id="room-used">0 B</b><span class="muted">Room</span></div>
-          <div class="stat"><b id="drop-used">0 B</b><span class="muted">Drop</span></div>
-          <div class="stat"><b id="free-space">Unavailable</b><span class="muted">Free</span></div>
+          <div class="stat-grid">
+            <div class="stat"><b id="room-used">0 B</b><span class="muted" id="room-used-label">Room</span></div>
+            <div class="stat"><b id="drop-used">0 B</b><span class="muted" id="drop-used-label">Drop</span></div>
+          <div class="stat"><b id="free-space">Unavailable</b><span class="muted">Transfer capacity</span></div>
           <div class="stat"><b id="max-upload">Unavailable</b><span class="muted">Upload cap</span></div>
         </div>
         <div class="muted" id="storage-text">Loading storage...</div>
@@ -829,10 +829,10 @@
     };
 
     const demoItems = [
-      { id: 'demo-folder', name: 'Screenshots', type: 'folder', path: '/Screenshots', sizeBytes: 0, mimeType: null, streamable: false },
-      { id: 'demo-pdf', name: 'boarding-pass.pdf', type: 'file', path: '/Inbox/boarding-pass.pdf', sizeBytes: 842120, mimeType: 'application/pdf', streamable: false },
-      { id: 'demo-image', name: 'receipt-photo.png', type: 'file', path: '/Inbox/receipt-photo.png', sizeBytes: 1284200, mimeType: 'image/png', streamable: false },
-      { id: 'demo-video', name: 'local-movie.mp4', type: 'file', path: '/Media/local-movie.mp4', sizeBytes: 104857600, mimeType: 'video/mp4', streamable: true }
+      { id: 'demo-folder', name: 'Trip photos', type: 'folder', path: '/Trip photos', sizeBytes: 0, mimeType: null, streamable: false },
+      { id: 'demo-pdf', name: 'boarding-pass.pdf', type: 'file', path: '/boarding-pass.pdf', sizeBytes: 842120, mimeType: 'application/pdf', streamable: false },
+      { id: 'demo-image', name: 'receipt-photo.png', type: 'file', path: '/receipt-photo.png', sizeBytes: 1284200, mimeType: 'image/png', streamable: false },
+      { id: 'demo-video', name: 'local-movie.mp4', type: 'file', path: '/local-movie.mp4', sizeBytes: 104857600, mimeType: 'video/mp4', streamable: true }
     ];
 
     const state = {
@@ -843,6 +843,7 @@
       demo: false,
       selectedIds: new Set()
     };
+    let storagePollTimer = null;
 
     const $ = (id) => document.getElementById(id);
     const authHeaders = () => state.token ? { Authorization: `Bearer ${state.token}` } : {};
@@ -881,6 +882,43 @@
       return `ETA ${secs}s`;
     }
 
+    function relativeTime(isoValue) {
+      const time = Date.parse(isoValue || '');
+      if (!Number.isFinite(time)) return '';
+      const seconds = Math.max(0, Math.round((Date.now() - time) / 1000));
+      if (seconds < 10) return 'just now';
+      if (seconds < 60) return `${seconds}s ago`;
+      const minutes = Math.round(seconds / 60);
+      if (minutes < 60) return `${minutes}m ago`;
+      const hours = Math.round(minutes / 60);
+      return `${hours}h ago`;
+    }
+
+    function isFolderScanActive(status) {
+      return status === 'queued' || status === 'scanning';
+    }
+
+    function scanLabel(status) {
+      if (status === 'queued') return 'Queued';
+      if (status === 'scanning') return 'Scanning';
+      if (status === 'partial') return 'Partial';
+      if (status === 'ready') return 'Ready';
+      if (status === 'error') return 'Issue';
+      return 'Not started';
+    }
+
+    function scheduleStoragePoll(active) {
+      if (storagePollTimer) {
+        clearTimeout(storagePollTimer);
+        storagePollTimer = null;
+      }
+      if (!active) return;
+      storagePollTimer = setTimeout(() => {
+        storagePollTimer = null;
+        loadStorage().catch((error) => addActivity(error.message));
+      }, 2800);
+    }
+
     function setUploadProgress({ title, sent, total, speed, done = false }) {
       const progress = total > 0 ? Math.min(100, Math.round((sent / total) * 100)) : 0;
       const eta = done || total <= 0 || speed <= 0 ? (done ? 'Done' : 'ETA unavailable') : fmtEta((total - sent) / speed);
@@ -912,6 +950,12 @@
           availableBytes: 21474836480,
           totalBytes: 128849018880,
           maxUploadBytes: 2147483648,
+          folderUsedBytes: 107479040,
+          folderScanStatus: 'ready',
+          folderScannedAt: new Date(Date.now() - 95000).toISOString(),
+          folderScanMessage: 'Scanned 12 files in 4 folders.',
+          folderScannedFileCount: 12,
+          folderScannedFolderCount: 4,
           lowStorage: false
         };
       }
@@ -958,9 +1002,11 @@
         roomName: 'Preview Drop Room',
         deviceName: 'Sites preview',
         authRequired: false,
-        defaultUploadPath: '/Inbox',
+        defaultUploadPath: '/',
         scopedToDefaultFolder: true,
-        scopePath: '/Inbox'
+        scopePath: '/',
+        storageSource: 'external',
+        hostFolderName: 'ErebrusDrop'
       };
       showApp();
       addActivity('Preview mode is showing sample room data.');
@@ -982,9 +1028,10 @@
       $('app').classList.remove('hidden');
       $('room-name').textContent = state.room.roomName;
       $('device-name').textContent = `Hosted by ${state.room.deviceName}`;
+      const folderLine = `Drop folder: ${escapeHtml(dropFolderName())}.`;
       $('session-text').innerHTML = state.room.authRequired
-        ? `${icon('lock')} Password room. Token expires when the room stops or after 2 hours.`
-        : 'Open room on this local network.';
+        ? `${icon('lock')} Password room. ${folderLine} Token expires when the room stops or after 2 hours.`
+        : `Open room on this local network. ${folderLine}`;
       renderFolderShortcuts();
       refreshUploadTarget();
       refreshAll();
@@ -1007,7 +1054,7 @@
     }
 
     function defaultUploadPath() {
-      return state.room?.defaultUploadPath || '/Inbox';
+      return state.room?.defaultUploadPath || '/';
     }
 
     function scopeRoot() {
@@ -1024,18 +1071,28 @@
       return state.path === '/' ? defaultUploadPath() : state.path;
     }
 
+    function joinPath(base, suffix) {
+      const left = base === '/' ? '' : base.replace(/\/+$/, '');
+      const right = suffix.startsWith('/') ? suffix : `/${suffix}`;
+      return `${left}${right}` || '/';
+    }
+
+    function dropFolderName() {
+      return state.room?.hostFolderName || 'Drop folder';
+    }
+
     function refreshUploadTarget() {
       const target = uploadTargetPath();
       $('upload-target').textContent = target;
       $('upload-target-help').textContent = state.path === '/'
-        ? `No folder is selected, so uploads go to the host default folder ${target}.`
+        ? `No child folder is selected, so uploads go to ${dropFolderName()} ${target}.`
         : `You are browsing ${state.path}, so uploads go to this folder.`;
     }
 
     function renderBreadcrumbs() {
       const scope = scopeRoot();
       const scoped = inScopedMode();
-      const label = scoped ? `${scope.split('/').filter(Boolean).pop() || 'Drop'} folder` : 'Room';
+      const label = scoped ? dropFolderName() : 'Room';
       const pathForParts = scoped && state.path.startsWith(scope)
         ? state.path.substring(scope.length)
         : state.path;
@@ -1043,7 +1100,7 @@
       const buttons = [`<button class="crumb-button" data-path="${scope}">${escapeHtml(label)}</button>`];
       parts.forEach((part, index) => {
         const suffix = `/${parts.slice(0, index + 1).join('/')}`;
-        const path = scoped ? `${scope}${suffix}` : suffix;
+        const path = scoped ? joinPath(scope, suffix) : suffix;
         buttons.push(`<span class="faint">/</span><button class="crumb-button" data-path="${path}">${escapeHtml(part)}</button>`);
       });
       $('breadcrumbs').innerHTML = buttons.join('');
@@ -1057,11 +1114,8 @@
     }
 
     function renderFolderShortcuts() {
-      const defaults = ['Inbox', 'Screenshots', 'Text', 'Media', 'Documents', 'Shared'];
-      const shortcuts = inScopedMode()
-        ? [{ name: scopeRoot().split('/').filter(Boolean).pop() || 'Drop', path: scopeRoot() }]
-        : defaults.map((name) => ({ name, path: `/${name}` }));
-      $('folder-shortcuts').innerHTML = '<h3>Folders</h3>' + shortcuts.map(({ name, path }) => `
+      const shortcuts = [{ name: dropFolderName(), path: scopeRoot() }];
+      $('folder-shortcuts').innerHTML = '<h3>Drop Folder</h3>' + shortcuts.map(({ name, path }) => `
         <div class="folder-link" data-path="${path}">
           ${icon('folder')}<span>${name}</span>
         </div>
@@ -1208,16 +1262,37 @@
       const storage = await request('/api/storage');
       const used = storage.roomUsedBytes || 0;
       const total = storage.totalBytes || 0;
-      const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
+      const external = state.room?.storageSource === 'external';
+      const scanStatus = storage.folderScanStatus || 'unavailable';
+      const folderUsed = typeof storage.folderUsedBytes === 'number' ? storage.folderUsedBytes : null;
+      const scanActive = external && isFolderScanActive(scanStatus);
+      const pctSource = external ? folderUsed : used;
+      const pct = pctSource !== null && total > 0 ? Math.min(100, Math.round((pctSource / total) * 100)) : 0;
+      const scannedAgo = relativeTime(storage.folderScannedAt);
+      const scanDetail = storage.folderScanMessage || scanLabel(scanStatus);
       $('storage-ring').style.setProperty('--pct', `${pct * 3.6}deg`);
-      $('storage-percent').textContent = `${pct}%`;
-      $('room-used').textContent = fmt(used);
-      $('drop-used').textContent = fmt(storage.dropUsedBytes);
+      $('storage-percent').textContent = external
+        ? folderUsed !== null ? fmt(folderUsed) : scanActive ? '...' : '--'
+        : `${pct}%`;
+      $('storage-ring-label').textContent = external
+        ? folderUsed !== null ? 'folder used' : 'scanning'
+        : 'room used';
+      $('room-used').textContent = external
+        ? folderUsed !== null ? fmt(folderUsed) : scanActive ? 'Scanning...' : 'Unavailable'
+        : fmt(used);
+      $('room-used-label').textContent = external ? 'Folder size' : 'Room';
+      $('drop-used').textContent = external ? scanLabel(scanStatus) : fmt(storage.dropUsedBytes);
+      $('drop-used-label').textContent = external ? 'Scan' : 'Drop';
       $('free-space').textContent = fmt(storage.availableBytes);
       $('max-upload').textContent = fmt(storage.maxUploadBytes);
-      $('storage-text').textContent = storage.lowStorage
+      $('storage-text').textContent = external
+        ? folderUsed !== null
+          ? `${dropFolderName()} uses ${fmt(folderUsed)}. ${scanDetail}${scannedAgo ? ` · ${scannedAgo}` : ''}.`
+          : `${dropFolderName()} size is being scanned in the background. Transfers stay responsive while this updates.`
+        : storage.lowStorage
         ? 'Storage is running low. Ask the host to clean up before large uploads.'
         : 'Storage has room for transfers.';
+      scheduleStoragePoll(scanActive);
     }
 
     function addActivity(text) {

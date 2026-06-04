@@ -45,10 +45,14 @@ class HotspotService {
     await _channel.invokeMethod<Object?>('stopLocalOnlyHotspot');
   }
 
-  Future<bool> isLocalOnlyHotspotSupported() async {
+  Future<HotspotResult> localOnlyHotspotSupport() async {
     final result = await _channel.invokeMethod<Map<Object?, Object?>>(
       'isLocalOnlyHotspotSupported',
     );
-    return result?['supported'] == true;
+    return HotspotResult.fromJson(result ?? <Object?, Object?>{});
+  }
+
+  Future<bool> isLocalOnlyHotspotSupported() async {
+    return (await localOnlyHotspotSupport()).supported;
   }
 }

@@ -35,7 +35,7 @@ class JoinRoomPreview {
       roomName: json['roomName']?.toString() ?? 'Drop Room',
       deviceName: json['deviceName']?.toString() ?? 'Nearby device',
       authRequired: json['authRequired'] == true,
-      defaultUploadPath: json['defaultUploadPath']?.toString() ?? '/Inbox',
+      defaultUploadPath: json['defaultUploadPath']?.toString() ?? '/',
       scopePath: json['scopePath']?.toString() ?? '/',
       scopedToDefaultFolder: json['scopedToDefaultFolder'] == true,
       capabilities:

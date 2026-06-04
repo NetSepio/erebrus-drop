@@ -1,4 +1,8 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 
 class HostFolderSelection {
   const HostFolderSelection({
@@ -18,6 +22,10 @@ class HostFolderSelection {
       platform: json['platform']?.toString() ?? 'unknown',
     );
   }
+
+  Map<String, Object?> toJson() {
+    return {'name': name, 'uri': uri, 'platform': platform};
+  }
 }
 
 class HostFolderService {
@@ -33,5 +41,43 @@ class HostFolderService {
       return null;
     }
     return HostFolderSelection.fromJson(result);
+  }
+
+  Future<HostFolderSelection?> loadSavedSelection() async {
+    try {
+      final file = await _selectionFile();
+      if (!await file.exists()) {
+        return null;
+      }
+      final decoded = jsonDecode(await file.readAsString());
+      if (decoded is! Map<String, Object?>) {
+        return null;
+      }
+      return HostFolderSelection.fromJson(decoded);
+    } on Object {
+      return null;
+    }
+  }
+
+  Future<void> saveSelection(HostFolderSelection selection) async {
+    final file = await _selectionFile();
+    await file.parent.create(recursive: true);
+    await file.writeAsString(jsonEncode(selection.toJson()));
+  }
+
+  Future<void> clearSelection() async {
+    try {
+      final file = await _selectionFile();
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } on Object {
+      // Missing saved metadata is harmless.
+    }
+  }
+
+  Future<File> _selectionFile() async {
+    final directory = await getApplicationSupportDirectory();
+    return File('${directory.path}/host_folder_selection.json');
   }
 }

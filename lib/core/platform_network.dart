@@ -39,7 +39,11 @@ class PlatformNetwork {
 
   static Future<String> bestLocalIp() async {
     final addresses = await getLocalIpAddresses();
-    return addresses.isEmpty ? '127.0.0.1' : addresses.first;
+    if (addresses.isEmpty) {
+      return '127.0.0.1';
+    }
+    final sorted = [...addresses]..sort(_compareIpPreference);
+    return sorted.first;
   }
 
   static Future<String> deviceName() async {
@@ -83,5 +87,24 @@ class PlatformNetwork {
       return value.toInt();
     }
     return null;
+  }
+
+  static int _compareIpPreference(String left, String right) {
+    return _ipPreference(left).compareTo(_ipPreference(right));
+  }
+
+  static int _ipPreference(String address) {
+    final parts = address.split('.').map(int.tryParse).toList();
+    if (parts.length != 4 || parts.any((part) => part == null)) {
+      return 100;
+    }
+    final a = parts[0]!;
+    final b = parts[1]!;
+    if (a == 192 && b == 168) return 0;
+    if (a == 10) return 1;
+    if (a == 172 && b >= 16 && b <= 31) return 2;
+    if (a == 169 && b == 254) return 90;
+    if (a == 100 && b >= 64 && b <= 127) return 95;
+    return 50;
   }
 }
