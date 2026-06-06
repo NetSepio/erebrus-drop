@@ -65,12 +65,44 @@ class HostFolderBridge {
     });
   }
 
+  Future<void> shareFile({
+    required String rootUri,
+    required String path,
+  }) async {
+    await _channel.invokeMethod<Object?>('shareHostFile', {
+      'rootUri': rootUri,
+      'path': path,
+    });
+  }
+
+  Future<void> deleteFile({
+    required String rootUri,
+    required String path,
+  }) async {
+    await _channel.invokeMethod<Object?>('deleteHostFile', {
+      'rootUri': rootUri,
+      'path': path,
+    });
+  }
+
   Future<void> openLocalFile({
     required String path,
     required String name,
     required String mimeType,
   }) async {
     await _channel.invokeMethod<Object?>('openLocalFile', {
+      'path': path,
+      'name': name,
+      'mimeType': mimeType,
+    });
+  }
+
+  Future<void> shareLocalFile({
+    required String path,
+    required String name,
+    required String mimeType,
+  }) async {
+    await _channel.invokeMethod<Object?>('shareLocalFile', {
       'path': path,
       'name': name,
       'mimeType': mimeType,

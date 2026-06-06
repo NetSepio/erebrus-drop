@@ -9,16 +9,19 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'core/drop_models.dart';
 import 'core/host_folder_bridge.dart';
 import 'core/platform_network.dart';
-import 'features/host/hotspot_service.dart';
 import 'features/host/host_folder_service.dart';
 import 'features/host/room_runtime_service.dart';
 import 'features/join/join_room_service.dart';
 import 'features/join/native_file_picker_service.dart';
 import 'features/join/qr_scan_screen.dart';
+import 'features/nearby/nearby_room_service.dart';
 import 'features/onboarding/onboarding_screen.dart';
 import 'features/onboarding/onboarding_store.dart';
 import 'server/drop_server.dart';
 import 'ui/theme/drop_theme.dart';
+
+const String _appVersion = '1.0.0+1';
+const String _supportEmail = 'support@netsepio.com';
 
 class ErebrusDropApp extends StatefulWidget {
   const ErebrusDropApp({this.skipOnboarding = false, super.key});
@@ -79,14 +82,17 @@ class DropHomeScreen extends StatefulWidget {
 class _DropHomeScreenState extends State<DropHomeScreen>
     with WidgetsBindingObserver {
   final DropServer _server = DropServer();
-  final HotspotService _hotspotService = HotspotService();
   final HostFolderService _hostFolderService = HostFolderService();
   final RoomRuntimeService _roomRuntimeService = RoomRuntimeService();
   final JoinRoomService _joinRoomService = JoinRoomService();
+  late final NearbyRoomService _nearbyRoomService = NearbyRoomService(
+    joinRoomService: _joinRoomService,
+  );
   final NativeFilePickerService _nativeFilePickerService =
       NativeFilePickerService();
   final HostFolderBridge _hostFolderBridge = HostFolderBridge();
-  final ValueNotifier<int> _hotspotUiVersion = ValueNotifier<int>(0);
+  final ValueNotifier<int> _networkUiVersion = ValueNotifier<int>(0);
+  final ValueNotifier<int> _joinUiVersion = ValueNotifier<int>(0);
   final TextEditingController _roomName = TextEditingController(
     text: _defaultRoomName(),
   );
@@ -109,29 +115,31 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   final String _defaultUploadPath = '/';
   int _tab = 0;
   bool _starting = false;
-  bool _hotspotBusy = false;
   bool _hostFolderBusy = false;
   bool _loadingHostFolderSelection = true;
-  bool _hotspotSupportLoading = true;
-  bool _hotspotCanCreate = false;
+  bool _networkLoading = true;
   bool _loadingLibraryFiles = false;
   bool _appInForeground = true;
   bool _refreshingRoomData = false;
   bool _backDialogOpen = false;
   bool _joining = false;
+  bool _discoveringRooms = false;
   bool _usePassword = true;
   bool _burnMode = false;
   RoomPermission _permission = RoomPermission.dropFolderOnly;
   StorageSnapshot? _storage;
-  HotspotResult? _hotspotResult;
-  String? _hotspotSupportReason;
+  DropNetworkStatus _networkStatus = const DropNetworkStatus(
+    mode: DropNetworkMode.unavailable,
+  );
   HostFolderSelection? _hostFolderSelection;
   JoinRoomPreview? _joinPreview;
   JoinRoomSession? _joinSession;
+  List<JoinRoomPreview> _foundJoinRooms = <JoinRoomPreview>[];
   String _libraryPath = '/';
   String _joinPath = '/';
   List<DropFileItem> _joinItems = <DropFileItem>[];
   String? _joinActivity;
+  String? _nearbyDiscoveryMessage;
   TransferProgress? _joinTransfer;
   String? _libraryError;
   List<DropFileItem> _files = <DropFileItem>[];
@@ -150,7 +158,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     WidgetsBinding.instance.addObserver(this);
     unawaited(_loadDeviceName());
     unawaited(_loadHostFolderSelection());
-    unawaited(_loadHotspotSupport());
+    unawaited(_refreshNetworkStatus());
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (_server.isRunning && _appInForeground) {
         unawaited(_refreshRoomData());
@@ -179,41 +187,40 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     }
   }
 
-  Future<void> _loadHotspotSupport() async {
+  Future<void> _refreshNetworkStatus() async {
+    _setNetworkState(() => _networkLoading = true);
     try {
-      final support = await _hotspotService.localOnlyHotspotSupport();
-      _setHotspotState(() {
-        _hotspotCanCreate = support.supported;
-        _hotspotSupportReason = support.reason;
-        _hotspotSupportLoading = false;
-      });
-    } on PlatformException catch (error) {
-      _setHotspotState(() {
-        _hotspotCanCreate = false;
-        _hotspotSupportReason =
-            error.message ?? 'Use system Settings to enable a hotspot.';
-        _hotspotSupportLoading = false;
-      });
-    } on MissingPluginException {
-      _setHotspotState(() {
-        _hotspotCanCreate = false;
-        _hotspotSupportReason =
-            'Hotspot setup is handled by system Settings on this device.';
-        _hotspotSupportLoading = false;
+      final status = await PlatformNetwork.currentNetworkStatus();
+      if (!mounted) return;
+      _setNetworkState(() {
+        _networkStatus = status;
+        _networkLoading = false;
       });
     } catch (error) {
-      _setHotspotState(() {
-        _hotspotCanCreate = false;
-        _hotspotSupportReason = 'Could not check hotspot support: $error';
-        _hotspotSupportLoading = false;
+      if (!mounted) return;
+      _setNetworkState(() {
+        _networkStatus = const DropNetworkStatus(
+          mode: DropNetworkMode.unavailable,
+        );
+        _networkLoading = false;
       });
     }
   }
 
-  void _setHotspotState(VoidCallback update) {
+  void _setNetworkState(VoidCallback update) {
     if (!mounted) return;
     setState(update);
-    _hotspotUiVersion.value += 1;
+    _networkUiVersion.value += 1;
+  }
+
+  void _setJoinState(VoidCallback update) {
+    if (!mounted) return;
+    setState(update);
+    _joinUiVersion.value += 1;
+  }
+
+  void _openInfoScreen(Widget screen) {
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => screen));
   }
 
   @override
@@ -230,7 +237,8 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     _joinFolderName.dispose();
     _joinTextTitle.dispose();
     _joinTextBody.dispose();
-    _hotspotUiVersion.dispose();
+    _networkUiVersion.dispose();
+    _joinUiVersion.dispose();
     unawaited(
       _roomRuntimeService.setKeepAwake(enabled: false).catchError((_) {}),
     );
@@ -245,6 +253,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     _appInForeground = state == AppLifecycleState.resumed;
     if (_appInForeground) {
       unawaited(_loadLibraryFiles());
+      unawaited(_refreshNetworkStatus());
     }
   }
 
@@ -274,6 +283,9 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           selectedIndex: _tab,
           onDestinationSelected: (index) {
             setState(() => _tab = index);
+            if (index == 1) {
+              unawaited(_discoverNearbyRooms());
+            }
             if (index == 2) {
               unawaited(_loadLibraryFiles());
             }
@@ -316,7 +328,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           _StatusPill(
             icon: session == null ? Icons.wifi_off_outlined : Icons.public,
             label: session == null ? 'Offline' : 'Hosting Drop Room',
-            color: session == null ? Colors.blueGrey : Colors.green,
+            color: session == null ? Colors.white54 : DropTheme.success,
           ),
           const SizedBox(height: 22),
           Text(
@@ -326,25 +338,43 @@ class _DropHomeScreenState extends State<DropHomeScreen>
             ).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 10),
-          const Text(
-            'Drop files, text, and media between nearby devices without a cloud account or forced app install.',
+          Text(
+            session == null
+                ? 'Drop files, text, and media between nearby devices without a cloud account or forced app install.'
+                : 'Share the Drop Code or link with guests on this network.',
           ),
           const SizedBox(height: 22),
           _ActionGrid(
-            children: [
-              _PrimaryAction(
-                icon: Icons.add_circle_outline,
-                title: 'Start Drop Room',
-                subtitle: 'Host a local browser room on this network.',
-                onTap: session == null ? _showStartRoomSheet : null,
-              ),
-              _PrimaryAction(
-                icon: Icons.login_outlined,
-                title: 'Join Drop Room',
-                subtitle: 'Enter a local Drop Link and browse after auth.',
-                onTap: () => setState(() => _tab = 1),
-              ),
-            ],
+            children: session == null
+                ? [
+                    _PrimaryAction(
+                      icon: Icons.add_circle_outline,
+                      title: 'Start Drop Room',
+                      subtitle: 'Host a local browser room on this network.',
+                      onTap: _showStartRoomSheet,
+                    ),
+                    _PrimaryAction(
+                      icon: Icons.login_outlined,
+                      title: 'Join Drop Room',
+                      subtitle:
+                          'Enter a local Drop Link and browse after auth.',
+                      onTap: () => setState(() => _tab = 1),
+                    ),
+                  ]
+                : [
+                    _PrimaryAction(
+                      icon: Icons.qr_code,
+                      title: 'Show Drop Code',
+                      subtitle: 'Let nearby guests scan and join this room.',
+                      onTap: () => _showQrDialog(session),
+                    ),
+                    _PrimaryAction(
+                      icon: Icons.copy,
+                      title: 'Copy Drop Link',
+                      subtitle: 'Share the browser link for this live room.',
+                      onTap: () => _copy(session.baseUrl, 'Drop Link copied'),
+                    ),
+                  ],
           ),
           const SizedBox(height: 18),
           _QuickActions(
@@ -392,22 +422,11 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           const SizedBox(height: 12),
           if (session != null) _hostDashboard(session),
           const SizedBox(height: 12),
-          _InfoCard(
-            title: 'Nearby Rooms',
-            subtitle:
-                'Live rooms now publish an mDNS service on the local network; browsing nearby rooms is next.',
-            icon: Icons.radar_outlined,
-          ),
-          const SizedBox(height: 12),
-          _InfoCard(
-            title: 'Scan Drop Code',
-            subtitle:
-                'Use the camera to scan a host QR code and fill the Drop Link automatically.',
-            icon: Icons.qr_code_scanner_outlined,
-            onTap: _scanDropCode,
-          ),
+          _nearbyRoomsCard(),
           const SizedBox(height: 12),
           _manualJoinCard(),
+          const SizedBox(height: 12),
+          _foundRoomsSection(),
         ],
       ),
     );
@@ -553,72 +572,17 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           ),
           const SizedBox(height: 8),
           _hostFolderSettingsCard(),
-          const SizedBox(height: 8),
-          const _SectionHeader(title: 'Platform capabilities'),
-          const SizedBox(height: 8),
-          const _CapabilityCard(
-            icon: Icons.wifi_tethering_outlined,
-            title: 'Current Wi-Fi hosting',
-            status: 'Available',
-            detail:
-                'Drop Rooms can host on the active local network with browser access.',
-            color: Colors.green,
-          ),
-          const _CapabilityCard(
-            icon: Icons.link_outlined,
-            title: 'Manual Join',
-            status: 'Available',
-            detail:
-                'Join another room by entering its Drop Link, then browse, send text, create folders, and download files.',
-            color: Colors.green,
-          ),
-          const _CapabilityCard(
-            icon: Icons.qr_code_scanner_outlined,
-            title: 'QR scan',
-            status: 'Available',
-            detail:
-                'Scan a host Drop Code with the camera and join from the detected Drop Link.',
-            color: Colors.green,
-          ),
-          _CapabilityCard(
-            icon: Icons.network_wifi_outlined,
-            title: Platform.isIOS ? 'Personal Hotspot' : 'Hotspot fallback',
-            status: _hotspotSupportLoading
-                ? 'Checking'
-                : Platform.isIOS
-                ? 'Guide only'
-                : _hotspotCanCreate && !Platform.isIOS
-                ? 'App can try'
-                : 'Manual setup',
-            detail: _hotspotSupportLoading
-                ? 'Checking whether this device lets Erebrus Drop create a hotspot.'
-                : Platform.isIOS
-                ? 'Use shared Wi-Fi for rooms. Enable Personal Hotspot from iPhone Settings only when guests need a private network.'
-                : _hotspotCanCreate && !Platform.isIOS
-                ? 'Android can attempt local-only hotspot mode. Some OEM policies may still deny it.'
-                : _hotspotSupportReason ??
-                      'Use system Settings to enable a hotspot, then return to Erebrus Drop.',
-            color: _hotspotSupportLoading
-                ? Colors.blueGrey
-                : _hotspotCanCreate && !Platform.isIOS
-                ? Colors.green
-                : Colors.amber,
-          ),
-          const _CapabilityCard(
-            icon: Icons.radar_outlined,
-            title: 'Nearby Rooms',
-            status: 'Publishing',
-            detail:
-                'Live rooms advertise _erebrusdrop._tcp on Android and iOS. Browsing nearby rooms is the next integration.',
-            color: Colors.green,
-          ),
-          const _CapabilityCard(
-            icon: Icons.document_scanner_outlined,
-            title: 'Offline OCR and share sheet',
-            status: 'Next',
-            detail:
-                'Smart Send text works now; screenshot OCR and OS share intake are planned native additions.',
-            color: Colors.amber,
+          const SizedBox(height: 28),
+          Align(
+            alignment: Alignment.centerRight,
+            child: _FooterIconButton(
+              onTap: () => _openInfoScreen(
+                _AboutScreen(
+                  networkLoading: _networkLoading,
+                  networkStatus: _networkStatus,
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -627,7 +591,12 @@ class _DropHomeScreenState extends State<DropHomeScreen>
 
   Widget _hostFolderSettingsCard() {
     final selection = _hostFolderSelection;
-    return Card(
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: DropTheme.surfaceHigh,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white12),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -814,8 +783,8 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                               ? 'Password room'
                               : 'Open room',
                           color: session.authRequired
-                              ? Colors.amber
-                              : Colors.green,
+                              ? DropTheme.amber
+                              : DropTheme.success,
                         ),
                         _StatusPill(
                           icon: session.usesExternalHostFolder
@@ -824,13 +793,13 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                           label: session.usesExternalHostFolder
                               ? 'Drop folder ${session.hostFolderName ?? 'Selected folder'}'
                               : 'Drop folder not selected',
-                          color: Colors.lightBlueAccent,
+                          color: DropTheme.orange,
                         ),
                         if (Platform.isIOS)
                           const _StatusPill(
                             icon: Icons.visibility_outlined,
                             label: 'Screen stays awake',
-                            color: Colors.amber,
+                            color: DropTheme.amber,
                           ),
                       ],
                     );
@@ -946,25 +915,58 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   }
 
   Widget _fileTile(DropFileItem item) {
+    final isFolder = item.type == 'folder';
     return Card(
       child: ListTile(
         leading: Icon(
-          item.type == 'folder'
-              ? Icons.folder_outlined
-              : Icons.insert_drive_file_outlined,
+          isFolder ? Icons.folder_outlined : Icons.insert_drive_file_outlined,
         ),
         title: Text(item.name),
         subtitle: Text(
-          item.type == 'folder'
+          isFolder
               ? item.path
               : '${formatBytes(item.sizeBytes)} · ${item.mimeType ?? 'file'}',
         ),
-        trailing: item.streamable
-            ? const Icon(Icons.play_circle_outline)
-            : item.type == 'folder'
+        trailing: isFolder
             ? const Icon(Icons.chevron_right)
-            : const Icon(Icons.open_in_new_outlined),
-        onTap: item.type == 'folder'
+            : PopupMenuButton<_LibraryFileAction>(
+                tooltip: 'File actions',
+                icon: const Icon(Icons.more_vert),
+                onSelected: (action) {
+                  switch (action) {
+                    case _LibraryFileAction.open:
+                      unawaited(_openLibraryFile(item));
+                    case _LibraryFileAction.share:
+                      unawaited(_shareLibraryFile(item));
+                    case _LibraryFileAction.delete:
+                      unawaited(_confirmDeleteLibraryFile(item));
+                  }
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem(
+                    value: _LibraryFileAction.open,
+                    child: ListTile(
+                      leading: Icon(Icons.open_in_new_outlined),
+                      title: Text('Open'),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: _LibraryFileAction.share,
+                    child: ListTile(
+                      leading: Icon(Icons.ios_share_outlined),
+                      title: Text('Share'),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: _LibraryFileAction.delete,
+                    child: ListTile(
+                      leading: Icon(Icons.delete_outline),
+                      title: Text('Delete'),
+                    ),
+                  ),
+                ],
+              ),
+        onTap: isFolder
             ? () {
                 setState(() => _libraryPath = item.path);
                 unawaited(_loadLibraryFiles());
@@ -998,8 +1000,6 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   }
 
   Widget _manualJoinCard() {
-    final preview = _joinPreview;
-    final joinSession = _joinSession;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -1015,7 +1015,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                 const SizedBox(width: 10),
                 const Expanded(
                   child: Text(
-                    'Manual Join',
+                    'Find a Drop Room',
                     style: TextStyle(fontWeight: FontWeight.w800),
                   ),
                 ),
@@ -1031,188 +1031,294 @@ class _DropHomeScreenState extends State<DropHomeScreen>
               ),
             ),
             const SizedBox(height: 10),
-            FilledButton.tonalIcon(
-              onPressed: _joining ? null : _previewJoinRoom,
-              icon: _joining
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                FilledButton.tonalIcon(
+                  onPressed: _joining ? null : _previewJoinRoom,
+                  icon: _joining
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.travel_explore),
+                  label: const Text('Check Room'),
+                ),
+                FilledButton.icon(
+                  onPressed: _joining ? null : _scanDropCode,
+                  icon: const Icon(Icons.qr_code_scanner_outlined),
+                  label: const Text('Scan Code'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _nearbyRoomsCard() {
+    final message =
+        _nearbyDiscoveryMessage ??
+        'Browse this Wi-Fi or hotspot network for advertised Drop Rooms.';
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              Icons.radar_outlined,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Nearby Rooms',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(message),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            IconButton.filledTonal(
+              onPressed: _discoveringRooms
+                  ? null
+                  : () => unawaited(_discoverNearbyRooms()),
+              icon: _discoveringRooms
                   ? const SizedBox.square(
                       dimension: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.travel_explore),
-              label: const Text('Check Room'),
+                  : const Icon(Icons.refresh),
+              tooltip: 'Discover nearby rooms',
             ),
-            if (preview != null) ...[
-              const SizedBox(height: 12),
-              const Divider(),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(
-                  preview.authRequired
-                      ? Icons.lock_outline
-                      : Icons.lock_open_outlined,
-                ),
-                title: Text(preview.roomName),
-                subtitle: Text(
-                  preview.scopedToDefaultFolder
-                      ? 'Hosted by ${preview.deviceName} · Guests are scoped to ${preview.scopePath}'
-                      : 'Hosted by ${preview.deviceName} · Drop folder ${preview.defaultUploadPath}',
-                ),
-              ),
-              if (preview.authRequired) ...[
-                TextField(
-                  controller: _joinPassword,
-                  obscureText: true,
-                  decoration: const InputDecoration(labelText: 'Room password'),
-                ),
-                const SizedBox(height: 10),
-              ],
-              FilledButton.icon(
-                onPressed: _joining ? null : _loginJoinRoom,
-                icon: const Icon(Icons.login),
-                label: Text(joinSession == null ? 'Join Room' : 'Joined'),
-              ),
-              if (joinSession != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  'Session expires ${joinSession.expiresAt.toLocal()} · ${joinSession.permissions.join(', ')}',
-                ),
-                const SizedBox(height: 12),
-                _joinedRoomBrowser(),
-              ],
-            ],
           ],
         ),
       ),
     );
   }
 
-  Widget _joinedRoomBrowser() {
-    final preview = _joinPreview;
-    final scopedRoot = preview?.scopedToDefaultFolder == true
-        ? preview!.scopePath
-        : '/';
+  Widget _foundRoomsSection() {
+    if (_foundJoinRooms.isEmpty) {
+      return const _InfoCard(
+        title: 'No rooms found yet',
+        subtitle:
+            'Scan a Drop Code or paste a local Drop Link to add a room here.',
+        icon: Icons.travel_explore_outlined,
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Divider(),
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Remote files $_joinPath',
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ),
-            IconButton(
-              onPressed: _loadJoinedFiles,
-              icon: const Icon(Icons.refresh),
-              tooltip: 'Refresh room',
-            ),
-            IconButton(
-              onPressed: _joinPath == '/' || _joinPath == scopedRoot
-                  ? null
-                  : _joinedUpFolder,
-              icon: const Icon(Icons.drive_folder_upload_outlined),
-              tooltip: 'Up folder',
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        _StatusPill(
-          icon: Icons.folder_outlined,
-          label: 'Uploads target $_joinPath',
-          color: Colors.lightBlueAccent,
-        ),
-        const SizedBox(height: 8),
-        FilledButton.tonalIcon(
-          onPressed: _joinTransfer?.isActive == true
-              ? null
-              : _pickAndUploadJoinedFiles,
-          icon: const Icon(Icons.upload_file_outlined),
-          label: const Text('Upload Files to This Folder'),
-        ),
-        if (_joinTransfer != null) ...[
-          const SizedBox(height: 10),
-          _transferPanel(_joinTransfer!),
-        ],
+        const _SectionHeader(title: 'Found Rooms'),
         const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _joinFolderName,
-                decoration: const InputDecoration(labelText: 'New folder'),
-              ),
-            ),
-            const SizedBox(width: 8),
-            IconButton.filledTonal(
-              onPressed: _createJoinedFolder,
-              icon: const Icon(Icons.create_new_folder_outlined),
-              tooltip: 'Create folder',
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        TextField(
-          controller: _joinTextTitle,
-          decoration: const InputDecoration(labelText: 'Text title'),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _joinTextBody,
-          minLines: 3,
-          maxLines: 5,
-          decoration: const InputDecoration(labelText: 'Text to send'),
-        ),
-        const SizedBox(height: 8),
-        FilledButton.tonalIcon(
-          onPressed: _sendJoinedText,
-          icon: const Icon(Icons.send_outlined),
-          label: const Text('Send Text to Joined Room'),
-        ),
-        if (_joinActivity != null) ...[
-          const SizedBox(height: 8),
-          Text(_joinActivity!),
-        ],
-        const SizedBox(height: 10),
-        if (_joinItems.isEmpty)
-          const Text('No remote items loaded yet.')
-        else
-          ..._joinItems.map(_joinedFileTile),
+        ..._foundJoinRooms.map(_foundRoomTile),
       ],
     );
   }
 
-  Widget _joinedFileTile(DropFileItem item) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(
-        item.type == 'folder'
-            ? Icons.folder_outlined
-            : item.streamable
-            ? Icons.play_circle_outline
-            : Icons.insert_drive_file_outlined,
+  Widget _foundRoomTile(JoinRoomPreview preview) {
+    final active =
+        _joinPreview?.baseUrl == preview.baseUrl && _joinSession != null;
+    return Card(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => _openJoinRoomDetail(preview),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _RoomAvatar(icon: _roomIcon(preview), active: active),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      preview.roomName,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${preview.deviceName} · ${_roomPlatformLabel(preview)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _StatusPill(
+                          icon: preview.authRequired
+                              ? Icons.lock_outline
+                              : Icons.lock_open_outlined,
+                          label: preview.authRequired ? 'Password' : 'Open',
+                          color: preview.authRequired
+                              ? DropTheme.amber
+                              : DropTheme.success,
+                        ),
+                        _StatusPill(
+                          icon: Icons.folder_outlined,
+                          label: preview.scopedToDefaultFolder
+                              ? 'Scoped'
+                              : 'Drop folder',
+                          color: DropTheme.orange,
+                        ),
+                        if (active)
+                          const _StatusPill(
+                            icon: Icons.check_circle_outline,
+                            label: 'Joined',
+                            color: DropTheme.success,
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(Icons.chevron_right),
+            ],
+          ),
+        ),
       ),
-      title: Text(item.name),
-      subtitle: Text(
-        item.type == 'folder'
-            ? item.path
-            : '${formatBytes(item.sizeBytes)} · ${item.mimeType ?? 'file'}',
-      ),
-      trailing: item.type == 'folder'
-          ? const Icon(Icons.chevron_right)
-          : IconButton(
-              onPressed: () => _downloadJoinedFile(item),
-              icon: const Icon(Icons.download_outlined),
-              tooltip: 'Download',
-            ),
-      onTap: item.type == 'folder'
-          ? () {
-              setState(() => _joinPath = item.path);
-              unawaited(_loadJoinedFiles());
-            }
-          : null,
     );
+  }
+
+  void _rememberFoundRoom(JoinRoomPreview preview) {
+    final existingIndex = _foundJoinRooms.indexWhere(
+      (room) => room.baseUrl == preview.baseUrl,
+    );
+    if (existingIndex >= 0) {
+      _foundJoinRooms[existingIndex] = preview;
+      return;
+    }
+    _foundJoinRooms = [preview, ..._foundJoinRooms].take(5).toList();
+  }
+
+  Future<void> _discoverNearbyRooms() async {
+    if (_discoveringRooms) return;
+    _setJoinState(() {
+      _discoveringRooms = true;
+      _nearbyDiscoveryMessage = null;
+    });
+    try {
+      final rooms = await _nearbyRoomService.discoverRooms();
+      if (!mounted) return;
+      final ownSession = _session;
+      var added = 0;
+      _setJoinState(() {
+        for (final room in rooms) {
+          if (ownSession?.id == room.roomId ||
+              ownSession?.baseUrl == room.baseUrl) {
+            continue;
+          }
+          _rememberFoundRoom(room);
+          added++;
+        }
+        _nearbyDiscoveryMessage = rooms.isEmpty || added == 0
+            ? 'No other Drop Rooms found on this network.'
+            : 'Found $added Drop Room${added == 1 ? '' : 's'} nearby.';
+      });
+    } catch (error) {
+      if (mounted) {
+        _setJoinState(() {
+          _nearbyDiscoveryMessage = 'Could not browse nearby rooms: $error';
+        });
+      }
+    } finally {
+      if (mounted) {
+        _setJoinState(() => _discoveringRooms = false);
+      }
+    }
+  }
+
+  void _openJoinRoomDetail(JoinRoomPreview preview) {
+    _setJoinState(() {
+      if (_joinPreview?.baseUrl != preview.baseUrl) {
+        _joinSession = null;
+        _joinItems = <DropFileItem>[];
+        _joinPath = _initialJoinPath(preview);
+        _joinActivity = null;
+        _joinTransfer = null;
+        _joinPassword.clear();
+      }
+      _joinPreview = preview;
+      _rememberFoundRoom(preview);
+    });
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ValueListenableBuilder<int>(
+          valueListenable: _joinUiVersion,
+          builder: (context, _, _) {
+            final activePreview = _joinPreview ?? preview;
+            return _JoinedRoomDetailScreen(
+              preview: activePreview,
+              session: _joinSession,
+              path: _joinPath,
+              items: _joinItems,
+              activity: _joinActivity,
+              transfer: _joinTransfer,
+              joining: _joining,
+              passwordController: _joinPassword,
+              folderNameController: _joinFolderName,
+              textTitleController: _joinTextTitle,
+              textBodyController: _joinTextBody,
+              onJoin: _loginJoinRoom,
+              onRefresh: _loadJoinedFiles,
+              onUpFolder: _joinedUpFolder,
+              onUploadFiles: _pickAndUploadJoinedFiles,
+              onCreateFolder: _createJoinedFolder,
+              onSendText: _sendJoinedText,
+              onFolderTap: (item) {
+                _setJoinState(() => _joinPath = item.path);
+                unawaited(_loadJoinedFiles());
+              },
+              onDownload: _downloadJoinedFile,
+              transferBuilder: _transferPanel,
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  String _initialJoinPath(JoinRoomPreview preview) {
+    return preview.scopedToDefaultFolder
+        ? preview.scopePath
+        : preview.defaultUploadPath;
+  }
+
+  IconData _roomIcon(JoinRoomPreview preview) {
+    final platform = preview.devicePlatform.toLowerCase();
+    final type = preview.deviceType.toLowerCase();
+    if (platform.contains('android')) return Icons.android;
+    if (platform.contains('ios')) return Icons.phone_iphone;
+    if (type.contains('phone')) return Icons.smartphone_outlined;
+    if (platform.contains('mac')) return Icons.laptop_mac_outlined;
+    if (platform.contains('windows') || platform.contains('linux')) {
+      return Icons.computer_outlined;
+    }
+    return Icons.devices_other_outlined;
+  }
+
+  String _roomPlatformLabel(JoinRoomPreview preview) {
+    final platform = preview.devicePlatform.toLowerCase();
+    if (platform.contains('android')) return 'Android phone';
+    if (platform.contains('ios')) return 'iPhone';
+    if (platform.contains('mac')) return 'Mac';
+    if (platform.contains('windows')) return 'Windows';
+    if (platform.contains('linux')) return 'Linux';
+    return preview.deviceType.isEmpty ? 'Local device' : preview.deviceType;
   }
 
   Widget _transferPanel(TransferProgress transfer) {
@@ -1270,30 +1376,27 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     );
   }
 
-  Widget _hotspotPanel() {
-    final result = _hotspotResult;
-    final hotspotActive = result?.started == true;
-    final hotspotAttemptFailed = result != null && !result.started;
-    final canCreateHotspot =
-        _hotspotCanCreate && !Platform.isIOS && !hotspotAttemptFailed;
-    final supportReason =
-        result?.reason ??
-        _hotspotSupportReason ??
-        'Use system Settings to enable a hotspot, then return here.';
+  Widget _networkPanel() {
+    final status = _networkStatus;
+    final isReady = status.isReady;
+    final icon = isReady
+        ? status.isHotspot
+              ? Icons.wifi_tethering
+              : Icons.network_wifi_outlined
+        : Icons.wifi_tethering_error_outlined;
+    final title = _networkLoading
+        ? 'Checking network'
+        : isReady
+        ? 'Creating over ${status.label}'
+        : 'Create a hotspot first';
+    final description = _networkLoading
+        ? 'Looking for Wi-Fi or an active hotspot.'
+        : isReady
+        ? 'Guests must join the same ${status.label} network.'
+        : 'Turn on a phone hotspot, connect guests, then refresh.';
     final guideLabel = Platform.isIOS
         ? 'Personal Hotspot Guide'
         : 'Hotspot Guide';
-    final showManualStatus =
-        !Platform.isIOS && !_hotspotSupportLoading && !canCreateHotspot;
-    final description = hotspotActive
-        ? 'Connect guests to this hotspot, then start the room.'
-        : _hotspotSupportLoading
-        ? 'Checking whether this device can create a hotspot from the app.'
-        : canCreateHotspot
-        ? 'Rooms use the current Wi-Fi by default. Create a local hotspot only when guests cannot join that network.'
-        : Platform.isIOS
-        ? 'Rooms use the current Wi-Fi. Personal Hotspot is only a fallback when guests need a private network.'
-        : 'Rooms use the current Wi-Fi. Hotspot setup is handled in system Settings on this device.';
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -1303,28 +1406,32 @@ class _DropHomeScreenState extends State<DropHomeScreen>
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  Icons.network_wifi_outlined,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
+                Icon(icon, color: Theme.of(context).colorScheme.primary),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Network',
-                        style: TextStyle(fontWeight: FontWeight.w800),
+                      Text(
+                        title,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                       const SizedBox(height: 4),
                       Text(description),
                     ],
                   ),
                 ),
+                IconButton(
+                  onPressed: _networkLoading
+                      ? null
+                      : () => unawaited(_refreshNetworkStatus()),
+                  icon: const Icon(Icons.refresh),
+                  tooltip: 'Refresh network',
+                ),
               ],
             ),
             const SizedBox(height: 12),
-            if (_hotspotSupportLoading)
+            if (_networkLoading)
               const Row(
                 children: [
                   SizedBox.square(
@@ -1332,30 +1439,14 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                     child: CircularProgressIndicator(strokeWidth: 2),
                   ),
                   SizedBox(width: 10),
-                  Text('Checking hotspot support...'),
+                  Text('Checking network...'),
                 ],
               )
-            else if (hotspotActive)
-              OutlinedButton.icon(
-                onPressed: _hotspotBusy ? null : _stopHotspot,
-                icon: _hotspotBusy
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.wifi_tethering_off_outlined),
-                label: const Text('Stop Hotspot'),
-              )
-            else if (canCreateHotspot)
-              FilledButton.tonalIcon(
-                onPressed: _hotspotBusy ? null : _startHotspot,
-                icon: _hotspotBusy
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.wifi_tethering),
-                label: const Text('Create Local Hotspot'),
+            else if (isReady)
+              _StatusPill(
+                icon: Icons.check_circle_outline,
+                label: 'Mode: ${status.label}',
+                color: status.isHotspot ? DropTheme.amber : DropTheme.success,
               )
             else
               FilledButton.tonalIcon(
@@ -1363,31 +1454,6 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                 icon: const Icon(Icons.help_outline),
                 label: Text(guideLabel),
               ),
-            if (!_hotspotSupportLoading &&
-                (hotspotActive ||
-                    (!Platform.isIOS && hotspotAttemptFailed) ||
-                    showManualStatus)) ...[
-              const SizedBox(height: 12),
-              _StatusPill(
-                icon: hotspotActive
-                    ? Icons.check_circle_outline
-                    : Icons.info_outline,
-                label: hotspotActive
-                    ? 'Hotspot active'
-                    : 'Manual hotspot setup',
-                color: hotspotActive ? Colors.green : Colors.amber,
-              ),
-              const SizedBox(height: 8),
-              if (hotspotActive) ...[
-                if (result!.ssid != null)
-                  SelectableText('SSID: ${result.ssid}'),
-                if (result.passphrase != null)
-                  SelectableText('Password: ${result.passphrase}'),
-                if (result.gatewayIp != null)
-                  SelectableText('Gateway: ${result.gatewayIp}'),
-              ] else
-                Text(supportReason),
-            ],
           ],
         ),
       ),
@@ -1395,6 +1461,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   }
 
   Future<void> _showStartRoomSheet() async {
+    unawaited(_refreshNetworkStatus());
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -1402,128 +1469,145 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
-            final passwordRequiredButEmpty =
-                _usePassword && _password.text.trim().isEmpty;
-            return Padding(
-              padding: EdgeInsets.fromLTRB(
-                16,
-                12,
-                16,
-                MediaQuery.of(context).viewInsets.bottom + 14,
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Start Drop Room',
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Guests on the same network can join from the app or a browser.',
-                    ),
-                    const SizedBox(height: 16),
-                    ValueListenableBuilder<int>(
-                      valueListenable: _hotspotUiVersion,
-                      builder: (context, _, _) => _hotspotPanel(),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _roomName,
-                      decoration: const InputDecoration(labelText: 'Room'),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _deviceName,
-                      decoration: const InputDecoration(labelText: 'User'),
-                    ),
-                    const SizedBox(height: 12),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Password Room'),
-                      value: _usePassword,
-                      onChanged: (value) {
-                        setSheetState(() => _usePassword = value);
-                        setState(() => _usePassword = value);
-                      },
-                    ),
-                    if (_usePassword)
-                      TextField(
-                        controller: _password,
-                        obscureText: true,
-                        onChanged: (_) => setSheetState(() {}),
-                        decoration: const InputDecoration(
-                          labelText: 'Room password',
-                          helperText: 'Required for password rooms.',
+            return ValueListenableBuilder<int>(
+              valueListenable: _networkUiVersion,
+              builder: (context, _, _) {
+                final passwordRequiredButEmpty =
+                    _usePassword && _password.text.trim().isEmpty;
+                return Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    12,
+                    16,
+                    MediaQuery.of(context).viewInsets.bottom + 14,
+                  ),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Start Drop Room',
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.w800),
                         ),
-                      ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<RoomPermission>(
-                      initialValue: _permission,
-                      decoration: const InputDecoration(
-                        labelText: 'Permissions',
-                        helperText:
-                            'Drop folder only keeps guests inside the selected folder.',
-                      ),
-                      items: RoomPermission.values
-                          .map(
-                            (permission) => DropdownMenuItem(
-                              value: permission,
-                              child: Text(permission.label),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Guests on the same network can join from the app or a browser.',
+                        ),
+                        const SizedBox(height: 16),
+                        _networkPanel(),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _roomName,
+                          decoration: const InputDecoration(labelText: 'Room'),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _deviceName,
+                          decoration: const InputDecoration(labelText: 'User'),
+                        ),
+                        const SizedBox(height: 12),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Password Room'),
+                          value: _usePassword,
+                          onChanged: (value) {
+                            setSheetState(() => _usePassword = value);
+                            setState(() => _usePassword = value);
+                          },
+                        ),
+                        if (_usePassword)
+                          TextField(
+                            controller: _password,
+                            obscureText: true,
+                            onChanged: (_) => setSheetState(() {}),
+                            decoration: const InputDecoration(
+                              labelText: 'Room password',
+                              helperText: 'Required for password rooms.',
                             ),
-                          )
-                          .toList(),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setSheetState(() => _permission = value);
-                        setState(() => _permission = value);
-                      },
+                          ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<RoomPermission>(
+                          initialValue: _permission,
+                          decoration: const InputDecoration(
+                            labelText: 'Permissions',
+                            helperText:
+                                'Drop folder only keeps guests inside the selected folder.',
+                          ),
+                          items: RoomPermission.values
+                              .map(
+                                (permission) => DropdownMenuItem(
+                                  value: permission,
+                                  child: Text(permission.label),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setSheetState(() => _permission = value);
+                            setState(() => _permission = value);
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        _dropFolderStartCard(setSheetState),
+                        const SizedBox(height: 12),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Burn Mode'),
+                          subtitle: const Text(
+                            'Auto-expire this room after 2 hours.',
+                          ),
+                          value: _burnMode,
+                          onChanged: (value) {
+                            setSheetState(() => _burnMode = value);
+                            setState(() => _burnMode = value);
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        FilledButton.icon(
+                          onPressed:
+                              _starting ||
+                                  passwordRequiredButEmpty ||
+                                  !_networkStatus.isReady
+                              ? null
+                              : () async {
+                                  final navigator = Navigator.of(context);
+                                  final started = await _startRoom();
+                                  if (mounted && started) navigator.pop();
+                                },
+                          icon: _starting
+                              ? const SizedBox.square(
+                                  dimension: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : Icon(
+                                  _networkStatus.isHotspot
+                                      ? Icons.wifi_tethering
+                                      : Icons.network_wifi_outlined,
+                                ),
+                          label: const Text('Start Room'),
+                        ),
+                        if (passwordRequiredButEmpty) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            'Enter a password or turn off Password Room.',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ] else if (!_networkStatus.isReady) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            'Connect to Wi-Fi or create a hotspot first.',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ],
                     ),
-                    const SizedBox(height: 12),
-                    _dropFolderStartCard(setSheetState),
-                    const SizedBox(height: 12),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Burn Mode'),
-                      subtitle: const Text(
-                        'Auto-expire this room after 2 hours.',
-                      ),
-                      value: _burnMode,
-                      onChanged: (value) {
-                        setSheetState(() => _burnMode = value);
-                        setState(() => _burnMode = value);
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    FilledButton.icon(
-                      onPressed: _starting || passwordRequiredButEmpty
-                          ? null
-                          : () async {
-                              final navigator = Navigator.of(context);
-                              final started = await _startRoom();
-                              if (mounted && started) navigator.pop();
-                            },
-                      icon: _starting
-                          ? const SizedBox.square(
-                              dimension: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.wifi_tethering),
-                      label: const Text('Start Room'),
-                    ),
-                    if (passwordRequiredButEmpty) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        'Enter a password or turn off Password Room.',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
+                  ),
+                );
+              },
             );
           },
         );
@@ -1539,6 +1623,12 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     }
     setState(() => _starting = true);
     try {
+      await _refreshNetworkStatus();
+      if (!_networkStatus.isReady) {
+        _snack('Connect to Wi-Fi or create a hotspot first.');
+        _showManualHotspotGuide();
+        return false;
+      }
       final canStart = await _ensureDropFolderChoice();
       if (!canStart) return false;
       final session = await _server.start(
@@ -1588,69 +1678,6 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       if (mounted) {
         setState(() => _starting = false);
       }
-    }
-  }
-
-  Future<void> _startHotspot() async {
-    _setHotspotState(() => _hotspotBusy = true);
-    try {
-      final result = await _hotspotService.startLocalOnlyHotspot();
-      if (!mounted) return;
-      _setHotspotState(() {
-        _hotspotResult = result;
-        if (!result.supported) {
-          _hotspotCanCreate = false;
-          _hotspotSupportReason = result.reason;
-        }
-      });
-      _snack(
-        result.started
-            ? 'Hotspot started. Connect nearby devices, then start the room.'
-            : result.reason ?? 'Hotspot is unavailable on this device.',
-      );
-    } on PlatformException catch (error) {
-      final message =
-          error.message ?? 'This device did not allow hotspot creation.';
-      if (!mounted) return;
-      _setHotspotState(() {
-        _hotspotCanCreate = false;
-        _hotspotSupportReason = message;
-        _hotspotResult = HotspotResult(
-          supported: false,
-          started: false,
-          reason: message,
-        );
-      });
-      _snack(message);
-    } catch (error) {
-      final message = 'Could not start hotspot: $error';
-      if (!mounted) return;
-      _setHotspotState(() {
-        _hotspotCanCreate = false;
-        _hotspotSupportReason = message;
-        _hotspotResult = HotspotResult(
-          supported: false,
-          started: false,
-          reason: message,
-        );
-      });
-      _snack(message);
-    } finally {
-      _setHotspotState(() => _hotspotBusy = false);
-    }
-  }
-
-  Future<void> _stopHotspot() async {
-    _setHotspotState(() => _hotspotBusy = true);
-    try {
-      await _hotspotService.stopLocalOnlyHotspot();
-      if (!mounted) return;
-      _setHotspotState(() => _hotspotResult = null);
-      _snack('Hotspot stopped');
-    } catch (error) {
-      if (mounted) _snack('Could not stop hotspot: $error');
-    } finally {
-      _setHotspotState(() => _hotspotBusy = false);
     }
   }
 
@@ -1983,6 +2010,94 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     }
   }
 
+  Future<void> _shareLibraryFile(DropFileItem item) async {
+    try {
+      final selection = _hostFolderSelection;
+      if (item.type == 'folder') {
+        _snack('Share a file, not a folder.');
+      } else if (_server.isRunning) {
+        await _server.shareFile(item);
+      } else if (selection != null) {
+        await _hostFolderBridge.shareFile(
+          rootUri: selection.uri,
+          path: item.path,
+        );
+      } else {
+        _snack('Select a Drop folder first.');
+      }
+    } on FileSystemException catch (error) {
+      _snack(error.message);
+    } on PlatformException catch (error) {
+      _snack(error.message ?? 'Could not share ${item.name}');
+    } on MissingPluginException {
+      _snack(
+        'File sharing needs the latest native build. Stop the app and run a fresh build, then try again.',
+      );
+    } catch (error) {
+      _snack('Could not share ${item.name}: $error');
+    }
+  }
+
+  Future<void> _confirmDeleteLibraryFile(DropFileItem item) async {
+    if (item.type == 'folder') {
+      _snack('Delete a file, not a folder.');
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete file?'),
+        content: Text('Delete ${item.name}? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.tonalIcon(
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await _deleteLibraryFile(item);
+    }
+  }
+
+  Future<void> _deleteLibraryFile(DropFileItem item) async {
+    try {
+      final selection = _hostFolderSelection;
+      if (_server.isRunning) {
+        await _server.deleteFile(item);
+        await _refreshRoomData();
+      } else if (selection != null) {
+        await _hostFolderBridge.deleteFile(
+          rootUri: selection.uri,
+          path: item.path,
+        );
+        await _loadLibraryFiles();
+      } else {
+        _snack('Select a Drop folder first.');
+        return;
+      }
+      if (mounted) {
+        _snack('${item.name} deleted');
+      }
+    } on FileSystemException catch (error) {
+      _snack(error.message);
+    } on PlatformException catch (error) {
+      _snack(error.message ?? 'Could not delete ${item.name}');
+    } on MissingPluginException {
+      _snack(
+        'File deletion needs the latest native build. Stop the app and run a fresh build, then try again.',
+      );
+    } catch (error) {
+      _snack('Could not delete ${item.name}: $error');
+    }
+  }
+
   DropFileItem _dropFileItemFromHostFolderItem(HostFolderItem item) {
     final isDirectory = item.type == 'folder';
     final mimeType = isDirectory
@@ -2057,19 +2172,24 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   }
 
   Future<void> _previewJoinRoom() async {
-    setState(() => _joining = true);
+    _setJoinState(() => _joining = true);
     try {
       final preview = await _joinRoomService.preview(_joinUrl.text);
       if (!mounted) return;
-      setState(() {
+      _setJoinState(() {
         _joinPreview = preview;
         _joinSession = null;
+        _joinItems = <DropFileItem>[];
+        _joinPath = _initialJoinPath(preview);
+        _joinActivity = null;
+        _joinTransfer = null;
+        _rememberFoundRoom(preview);
       });
       _snack('Found ${preview.roomName}');
     } catch (error) {
       if (mounted) _snack('Could not find room: $error');
     } finally {
-      if (mounted) setState(() => _joining = false);
+      if (mounted) _setJoinState(() => _joining = false);
     }
   }
 
@@ -2079,25 +2199,23 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       await _previewJoinRoom();
       return;
     }
-    setState(() => _joining = true);
+    _setJoinState(() => _joining = true);
     try {
       final joinSession = await _joinRoomService.login(
         baseUrl: preview.baseUrl,
         password: preview.authRequired ? _joinPassword.text : '',
       );
       if (!mounted) return;
-      setState(() {
+      _setJoinState(() {
         _joinSession = joinSession;
-        _joinPath = preview.scopedToDefaultFolder
-            ? preview.scopePath
-            : preview.defaultUploadPath;
+        _joinPath = _initialJoinPath(preview);
       });
       _snack('Joined ${preview.roomName}');
       await _loadJoinedFiles();
     } catch (error) {
       if (mounted) _snack('Could not join room: $error');
     } finally {
-      if (mounted) setState(() => _joining = false);
+      if (mounted) _setJoinState(() => _joining = false);
     }
   }
 
@@ -2106,7 +2224,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       context,
     ).push<String>(MaterialPageRoute(builder: (_) => const QrScanScreen()));
     if (scannedUrl == null || scannedUrl.trim().isEmpty) return;
-    setState(() {
+    _setJoinState(() {
       _tab = 1;
       _joinUrl.text = scannedUrl;
       _joinPreview = null;
@@ -2121,7 +2239,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     final preview = _joinPreview;
     final joinSession = _joinSession;
     if (preview == null || joinSession == null) return;
-    setState(() => _joinActivity = 'Loading remote files...');
+    _setJoinState(() => _joinActivity = 'Loading remote files...');
     try {
       final items = await _joinRoomService.listFiles(
         baseUrl: preview.baseUrl,
@@ -2129,13 +2247,13 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         path: _joinPath,
       );
       if (!mounted) return;
-      setState(() {
+      _setJoinState(() {
         _joinItems = items;
         _joinActivity = null;
       });
     } catch (error) {
       if (mounted) {
-        setState(() => _joinActivity = 'Could not load files: $error');
+        _setJoinState(() => _joinActivity = 'Could not load files: $error');
       }
     }
   }
@@ -2189,7 +2307,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     final stopwatch = Stopwatch()..start();
     var lastUpdate = DateTime.fromMillisecondsSinceEpoch(0);
     try {
-      final file = await _joinRoomService.downloadFile(
+      final saved = await _joinRoomService.downloadFile(
         baseUrl: preview.baseUrl,
         token: joinSession.token,
         item: item,
@@ -2203,7 +2321,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           lastUpdate = now;
           final elapsed = math.max(stopwatch.elapsedMilliseconds / 1000, 0.001);
           final speed = received / elapsed;
-          setState(
+          _setJoinState(
             () => _joinTransfer = TransferProgress(
               direction: TransferDirection.download,
               title: 'Downloading ${item.name}',
@@ -2216,19 +2334,19 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         },
       );
       if (!mounted) return;
-      setState(() {
+      _setJoinState(() {
         _joinTransfer = TransferProgress.complete(
           direction: TransferDirection.download,
-          title: 'Downloaded ${item.name}',
-          detail: 'Saved to ${file.path}',
+          title: 'Downloaded ${saved.name}',
+          detail: 'Saved to ${saved.location}',
           totalBytes: item.sizeBytes,
         );
         _joinActivity = null;
       });
-      _snack('Downloaded ${item.name}');
+      _snack('Saved to ${saved.location}');
     } catch (error) {
       if (mounted) {
-        setState(() => _joinTransfer = null);
+        _setJoinState(() => _joinTransfer = null);
         _snack('Could not download file: $error');
       }
     }
@@ -2271,7 +2389,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
               0.001,
             );
             final speed = overallSent / elapsed;
-            setState(
+            _setJoinState(
               () => _joinTransfer = TransferProgress(
                 direction: TransferDirection.upload,
                 title: 'Uploading ${index + 1}/${pickedFiles.length} $fileName',
@@ -2286,7 +2404,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         uploadedBeforeCurrent += picked.sizeBytes;
       }
       if (!mounted) return;
-      setState(() {
+      _setJoinState(() {
         _joinTransfer = TransferProgress.complete(
           direction: TransferDirection.upload,
           title: 'Uploaded ${pickedFiles.length} file(s)',
@@ -2298,7 +2416,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       await _loadJoinedFiles();
     } catch (error) {
       if (mounted) {
-        setState(() => _joinTransfer = null);
+        _setJoinState(() => _joinTransfer = null);
         _snack('Could not upload files: $error');
       }
     }
@@ -2317,7 +2435,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         .toList();
     parts.removeLast();
     final nextPath = parts.isEmpty ? '/' : '/${parts.join('/')}';
-    setState(
+    _setJoinState(
       () => _joinPath =
           preview?.scopedToDefaultFolder == true &&
               (nextPath == '/' || !nextPath.startsWith(scopedRoot))
@@ -2488,22 +2606,23 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     return Row(
       children: [
         Container(
-          width: 48,
-          height: 48,
+          width: 52,
+          height: 52,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            gradient: const LinearGradient(
-              colors: [Color(0xFF25D7FF), Color(0xFF4C7DFF)],
-            ),
-          ),
-          child: const Center(
-            child: Text(
-              'ED',
-              style: TextStyle(
-                color: Color(0xFF07111F),
-                fontWeight: FontWeight.w900,
+            borderRadius: BorderRadius.circular(13),
+            boxShadow: [
+              BoxShadow(
+                color: DropTheme.orange.withValues(alpha: 0.28),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
               ),
-            ),
+            ],
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Image.asset(
+            DropTheme.logoAsset,
+            fit: BoxFit.cover,
+            semanticLabel: 'Erebrus Drop logo',
           ),
         ),
         const SizedBox(width: 12),
@@ -2525,6 +2644,8 @@ class _DropHomeScreenState extends State<DropHomeScreen>
 }
 
 enum _BackAction { background, close }
+
+enum _LibraryFileAction { open, share, delete }
 
 enum TransferDirection { upload, download }
 
@@ -2579,6 +2700,484 @@ class TransferProgress {
     }
     final remaining = math.max(0, totalBytes - sentBytes);
     return Duration(seconds: (remaining / speedBytesPerSecond).ceil());
+  }
+}
+
+class _JoinedRoomDetailScreen extends StatelessWidget {
+  const _JoinedRoomDetailScreen({
+    required this.preview,
+    required this.session,
+    required this.path,
+    required this.items,
+    required this.activity,
+    required this.transfer,
+    required this.joining,
+    required this.passwordController,
+    required this.folderNameController,
+    required this.textTitleController,
+    required this.textBodyController,
+    required this.onJoin,
+    required this.onRefresh,
+    required this.onUpFolder,
+    required this.onUploadFiles,
+    required this.onCreateFolder,
+    required this.onSendText,
+    required this.onFolderTap,
+    required this.onDownload,
+    required this.transferBuilder,
+  });
+
+  final JoinRoomPreview preview;
+  final JoinRoomSession? session;
+  final String path;
+  final List<DropFileItem> items;
+  final String? activity;
+  final TransferProgress? transfer;
+  final bool joining;
+  final TextEditingController passwordController;
+  final TextEditingController folderNameController;
+  final TextEditingController textTitleController;
+  final TextEditingController textBodyController;
+  final Future<void> Function() onJoin;
+  final Future<void> Function() onRefresh;
+  final VoidCallback onUpFolder;
+  final Future<void> Function() onUploadFiles;
+  final Future<void> Function() onCreateFolder;
+  final Future<void> Function() onSendText;
+  final void Function(DropFileItem item) onFolderTap;
+  final void Function(DropFileItem item) onDownload;
+  final Widget Function(TransferProgress transfer) transferBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    final joined = session != null;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(preview.roomName),
+        actions: [
+          if (joined)
+            IconButton(
+              onPressed: () => unawaited(onRefresh()),
+              icon: const Icon(Icons.refresh),
+              tooltip: 'Refresh room',
+            ),
+        ],
+      ),
+      body: _Screen(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _roomHeader(context),
+            const SizedBox(height: 12),
+            if (!joined) _joinCard(context) else _joinedFilesCard(context),
+            if (joined) ...[
+              const SizedBox(height: 12),
+              _sendToolsCard(context),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _roomHeader(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _RoomAvatar(icon: _roomIcon, active: session != null),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        preview.roomName,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${preview.deviceName} · $_platformLabel',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      const SizedBox(height: 6),
+                      SelectableText(
+                        preview.baseUrl,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _StatusPill(
+                  icon: preview.authRequired
+                      ? Icons.lock_outline
+                      : Icons.lock_open_outlined,
+                  label: preview.authRequired ? 'Password room' : 'Open room',
+                  color: preview.authRequired
+                      ? DropTheme.amber
+                      : DropTheme.success,
+                ),
+                _StatusPill(
+                  icon: Icons.folder_outlined,
+                  label: preview.scopedToDefaultFolder
+                      ? 'Scoped folder'
+                      : 'Drop folder',
+                  color: DropTheme.orange,
+                ),
+                if (session != null)
+                  const _StatusPill(
+                    icon: Icons.check_circle_outline,
+                    label: 'Joined',
+                    color: DropTheme.success,
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _joinCard(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              preview.authRequired ? 'Enter room password' : 'Join open room',
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+            if (preview.authRequired) ...[
+              const SizedBox(height: 10),
+              TextField(
+                controller: passwordController,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Room password'),
+              ),
+            ],
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: joining ? null : () => unawaited(onJoin()),
+              icon: joining
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.login),
+              label: Text(joining ? 'Joining...' : 'Join Room'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _joinedFilesCard(BuildContext context) {
+    final scopedRoot = preview.scopedToDefaultFolder ? preview.scopePath : '/';
+    final canGoUp = path != '/' && path != scopedRoot;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Files',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(path, style: Theme.of(context).textTheme.bodySmall),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => unawaited(onRefresh()),
+                  icon: const Icon(Icons.refresh),
+                  tooltip: 'Refresh room',
+                ),
+                IconButton(
+                  onPressed: canGoUp ? onUpFolder : null,
+                  icon: const Icon(Icons.drive_folder_upload_outlined),
+                  tooltip: 'Up folder',
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                _StatusPill(
+                  icon: Icons.folder_outlined,
+                  label: 'Upload target $path',
+                  color: DropTheme.orange,
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: transfer?.isActive == true
+                      ? null
+                      : () => unawaited(onUploadFiles()),
+                  icon: const Icon(Icons.upload_file_outlined),
+                  label: const Text('Upload Files'),
+                ),
+              ],
+            ),
+            if (transfer != null) ...[
+              const SizedBox(height: 10),
+              transferBuilder(transfer!),
+            ],
+            if (activity != null) ...[
+              const SizedBox(height: 10),
+              _InlineActivity(message: activity!),
+            ],
+            const SizedBox(height: 12),
+            if (items.isEmpty && activity == null)
+              const _EmptyFolderState()
+            else
+              ...items.map(
+                (item) => _JoinedFileTile(
+                  item: item,
+                  onFolderTap: onFolderTap,
+                  onDownload: onDownload,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sendToolsCard(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Send', style: TextStyle(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: folderNameController,
+                    decoration: const InputDecoration(labelText: 'New folder'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filledTonal(
+                  onPressed: () => unawaited(onCreateFolder()),
+                  icon: const Icon(Icons.create_new_folder_outlined),
+                  tooltip: 'Create folder',
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: textTitleController,
+              decoration: const InputDecoration(labelText: 'Text title'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: textBodyController,
+              minLines: 3,
+              maxLines: 5,
+              decoration: const InputDecoration(labelText: 'Text to send'),
+            ),
+            const SizedBox(height: 10),
+            FilledButton.tonalIcon(
+              onPressed: () => unawaited(onSendText()),
+              icon: const Icon(Icons.send_outlined),
+              label: const Text('Send Text'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  IconData get _roomIcon {
+    final platform = preview.devicePlatform.toLowerCase();
+    final type = preview.deviceType.toLowerCase();
+    if (platform.contains('android')) return Icons.android;
+    if (platform.contains('ios')) return Icons.phone_iphone;
+    if (type.contains('phone')) return Icons.smartphone_outlined;
+    if (platform.contains('mac')) return Icons.laptop_mac_outlined;
+    if (platform.contains('windows') || platform.contains('linux')) {
+      return Icons.computer_outlined;
+    }
+    return Icons.devices_other_outlined;
+  }
+
+  String get _platformLabel {
+    final platform = preview.devicePlatform.toLowerCase();
+    if (platform.contains('android')) return 'Android phone';
+    if (platform.contains('ios')) return 'iPhone';
+    if (platform.contains('mac')) return 'Mac';
+    if (platform.contains('windows')) return 'Windows';
+    if (platform.contains('linux')) return 'Linux';
+    return preview.deviceType.isEmpty ? 'Local device' : preview.deviceType;
+  }
+}
+
+class _JoinedFileTile extends StatelessWidget {
+  const _JoinedFileTile({
+    required this.item,
+    required this.onFolderTap,
+    required this.onDownload,
+  });
+
+  final DropFileItem item;
+  final void Function(DropFileItem item) onFolderTap;
+  final void Function(DropFileItem item) onDownload;
+
+  @override
+  Widget build(BuildContext context) {
+    final isFolder = item.type == 'folder';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: DropTheme.surfaceHigh,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: ListTile(
+        leading: Icon(
+          isFolder
+              ? Icons.folder_outlined
+              : item.streamable
+              ? Icons.play_circle_outline
+              : Icons.insert_drive_file_outlined,
+        ),
+        title: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+        subtitle: Text(
+          isFolder
+              ? item.path
+              : '${formatBytes(item.sizeBytes)} · ${item.mimeType ?? 'file'}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: isFolder
+            ? const Icon(Icons.chevron_right)
+            : IconButton(
+                onPressed: () => onDownload(item),
+                icon: const Icon(Icons.download_outlined),
+                tooltip: 'Download',
+              ),
+        onTap: isFolder ? () => onFolderTap(item) : null,
+      ),
+    );
+  }
+}
+
+class _EmptyFolderState extends StatelessWidget {
+  const _EmptyFolderState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      decoration: BoxDecoration(
+        color: DropTheme.surfaceHigh,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            Icons.folder_open_outlined,
+            size: 34,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'This folder is empty',
+            style: TextStyle(fontWeight: FontWeight.w800),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InlineActivity extends StatelessWidget {
+  const _InlineActivity({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final isError = message.startsWith('Could not');
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: DropTheme.surfaceHigh,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            if (isError)
+              const Icon(Icons.error_outline, size: 18, color: DropTheme.danger)
+            else
+              const SizedBox.square(
+                dimension: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            const SizedBox(width: 10),
+            Expanded(child: Text(message)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RoomAvatar extends StatelessWidget {
+  const _RoomAvatar({required this.icon, required this.active});
+
+  final IconData icon;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = active
+        ? DropTheme.success
+        : Theme.of(context).colorScheme.primary;
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.48)),
+      ),
+      child: Icon(icon, color: color),
+    );
   }
 }
 
@@ -2953,6 +3552,346 @@ class _QuickActions extends StatelessWidget {
               .toList(),
         );
       },
+    );
+  }
+}
+
+class _AboutScreen extends StatelessWidget {
+  const _AboutScreen({
+    required this.networkLoading,
+    required this.networkStatus,
+  });
+
+  final bool networkLoading;
+  final DropNetworkStatus networkStatus;
+
+  @override
+  Widget build(BuildContext context) {
+    return _InfoScaffold(
+      title: 'About',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _AppLogoLockup(),
+          const SizedBox(height: 22),
+          const _SectionHeader(title: 'What it does'),
+          const SizedBox(height: 8),
+          const _TextCard(
+            text:
+                'Erebrus Drop lets you create a private local Drop Room for nearby devices. People on the same Wi-Fi or hotspot can join from the app or a browser to move files, folders, text, and streamable media without an account or cloud upload.',
+          ),
+          const SizedBox(height: 16),
+          const _SectionHeader(title: 'Why it matters'),
+          const SizedBox(height: 8),
+          const _TextCard(
+            text:
+                'NetSepio builds for digital sovereignty, privacy, and individual agency in a surveilled internet. Erebrus Drop is one small, practical piece of that ethos: useful sharing that keeps control close to you, your device, and the people you choose.',
+          ),
+          const SizedBox(height: 16),
+          const _SectionHeader(title: 'Capabilities'),
+          const SizedBox(height: 8),
+          const _CapabilityCard(
+            icon: Icons.wifi_tethering_outlined,
+            title: 'Current Wi-Fi hosting',
+            status: 'Available',
+            detail:
+                'Drop Rooms can host on the active local network with browser access.',
+            color: DropTheme.success,
+          ),
+          const _CapabilityCard(
+            icon: Icons.link_outlined,
+            title: 'Manual Join',
+            status: 'Available',
+            detail:
+                'Join another room by entering its Drop Link, then browse, send text, create folders, and download files.',
+            color: DropTheme.success,
+          ),
+          const _CapabilityCard(
+            icon: Icons.qr_code_scanner_outlined,
+            title: 'QR scan',
+            status: 'Available',
+            detail:
+                'Scan a host Drop Code with the camera and join from the detected Drop Link.',
+            color: DropTheme.success,
+          ),
+          _CapabilityCard(
+            icon: Icons.network_wifi_outlined,
+            title: 'Hosting network',
+            status: networkLoading
+                ? 'Checking'
+                : networkStatus.isReady
+                ? networkStatus.label
+                : 'Hotspot needed',
+            detail: networkLoading
+                ? 'Checking for Wi-Fi or an active hotspot.'
+                : networkStatus.isReady
+                ? 'Drops start on the current ${networkStatus.label} network.'
+                : 'Connect to Wi-Fi or create a hotspot in system Settings before starting a room.',
+            color: networkLoading
+                ? Colors.white54
+                : networkStatus.isReady
+                ? DropTheme.success
+                : DropTheme.amber,
+          ),
+          const _CapabilityCard(
+            icon: Icons.radar_outlined,
+            title: 'Nearby Rooms',
+            status: 'Available',
+            detail:
+                'Live rooms advertise _erebrusdrop._tcp on Android and iOS. Apps on the same local network can discover and open nearby rooms.',
+            color: DropTheme.success,
+          ),
+          const _CapabilityCard(
+            icon: Icons.document_scanner_outlined,
+            title: 'Offline OCR and share sheet',
+            status: 'Next',
+            detail:
+                'Smart Send text works now; screenshot OCR and OS share intake are planned native additions.',
+            color: DropTheme.amber,
+          ),
+          const SizedBox(height: 18),
+          const _AboutFooterLinks(),
+        ],
+      ),
+    );
+  }
+}
+
+class _PrivacyScreen extends StatelessWidget {
+  const _PrivacyScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _InfoScaffold(
+      title: 'Privacy',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _AppLogoLockup(compact: true),
+          SizedBox(height: 18),
+          _TextCard(
+            text:
+                'Erebrus Drop does not collect analytics, advertising identifiers, contact lists, location history, or account profiles. NetSepio does not receive your transferred files, pasted text, folder contents, room passwords, or Drop Links.',
+          ),
+          SizedBox(height: 8),
+          _TextCard(
+            text:
+                'Transfers happen between nearby devices on your local Wi-Fi or hotspot network. Files and text stay on the devices and folders you choose.',
+          ),
+          SizedBox(height: 8),
+          _TextCard(
+            text:
+                'Permissions are feature-scoped: camera for QR scans, local network access for Drop Rooms, and file or folder access for uploads and downloads. You control when those features are used.',
+          ),
+          SizedBox(height: 8),
+          _TextCard(text: 'For privacy questions, contact $_supportEmail.'),
+        ],
+      ),
+    );
+  }
+}
+
+class _TermsScreen extends StatelessWidget {
+  const _TermsScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _InfoScaffold(
+      title: 'Terms',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _AppLogoLockup(compact: true),
+          SizedBox(height: 18),
+          _TextCard(
+            text:
+                'Erebrus Drop is provided for private, nearby device-to-device sharing. Use it only for files and content you own or have permission to share.',
+          ),
+          SizedBox(height: 8),
+          _TextCard(
+            text:
+                'You are responsible for who joins your Drop Room, the network you use, and the files or text you send. Keep room passwords and Drop Links private when sharing sensitive content.',
+          ),
+          SizedBox(height: 8),
+          _TextCard(
+            text:
+                'The app is provided as-is. Local transfers depend on your device, operating system, browser, storage, permissions, and network conditions.',
+          ),
+          SizedBox(height: 8),
+          _TextCard(
+            text:
+                'To the fullest extent permitted by law, you agree to indemnify and hold NetSepio harmless from claims, losses, damages, liabilities, and expenses arising from your use of Erebrus Drop, the content you share, or your violation of these terms or applicable law.',
+          ),
+          SizedBox(height: 8),
+          _TextCard(
+            text:
+                'Erebrus Platform, brand, and apps are products of NetSepio. For support, contact $_supportEmail.',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoScaffold extends StatelessWidget {
+  const _InfoScaffold({required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(18),
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 920),
+              child: child,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AppLogoLockup extends StatelessWidget {
+  const _AppLogoLockup({this.compact = false});
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final logoSize = compact ? 76.0 : 96.0;
+    return Center(
+      child: Column(
+        children: [
+          Container(
+            width: logoSize,
+            height: logoSize,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(compact ? 18 : 24),
+              boxShadow: [
+                BoxShadow(
+                  color: DropTheme.orange.withValues(alpha: 0.28),
+                  blurRadius: compact ? 24 : 32,
+                  offset: Offset(0, compact ? 10 : 14),
+                ),
+              ],
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Image.asset(
+              DropTheme.logoAsset,
+              fit: BoxFit.cover,
+              semanticLabel: 'Erebrus Drop logo',
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Erebrus Drop',
+            textAlign: TextAlign.center,
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Version $_appVersion',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TextCard extends StatelessWidget {
+  const _TextCard({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(padding: const EdgeInsets.all(16), child: Text(text)),
+    );
+  }
+}
+
+class _AboutFooterLinks extends StatelessWidget {
+  const _AboutFooterLinks();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 4,
+        children: [
+          TextButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const _PrivacyScreen()),
+            ),
+            child: const Text('Privacy'),
+          ),
+          Text(
+            '|',
+            style: TextStyle(color: Theme.of(context).colorScheme.outline),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const _TermsScreen()),
+            ),
+            child: const Text('Terms'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FooterIconButton extends StatelessWidget {
+  const _FooterIconButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'About Erebrus Drop',
+      child: Semantics(
+        label: 'About Erebrus Drop',
+        button: true,
+        child: GestureDetector(
+          onTap: onTap,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: DropTheme.orange.withValues(alpha: 0.34),
+              ),
+              color: DropTheme.surfaceHigh,
+              boxShadow: [
+                BoxShadow(
+                  color: DropTheme.orange.withValues(alpha: 0.12),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: const Padding(
+              padding: EdgeInsets.all(10),
+              child: Icon(Icons.info_outline),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

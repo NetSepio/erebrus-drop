@@ -13,6 +13,14 @@ doc/api/
 # dotenv environment variables file
 .env*
 
+# Android release signing secrets
+android/key.properties
+android/*.jks
+android/*.keystore
+android/app/*.jks
+android/app/*.keystore
+android/release-keys/
+
 # Avoid committing generated Javascript files:
 *.dart.js
 # Produced by the --dump-info flag.

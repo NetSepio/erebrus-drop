@@ -1,15 +1,22 @@
 import Flutter
 import Darwin
 import Foundation
+import QuickLook
 import UniformTypeIdentifiers
 import UIKit
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, UIDocumentPickerDelegate, UIDocumentInteractionControllerDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, UIDocumentPickerDelegate, UIDocumentInteractionControllerDelegate, QLPreviewControllerDataSource, QLPreviewControllerDelegate, NetServiceBrowserDelegate, NetServiceDelegate {
   private var publishedService: NetService?
+  private var discoveryBrowser: NetServiceBrowser?
+  private var discoveryResult: FlutterResult?
+  private var discoveryTimer: Timer?
+  private var discoveryServices: [NetService] = []
+  private var discoveredRooms: [String: [String: Any]] = [:]
   private var pendingHostFolderResult: FlutterResult?
   private var pendingUploadPickResult: FlutterResult?
   private var documentInteractionController: UIDocumentInteractionController?
+  private var quickLookPreviewURL: URL?
 
   override func application(
     _ application: UIApplication,
@@ -62,13 +69,23 @@ import UIKit
         self.copyHostFileToCache(call: call, result: result)
       case "openHostFile":
         self.openHostFile(call: call, result: result)
+      case "shareHostFile":
+        self.shareHostFile(call: call, result: result)
+      case "deleteHostFile":
+        self.deleteHostFile(call: call, result: result)
       case "openLocalFile":
         self.openLocalFile(call: call, result: result)
+      case "shareLocalFile":
+        self.shareLocalFile(call: call, result: result)
+      case "saveFileToDownloads":
+        self.saveFileToDownloads(call: call, result: result)
       case "publishMdnsService":
         self.publishMdnsService(call: call, result: result)
       case "stopMdnsService":
         self.stopMdnsService()
         result(["stopped": true])
+      case "discoverMdnsRooms":
+        self.discoverMdnsRooms(call: call, result: result)
       case "startRoomForegroundService":
         result(["started": false, "reason": "Foreground hosting service is Android-only."])
       case "stopRoomForegroundService":
@@ -175,6 +192,21 @@ import UIKit
     if documentInteractionController === controller {
       documentInteractionController = nil
     }
+  }
+
+  func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
+    return quickLookPreviewURL == nil ? 0 : 1
+  }
+
+  func previewController(
+    _ controller: QLPreviewController,
+    previewItemAt index: Int
+  ) -> QLPreviewItem {
+    return quickLookPreviewURL! as NSURL
+  }
+
+  func previewControllerDidDismiss(_ controller: QLPreviewController) {
+    quickLookPreviewURL = nil
   }
 
   private func selectHostFolder(result: @escaping FlutterResult) {
@@ -385,6 +417,57 @@ import UIKit
     }
   }
 
+  private func shareHostFile(call: FlutterMethodCall, result: @escaping FlutterResult) {
+    do {
+      let arguments = try hostFolderArguments(call)
+      let localShare = try withScopedFolder(rootUri: arguments.rootUri) { root in
+        let source = hostURL(root: root, path: arguments.path)
+        let values = try source.resourceValues(forKeys: [.isDirectoryKey])
+        if values.isDirectory == true {
+          throw HostFolderError.message("Share a file, not a folder.")
+        }
+        let directory = FileManager.default.temporaryDirectory
+          .appendingPathComponent("ErebrusDropShare", isDirectory: true)
+        try FileManager.default.createDirectory(
+          at: directory,
+          withIntermediateDirectories: true
+        )
+        let destination = uniqueChildURL(parent: directory, name: safeName(source.lastPathComponent))
+        try FileManager.default.copyItem(at: source, to: destination)
+        return destination
+      }
+      try presentShareSheet(url: localShare)
+      result(["shared": true])
+    } catch {
+      result(FlutterError(
+        code: "SHARE_FILE_FAILED",
+        message: error.localizedDescription,
+        details: nil
+      ))
+    }
+  }
+
+  private func deleteHostFile(call: FlutterMethodCall, result: FlutterResult) {
+    do {
+      let arguments = try hostFolderArguments(call)
+      try withScopedFolder(rootUri: arguments.rootUri) { root in
+        let source = hostURL(root: root, path: arguments.path)
+        let values = try source.resourceValues(forKeys: [.isDirectoryKey])
+        if values.isDirectory == true {
+          throw HostFolderError.message("Delete a file, not a folder.")
+        }
+        try FileManager.default.removeItem(at: source)
+      }
+      result(["deleted": true])
+    } catch {
+      result(FlutterError(
+        code: "DELETE_FILE_FAILED",
+        message: error.localizedDescription,
+        details: nil
+      ))
+    }
+  }
+
   private func openLocalFile(call: FlutterMethodCall, result: FlutterResult) {
     do {
       guard let arguments = call.arguments as? [String: Any],
@@ -402,6 +485,64 @@ import UIKit
     } catch {
       result(FlutterError(
         code: "OPEN_FILE_FAILED",
+        message: error.localizedDescription,
+        details: nil
+      ))
+    }
+  }
+
+  private func shareLocalFile(call: FlutterMethodCall, result: FlutterResult) {
+    do {
+      guard let arguments = call.arguments as? [String: Any],
+            let path = arguments["path"] as? String else {
+        throw HostFolderError.message("Missing path")
+      }
+      let url = URL(fileURLWithPath: path)
+      var isDirectory: ObjCBool = false
+      guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+            !isDirectory.boolValue else {
+        throw HostFolderError.message("File not found: \(path)")
+      }
+      try presentShareSheet(url: url)
+      result(["shared": true])
+    } catch {
+      result(FlutterError(
+        code: "SHARE_FILE_FAILED",
+        message: error.localizedDescription,
+        details: nil
+      ))
+    }
+  }
+
+  private func saveFileToDownloads(call: FlutterMethodCall, result: FlutterResult) {
+    do {
+      guard let arguments = call.arguments as? [String: Any],
+            let path = arguments["path"] as? String else {
+        throw HostFolderError.message("Missing path")
+      }
+      let source = URL(fileURLWithPath: path)
+      var isDirectory: ObjCBool = false
+      guard FileManager.default.fileExists(atPath: source.path, isDirectory: &isDirectory),
+            !isDirectory.boolValue else {
+        throw HostFolderError.message("File not found: \(path)")
+      }
+      guard let documents = FileManager.default.urls(
+        for: .documentDirectory,
+        in: .userDomainMask
+      ).first else {
+        throw HostFolderError.message("Could not open the Files documents folder.")
+      }
+      let requestedName = safeName(arguments["name"] as? String ?? source.lastPathComponent)
+      let destination = uniqueChildURL(parent: documents, name: requestedName)
+      try FileManager.default.copyItem(at: source, to: destination)
+      result([
+        "name": destination.lastPathComponent,
+        "location": "Files > Erebrus Drop > \(destination.lastPathComponent)",
+        "path": destination.path
+      ])
+    } catch {
+      result(FlutterError(
+        code: "SAVE_DOWNLOAD_FAILED",
         message: error.localizedDescription,
         details: nil
       ))
@@ -476,16 +617,46 @@ import UIKit
     guard let presenter = topViewController() else {
       throw HostFolderError.message("Could not present a file preview.")
     }
-    let controller = UIDocumentInteractionController(url: url)
-    controller.delegate = self
-    documentInteractionController = controller
-    if !controller.presentPreview(animated: true) {
-      controller.presentOptionsMenu(
+    if QLPreviewController.canPreview(url as NSURL) {
+      quickLookPreviewURL = url
+      let controller = QLPreviewController()
+      controller.dataSource = self
+      controller.delegate = self
+      presenter.present(controller, animated: true)
+      return
+    }
+
+    let interactionController = UIDocumentInteractionController(url: url)
+    interactionController.delegate = self
+    documentInteractionController = interactionController
+    if !interactionController.presentPreview(animated: true) {
+      interactionController.presentOptionsMenu(
         from: presenter.view.bounds,
         in: presenter.view,
         animated: true
       )
     }
+  }
+
+  private func presentShareSheet(url: URL) throws {
+    guard let presenter = topViewController() else {
+      throw HostFolderError.message("Could not present the share sheet.")
+    }
+    let controller = UIActivityViewController(
+      activityItems: [url],
+      applicationActivities: nil
+    )
+    if let popover = controller.popoverPresentationController {
+      popover.sourceView = presenter.view
+      popover.sourceRect = CGRect(
+        x: presenter.view.bounds.midX,
+        y: presenter.view.bounds.midY,
+        width: 1,
+        height: 1
+      )
+      popover.permittedArrowDirections = []
+    }
+    presenter.present(controller, animated: true)
   }
 
   private func copyPickedFile(_ url: URL) throws -> [String: Any] {
@@ -740,6 +911,144 @@ import UIKit
   private func stopMdnsService() {
     publishedService?.stop()
     publishedService = nil
+  }
+
+  private func discoverMdnsRooms(call: FlutterMethodCall, result: @escaping FlutterResult) {
+    if discoveryResult != nil {
+      result(FlutterError(
+        code: "MDNS_DISCOVERY_BUSY",
+        message: "Room discovery is already running.",
+        details: nil
+      ))
+      return
+    }
+    let arguments = call.arguments as? [String: Any]
+    let requestedType = arguments?["serviceType"] as? String ?? "_erebrusdrop._tcp."
+    let serviceType = requestedType.hasSuffix(".") ? requestedType : "\(requestedType)."
+    let timeoutMillis = min(max(arguments?["timeoutMillis"] as? Int ?? 2500, 1000), 8000)
+
+    discoveredRooms.removeAll()
+    discoveryServices.removeAll()
+    discoveryResult = result
+
+    let browser = NetServiceBrowser()
+    browser.delegate = self
+    discoveryBrowser = browser
+    browser.searchForServices(ofType: serviceType, inDomain: "local.")
+    discoveryTimer = Timer.scheduledTimer(
+      withTimeInterval: Double(timeoutMillis) / 1000.0,
+      repeats: false
+    ) { [weak self] _ in
+      self?.finishMdnsDiscovery()
+    }
+  }
+
+  private func finishMdnsDiscovery(error: String? = nil) {
+    guard let result = discoveryResult else {
+      return
+    }
+    discoveryResult = nil
+    discoveryTimer?.invalidate()
+    discoveryTimer = nil
+    discoveryBrowser?.stop()
+    discoveryBrowser?.delegate = nil
+    discoveryBrowser = nil
+    discoveryServices.forEach { $0.delegate = nil }
+    discoveryServices.removeAll()
+
+    if let error {
+      result(FlutterError(
+        code: "MDNS_DISCOVERY_FAILED",
+        message: error,
+        details: nil
+      ))
+      return
+    }
+    result(Array(discoveredRooms.values))
+  }
+
+  func netServiceBrowser(
+    _ browser: NetServiceBrowser,
+    didFind service: NetService,
+    moreComing: Bool
+  ) {
+    guard discoveryResult != nil else { return }
+    discoveryServices.append(service)
+    service.delegate = self
+    service.resolve(withTimeout: 2.0)
+  }
+
+  func netServiceBrowser(
+    _ browser: NetServiceBrowser,
+    didRemove service: NetService,
+    moreComing: Bool
+  ) {
+    discoveredRooms.removeValue(forKey: service.name)
+  }
+
+  func netServiceBrowser(
+    _ browser: NetServiceBrowser,
+    didNotSearch errorDict: [String : NSNumber]
+  ) {
+    finishMdnsDiscovery(error: "Discovery failed.")
+  }
+
+  func netServiceDidResolveAddress(_ sender: NetService) {
+    guard discoveryResult != nil, let room = mdnsRoomMap(sender) else {
+      return
+    }
+    let key = "\(room["host"] ?? ""):\(room["port"] ?? "")"
+    discoveredRooms[key] = room
+  }
+
+  func netService(_ sender: NetService, didNotResolve errorDict: [String : NSNumber]) {
+    sender.delegate = nil
+  }
+
+  private func mdnsRoomMap(_ service: NetService) -> [String: Any]? {
+    guard service.port > 0, let host = resolvedIPv4Address(service) else {
+      return nil
+    }
+    let txt = NetService.dictionary(fromTXTRecord: service.txtRecordData() ?? Data())
+      .reduce(into: [String: String]()) { partial, item in
+        partial[item.key] = String(data: item.value, encoding: .utf8) ?? ""
+      }
+    return [
+      "serviceName": service.name,
+      "host": host,
+      "port": service.port,
+      "url": "http://\(host):\(service.port)",
+      "txt": txt
+    ]
+  }
+
+  private func resolvedIPv4Address(_ service: NetService) -> String? {
+    for address in service.addresses ?? [] {
+      if let ip = ipv4Address(from: address) {
+        return ip
+      }
+    }
+    return nil
+  }
+
+  private func ipv4Address(from data: Data) -> String? {
+    return data.withUnsafeBytes { rawBuffer -> String? in
+      guard let baseAddress = rawBuffer.baseAddress else {
+        return nil
+      }
+      let sockaddrPointer = baseAddress.assumingMemoryBound(to: sockaddr.self)
+      guard Int32(sockaddrPointer.pointee.sa_family) == AF_INET else {
+        return nil
+      }
+      var address = sockaddrPointer.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
+        $0.pointee.sin_addr
+      }
+      var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+      guard inet_ntop(AF_INET, &address, &buffer, socklen_t(INET_ADDRSTRLEN)) != nil else {
+        return nil
+      }
+      return String(cString: buffer)
+    }
   }
 
   private static func storageStats() -> [String: Int64] {

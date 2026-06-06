@@ -1,6 +1,8 @@
 package com.erebrus.drop
 
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.database.Cursor
@@ -15,6 +17,7 @@ import android.os.Looper
 import android.os.StatFs
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
@@ -25,7 +28,9 @@ import androidx.core.content.FileProvider
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.net.InetAddress
 import java.net.NetworkInterface
+import java.util.ArrayDeque
 
 class MainActivity : FlutterActivity() {
     private val channelName = "com.erebrus.drop/network"
@@ -36,7 +41,15 @@ class MainActivity : FlutterActivity() {
     private var pendingHostFolderResult: MethodChannel.Result? = null
     private var nsdManager: NsdManager? = null
     private var nsdRegistrationListener: NsdManager.RegistrationListener? = null
-    private var multicastLock: WifiManager.MulticastLock? = null
+    private var discoveryManager: NsdManager? = null
+    private var discoveryListener: NsdManager.DiscoveryListener? = null
+    private var discoveryResult: MethodChannel.Result? = null
+    private var publishMulticastLock: WifiManager.MulticastLock? = null
+    private var discoveryMulticastLock: WifiManager.MulticastLock? = null
+    private val discoveredRooms = linkedMapOf<String, Map<String, Any?>>()
+    private val resolveQueue = ArrayDeque<NsdServiceInfo>()
+    private var resolvingService = false
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private data class HostDocument(
         val uri: Uri,
@@ -83,12 +96,17 @@ class MainActivity : FlutterActivity() {
                 "createHostFolder" -> createHostFolder(call, result)
                 "copyHostFileToCache" -> copyHostFileToCache(call, result)
                 "openHostFile" -> openHostFile(call, result)
+                "shareHostFile" -> shareHostFile(call, result)
+                "deleteHostFile" -> deleteHostFile(call, result)
                 "openLocalFile" -> openLocalFile(call, result)
+                "shareLocalFile" -> shareLocalFile(call, result)
+                "saveFileToDownloads" -> saveFileToDownloads(call, result)
                 "publishMdnsService" -> publishMdnsService(call, result)
                 "stopMdnsService" -> {
                     stopMdnsService()
                     result.success(mapOf("stopped" to true))
                 }
+                "discoverMdnsRooms" -> discoverMdnsRooms(call, result)
                 "startRoomForegroundService" -> {
                     startRoomForegroundService(
                         call.argument<String>("roomName") ?: "Drop Room",
@@ -338,6 +356,22 @@ class MainActivity : FlutterActivity() {
         return candidate
     }
 
+    private fun uniqueName(requestedName: String, existing: Set<String>): String {
+        if (!existing.contains(requestedName)) return requestedName
+        val base = requestedName.substringBeforeLast('.', requestedName)
+        val extension = requestedName.substringAfterLast('.', "")
+        var index = 1
+        while (true) {
+            val candidate = if (extension.isEmpty()) {
+                "$base-$index"
+            } else {
+                "$base-$index.$extension"
+            }
+            if (!existing.contains(candidate)) return candidate
+            index++
+        }
+    }
+
     private fun listHostFolder(call: MethodCall, result: MethodChannel.Result) {
         try {
             val rootUri = call.argument<String>("rootUri") ?: throw IllegalArgumentException("Missing rootUri")
@@ -463,6 +497,42 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun shareHostFile(call: MethodCall, result: MethodChannel.Result) {
+        try {
+            val rootUri = call.argument<String>("rootUri") ?: throw IllegalArgumentException("Missing rootUri")
+            val path = call.argument<String>("path") ?: throw IllegalArgumentException("Missing path")
+            val document = findHostDocument(Uri.parse(rootUri), path)
+                ?: throw IllegalArgumentException("File not found: $path")
+            if (document.isDirectory) throw IllegalArgumentException("Share a file, not a folder.")
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = document.mimeType ?: "application/octet-stream"
+                putExtra(Intent.EXTRA_STREAM, document.uri)
+                clipData = ClipData.newUri(contentResolver, document.name, document.uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "Share ${document.name}"))
+            result.success(mapOf("shared" to true))
+        } catch (error: ActivityNotFoundException) {
+            result.error("SHARE_FILE_UNAVAILABLE", "No app can share this file type.", null)
+        } catch (error: Exception) {
+            result.error("SHARE_FILE_FAILED", error.message, null)
+        }
+    }
+
+    private fun deleteHostFile(call: MethodCall, result: MethodChannel.Result) {
+        try {
+            val rootUri = call.argument<String>("rootUri") ?: throw IllegalArgumentException("Missing rootUri")
+            val path = call.argument<String>("path") ?: throw IllegalArgumentException("Missing path")
+            val document = findHostDocument(Uri.parse(rootUri), path)
+                ?: throw IllegalArgumentException("File not found: $path")
+            if (document.isDirectory) throw IllegalArgumentException("Delete a file, not a folder.")
+            DocumentsContract.deleteDocument(contentResolver, document.uri)
+            result.success(mapOf("deleted" to true))
+        } catch (error: Exception) {
+            result.error("DELETE_FILE_FAILED", error.message, null)
+        }
+    }
+
     private fun openLocalFile(call: MethodCall, result: MethodChannel.Result) {
         try {
             val path = call.argument<String>("path") ?: throw IllegalArgumentException("Missing path")
@@ -486,6 +556,138 @@ class MainActivity : FlutterActivity() {
             result.error("OPEN_FILE_UNAVAILABLE", "No app can open this file type.", null)
         } catch (error: Exception) {
             result.error("OPEN_FILE_FAILED", error.message, null)
+        }
+    }
+
+    private fun shareLocalFile(call: MethodCall, result: MethodChannel.Result) {
+        try {
+            val path = call.argument<String>("path") ?: throw IllegalArgumentException("Missing path")
+            val mimeType = call.argument<String>("mimeType") ?: "application/octet-stream"
+            val file = File(path)
+            if (!file.exists() || !file.isFile) {
+                throw IllegalArgumentException("File not found: $path")
+            }
+            val uri = FileProvider.getUriForFile(
+                this,
+                "$packageName.fileprovider",
+                file
+            )
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = mimeType
+                putExtra(Intent.EXTRA_STREAM, uri)
+                clipData = ClipData.newUri(contentResolver, file.name, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "Share ${file.name}"))
+            result.success(mapOf("shared" to true))
+        } catch (error: ActivityNotFoundException) {
+            result.error("SHARE_FILE_UNAVAILABLE", "No app can share this file type.", null)
+        } catch (error: Exception) {
+            result.error("SHARE_FILE_FAILED", error.message, null)
+        }
+    }
+
+    private fun saveFileToDownloads(call: MethodCall, result: MethodChannel.Result) {
+        try {
+            val path = call.argument<String>("path") ?: throw IllegalArgumentException("Missing path")
+            val source = File(path)
+            if (!source.exists() || !source.isFile) {
+                throw IllegalArgumentException("File not found: $path")
+            }
+            val requestedName = safeName(call.argument<String>("name") ?: source.name)
+            val mimeType = call.argument<String>("mimeType") ?: "application/octet-stream"
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                saveFileToDownloadsMediaStore(source, requestedName, mimeType, result)
+            } else {
+                saveFileToDownloadsLegacy(source, requestedName, result)
+            }
+        } catch (error: Exception) {
+            result.error("SAVE_DOWNLOAD_FAILED", error.message, null)
+        }
+    }
+
+    private fun saveFileToDownloadsMediaStore(
+        source: File,
+        requestedName: String,
+        mimeType: String,
+        result: MethodChannel.Result
+    ) {
+        val relativePath = "${Environment.DIRECTORY_DOWNLOADS}/"
+        val name = uniqueName(requestedName, existingDownloadNames(relativePath))
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: throw IllegalStateException("Could not create a file in Downloads.")
+        try {
+            contentResolver.openOutputStream(uri).use { output ->
+                if (output == null) {
+                    throw IllegalStateException("Could not open the Downloads file.")
+                }
+                FileInputStream(source).use { input -> input.copyTo(output) }
+            }
+            values.clear()
+            values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+            contentResolver.update(uri, values, null, null)
+            result.success(
+                mapOf(
+                    "name" to name,
+                    "location" to "Downloads/$name",
+                    "uri" to uri.toString()
+                )
+            )
+        } catch (error: Exception) {
+            runCatching { contentResolver.delete(uri, null, null) }
+            throw error
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun saveFileToDownloadsLegacy(
+        source: File,
+        requestedName: String,
+        result: MethodChannel.Result
+    ) {
+        val directory = Environment
+            .getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            .apply { mkdirs() }
+        val target = uniqueFile(directory, requestedName)
+        FileInputStream(source).use { input ->
+            FileOutputStream(target).use { output -> input.copyTo(output) }
+        }
+        result.success(
+            mapOf(
+                "name" to target.name,
+                "location" to "Downloads/${target.name}",
+                "path" to target.absolutePath
+            )
+        )
+    }
+
+    private fun existingDownloadNames(relativePath: String): Set<String> {
+        val names = mutableSetOf<String>()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return names
+        return try {
+            contentResolver.query(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
+                "${MediaStore.MediaColumns.RELATIVE_PATH}=?",
+                arrayOf(relativePath),
+                null
+            ).use { cursor ->
+                if (cursor != null) {
+                    val nameIndex = cursor.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
+                    while (cursor.moveToNext() && nameIndex >= 0) {
+                        cursor.getString(nameIndex)?.let { names.add(it) }
+                    }
+                }
+            }
+            names
+        } catch (_: Exception) {
+            names
         }
     }
 
@@ -662,7 +864,7 @@ class MainActivity : FlutterActivity() {
         stopMdnsService()
         try {
             val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            multicastLock = wifiManager.createMulticastLock("erebrus-drop-mdns").apply {
+            publishMulticastLock = wifiManager.createMulticastLock("erebrus-drop-mdns-publish").apply {
                 setReferenceCounted(false)
                 acquire()
             }
@@ -706,12 +908,149 @@ class MainActivity : FlutterActivity() {
         }
         nsdRegistrationListener = null
         nsdManager = null
-        multicastLock?.let { lock ->
+        publishMulticastLock?.let { lock ->
             if (lock.isHeld) {
                 runCatching { lock.release() }
             }
         }
-        multicastLock = null
+        publishMulticastLock = null
+    }
+
+    private fun discoverMdnsRooms(call: MethodCall, result: MethodChannel.Result) {
+        if (discoveryResult != null) {
+            result.error("MDNS_DISCOVERY_BUSY", "Room discovery is already running.", null)
+            return
+        }
+        val serviceTypeArg = call.argument<String>("serviceType") ?: "_erebrusdrop._tcp."
+        val serviceType = if (serviceTypeArg.endsWith(".")) serviceTypeArg else "$serviceTypeArg."
+        val timeoutMillis = (call.argument<Int>("timeoutMillis") ?: 2500).coerceIn(1000, 8000)
+
+        discoveredRooms.clear()
+        resolveQueue.clear()
+        resolvingService = false
+        discoveryResult = result
+
+        try {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            discoveryMulticastLock = wifiManager.createMulticastLock("erebrus-drop-mdns-discovery").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+            val manager = getSystemService(Context.NSD_SERVICE) as NsdManager
+            discoveryManager = manager
+            val listener = object : NsdManager.DiscoveryListener {
+                override fun onDiscoveryStarted(regType: String) = Unit
+
+                override fun onServiceFound(serviceInfo: NsdServiceInfo) {
+                    if (!serviceInfo.serviceType.equals(serviceType, ignoreCase = true)) return
+                    resolveQueue.add(serviceInfo)
+                    resolveNextMdnsService()
+                }
+
+                override fun onServiceLost(serviceInfo: NsdServiceInfo) {
+                    discoveredRooms.remove(serviceInfo.serviceName)
+                }
+
+                override fun onDiscoveryStopped(serviceType: String) = Unit
+
+                override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
+                    finishMdnsDiscovery(error = "Discovery failed: $errorCode")
+                }
+
+                override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
+            }
+            discoveryListener = listener
+            manager.discoverServices(serviceType, NsdManager.PROTOCOL_DNS_SD, listener)
+            mainHandler.postDelayed({ finishMdnsDiscovery() }, timeoutMillis.toLong())
+        } catch (error: Exception) {
+            finishMdnsDiscovery(error = error.message ?: "Could not discover rooms.")
+        }
+    }
+
+    private fun resolveNextMdnsService() {
+        if (resolvingService || discoveryResult == null || resolveQueue.isEmpty()) return
+        resolvingService = true
+        val serviceInfo = resolveQueue.removeFirst()
+        val manager = discoveryManager ?: run {
+            resolvingService = false
+            return
+        }
+        val listener = object : NsdManager.ResolveListener {
+            override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+                resolvingService = false
+                resolveNextMdnsService()
+            }
+
+            override fun onServiceResolved(resolved: NsdServiceInfo) {
+                mdnsRoomMap(resolved)?.let { room ->
+                    val key = "${room["host"]}:${room["port"]}"
+                    discoveredRooms[key] = room
+                }
+                resolvingService = false
+                resolveNextMdnsService()
+            }
+        }
+        try {
+            manager.resolveService(serviceInfo, listener)
+        } catch (_: Exception) {
+            resolvingService = false
+            resolveNextMdnsService()
+        }
+    }
+
+    private fun finishMdnsDiscovery(error: String? = null) {
+        val result = discoveryResult ?: return
+        discoveryResult = null
+        val manager = discoveryManager
+        val listener = discoveryListener
+        if (manager != null && listener != null) {
+            runCatching { manager.stopServiceDiscovery(listener) }
+        }
+        discoveryListener = null
+        discoveryManager = null
+        resolveQueue.clear()
+        resolvingService = false
+        discoveryMulticastLock?.let { lock ->
+            if (lock.isHeld) {
+                runCatching { lock.release() }
+            }
+        }
+        discoveryMulticastLock = null
+        if (error != null) {
+            result.error("MDNS_DISCOVERY_FAILED", error, null)
+            return
+        }
+        result.success(discoveredRooms.values.toList())
+    }
+
+    private fun mdnsRoomMap(serviceInfo: NsdServiceInfo): Map<String, Any?>? {
+        val host = serviceInfo.hostAddress() ?: return null
+        val port = serviceInfo.port
+        if (port <= 0) return null
+        val txt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            serviceInfo.attributes.mapValues { (_, value) ->
+                runCatching { String(value, Charsets.UTF_8) }.getOrDefault("")
+            }
+        } else {
+            emptyMap()
+        }
+        return mapOf(
+            "serviceName" to serviceInfo.serviceName,
+            "host" to host,
+            "port" to port,
+            "url" to "http://$host:$port",
+            "txt" to txt
+        )
+    }
+
+    private fun NsdServiceInfo.hostAddress(): String? {
+        val address: InetAddress? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            hostAddresses.firstOrNull()
+        } else {
+            @Suppress("DEPRECATION")
+            host
+        }
+        return address?.hostAddress
     }
 
     private fun startLocalOnlyHotspot(result: MethodChannel.Result) {

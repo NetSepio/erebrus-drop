@@ -7,21 +7,21 @@
   <style>
     :root {
       color-scheme: dark;
-      --bg: #06111f;
-      --panel: #101c2d;
-      --panel-soft: #142338;
-      --panel-hover: #1a2e47;
-      --line: #28425f;
-      --line-soft: rgba(111, 143, 174, 0.22);
-      --text: #f2f8ff;
-      --muted: #9db1c4;
-      --faint: #6f8194;
-      --cyan: #25d7ff;
-      --blue: #4c7dff;
-      --green: #20d27b;
-      --amber: #f5b94b;
+      --bg: #050505;
+      --panel: #111111;
+      --panel-soft: #1b1b1b;
+      --panel-hover: #252525;
+      --line: #353535;
+      --line-soft: rgba(255, 255, 255, 0.11);
+      --text: #ffffff;
+      --muted: #b8b8b8;
+      --faint: #7a7a7a;
+      --accent: #ff6a2a;
+      --accent-deep: #c93e16;
+      --green: #3fd475;
+      --amber: #ffb14a;
       --red: #f25b5b;
-      --shadow: 0 22px 70px rgba(0, 0, 0, 0.28);
+      --shadow: 0 22px 70px rgba(0, 0, 0, 0.42);
     }
 
     * { box-sizing: border-box; }
@@ -31,8 +31,8 @@
       min-height: 100%;
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background:
-        radial-gradient(circle at 14% 0%, rgba(37, 215, 255, 0.16), transparent 28rem),
-        linear-gradient(135deg, #06111f 0%, #0a1728 44%, #08101d 100%);
+        linear-gradient(150deg, rgba(255, 106, 42, 0.12) 0%, rgba(255, 106, 42, 0.035) 28%, transparent 58%),
+        #050505;
       color: var(--text);
     }
 
@@ -56,8 +56,8 @@
     button:disabled { cursor: not-allowed; opacity: 0.45; transform: none; }
 
     .primary {
-      background: linear-gradient(135deg, var(--cyan), var(--blue));
-      color: #03111e;
+      background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+      color: #050505;
       font-weight: 800;
     }
 
@@ -78,15 +78,15 @@
       width: 100%;
       border: 1px solid var(--line);
       border-radius: 8px;
-      background: #081524;
+      background: #141414;
       color: var(--text);
       padding: 12px 13px;
       outline: none;
     }
 
     input:focus, textarea:focus {
-      border-color: var(--cyan);
-      box-shadow: 0 0 0 3px rgba(37, 215, 255, 0.12);
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(255, 106, 42, 0.16);
     }
 
     textarea { min-height: 150px; resize: vertical; }
@@ -111,7 +111,7 @@
       width: min(460px, 100%);
       border: 1px solid var(--line-soft);
       border-radius: 8px;
-      background: rgba(16, 28, 45, 0.86);
+      background: rgba(17, 17, 17, 0.9);
       box-shadow: var(--shadow);
       padding: 26px;
     }
@@ -129,9 +129,8 @@
       width: 44px;
       height: 44px;
       border-radius: 12px;
-      background: linear-gradient(135deg, var(--cyan), var(--blue));
-      color: #03111e;
-      font-weight: 950;
+      object-fit: cover;
+      box-shadow: 0 10px 26px rgba(255, 106, 42, 0.24);
       flex: 0 0 auto;
     }
 
@@ -142,7 +141,7 @@
     }
 
     .sidebar, .inspector {
-      background: rgba(13, 24, 39, 0.78);
+      background: rgba(13, 13, 13, 0.86);
       backdrop-filter: blur(22px);
       padding: 22px;
     }
@@ -168,9 +167,9 @@
     }
 
     .tab.active {
-      background: rgba(37, 215, 255, 0.13);
-      border-color: rgba(37, 215, 255, 0.28);
-      color: var(--cyan);
+      background: rgba(255, 106, 42, 0.14);
+      border-color: rgba(255, 106, 42, 0.34);
+      color: var(--accent);
     }
 
     .folder-list {
@@ -219,8 +218,8 @@
       min-height: 30px;
       padding: 0 9px;
       background: transparent;
-      color: var(--cyan);
-      border: 1px solid rgba(37, 215, 255, 0.22);
+      color: var(--accent);
+      border: 1px solid rgba(255, 106, 42, 0.28);
     }
 
     .toolbar {
@@ -234,7 +233,7 @@
     .panel {
       border: 1px solid var(--line-soft);
       border-radius: 8px;
-      background: rgba(16, 28, 45, 0.76);
+      background: rgba(17, 17, 17, 0.82);
       box-shadow: 0 10px 40px rgba(0, 0, 0, 0.16);
       overflow: hidden;
     }
@@ -267,8 +266,8 @@
       text-transform: uppercase;
     }
 
-    .file-row:not(.header):hover { background: rgba(37, 215, 255, 0.055); }
-    .file-row.selected { background: rgba(37, 215, 255, 0.1); }
+    .file-row:not(.header):hover { background: rgba(255, 106, 42, 0.07); }
+    .file-row.selected { background: rgba(255, 106, 42, 0.12); }
     .file-row:last-child { border-bottom: 0; }
 
     .select-btn {
@@ -284,9 +283,9 @@
     }
 
     .select-btn.active {
-      background: linear-gradient(135deg, var(--cyan), var(--blue));
+      background: linear-gradient(135deg, var(--accent), var(--accent-deep));
       border-color: transparent;
-      color: #03111e;
+      color: #050505;
     }
 
     .select-placeholder {
@@ -308,8 +307,8 @@
       width: 42px;
       height: 42px;
       border-radius: 8px;
-      background: rgba(37, 215, 255, 0.11);
-      color: var(--cyan);
+      background: rgba(255, 106, 42, 0.13);
+      color: var(--accent);
       flex: 0 0 auto;
     }
 
@@ -362,16 +361,16 @@
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      border: 1px solid rgba(37, 215, 255, 0.28);
+      border: 1px solid rgba(255, 106, 42, 0.34);
       border-radius: 8px;
-      background: rgba(37, 215, 255, 0.08);
+      background: rgba(255, 106, 42, 0.1);
       padding: 10px 12px;
     }
 
     .transfer-card {
-      border: 1px solid rgba(37, 215, 255, 0.28);
+      border: 1px solid rgba(255, 106, 42, 0.34);
       border-radius: 8px;
-      background: rgba(37, 215, 255, 0.08);
+      background: rgba(255, 106, 42, 0.1);
       padding: 12px;
       display: grid;
       gap: 8px;
@@ -396,7 +395,7 @@
       width: 0%;
       height: 100%;
       border-radius: inherit;
-      background: linear-gradient(90deg, var(--cyan), var(--green));
+      background: linear-gradient(90deg, var(--accent), var(--green));
       transition: width 160ms ease;
     }
 
@@ -414,9 +413,9 @@
       place-items: center;
       gap: 12px;
       min-height: 260px;
-      border: 1px dashed rgba(37, 215, 255, 0.45);
+      border: 1px dashed rgba(255, 106, 42, 0.48);
       border-radius: 8px;
-      background: rgba(37, 215, 255, 0.06);
+      background: rgba(255, 106, 42, 0.07);
       padding: 28px;
       text-align: center;
     }
@@ -435,7 +434,7 @@
     .media-card {
       border: 1px solid var(--line-soft);
       border-radius: 8px;
-      background: rgba(16, 28, 45, 0.78);
+      background: rgba(17, 17, 17, 0.82);
       padding: 14px;
       display: grid;
       gap: 14px;
@@ -447,8 +446,8 @@
       place-items: center;
       height: 78px;
       border-radius: 8px;
-      background: linear-gradient(135deg, rgba(37, 215, 255, 0.13), rgba(76, 125, 255, 0.12));
-      color: var(--cyan);
+      background: linear-gradient(135deg, rgba(255, 106, 42, 0.16), rgba(201, 62, 22, 0.12));
+      color: var(--accent);
     }
 
     .storage-ring {
@@ -460,8 +459,8 @@
       display: grid;
       place-items: center;
       background:
-        radial-gradient(circle at center, #101c2d 0 58%, transparent 59%),
-        conic-gradient(var(--cyan) var(--pct), rgba(255, 255, 255, 0.08) 0);
+        radial-gradient(circle at center, #111111 0 58%, transparent 59%),
+        conic-gradient(var(--accent) var(--pct), rgba(255, 255, 255, 0.08) 0);
       border: 1px solid var(--line-soft);
     }
 
@@ -575,7 +574,7 @@
         margin-bottom: 10px;
         border: 1px solid var(--line-soft);
         border-radius: 8px;
-        background: rgba(16, 28, 45, 0.72);
+        background: rgba(17, 17, 17, 0.82);
         padding: 12px;
       }
       .file-row.header {
@@ -607,7 +606,7 @@
   <section id="login" class="login-shell">
     <div class="login stack">
       <div class="brand">
-        <div class="mark">ED</div>
+        <img class="mark" src="/logo.png" alt="" aria-hidden="true">
         <div>
           <strong>Erebrus Drop</strong>
           <div class="muted" id="login-room">Private Drop Room</div>
@@ -628,7 +627,7 @@
   <section id="app" class="shell hidden">
     <aside class="sidebar">
       <div class="brand">
-        <div class="mark">ED</div>
+        <img class="mark" src="/logo.png" alt="" aria-hidden="true">
         <div style="min-width: 0;">
           <strong id="room-name">Erebrus Drop</strong>
           <div class="muted" id="device-name"></div>
