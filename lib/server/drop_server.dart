@@ -158,6 +158,54 @@ class DropServer {
     );
   }
 
+  Future<void> shareFile(DropFileItem item) async {
+    final session = _requireSession();
+    if (item.type == 'folder') {
+      throw const FileSystemException('Share a file, not a folder.');
+    }
+    if (session.usesExternalHostFolder) {
+      await _hostFolderBridge.shareFile(
+        rootUri: session.hostFolderUri!,
+        path: item.path,
+      );
+      return;
+    }
+    final entity = _entityFromId(item.id);
+    if (entity is! File || !await entity.exists()) {
+      throw const FileSystemException('File was not found.');
+    }
+    await _hostFolderBridge.shareLocalFile(
+      path: entity.path,
+      name: item.name,
+      mimeType: item.mimeType ?? _mimeType(entity.path),
+    );
+  }
+
+  Future<void> deleteFile(DropFileItem item) async {
+    final session = _requireSession();
+    if (item.type == 'folder') {
+      throw const FileSystemException('Delete a file, not a folder.');
+    }
+    if (session.usesExternalHostFolder) {
+      await _hostFolderBridge.deleteFile(
+        rootUri: session.hostFolderUri!,
+        path: item.path,
+      );
+      _folderUsageScanGeneration++;
+      _folderUsageCache = null;
+      _folderUsageRescanRequested = false;
+      _invalidateStorageSnapshot();
+      _scheduleFolderUsageScan(force: true);
+      return;
+    }
+    final entity = _entityFromId(item.id);
+    if (entity is! File || !await entity.exists()) {
+      throw const FileSystemException('File was not found.');
+    }
+    await entity.delete();
+    _invalidateStorageSnapshot();
+  }
+
   Future<StorageSnapshot> storageSnapshot() async {
     final cached = _lastStorageSnapshot;
     final cachedAt = _lastStorageSnapshotAt;
@@ -506,6 +554,10 @@ class DropServer {
         await _serveIndex(request);
         return;
       }
+      if (path == '/logo.png' && request.method == 'GET') {
+        await _serveClientAsset(request, 'logo.png');
+        return;
+      }
       if (path == '/api/room' && request.method == 'GET') {
         await _json(request, _roomJson());
         return;
@@ -677,6 +729,16 @@ class DropServer {
       ..headers.contentType = ContentType.html
       ..headers.set(HttpHeaders.cacheControlHeader, 'no-store')
       ..write(html);
+    await request.response.close();
+  }
+
+  Future<void> _serveClientAsset(HttpRequest request, String name) async {
+    final bytes = await rootBundle.load('assets/web/drop_client/$name');
+    request.response
+      ..statusCode = HttpStatus.ok
+      ..headers.contentType = ContentType.parse(_mimeType(name))
+      ..headers.set(HttpHeaders.cacheControlHeader, 'public, max-age=3600')
+      ..add(bytes.buffer.asUint8List());
     await request.response.close();
   }
 
@@ -900,6 +962,8 @@ class DropServer {
       'roomId': session.id,
       'roomName': session.name,
       'deviceName': session.deviceName,
+      'devicePlatform': Platform.operatingSystem,
+      'deviceType': Platform.isAndroid || Platform.isIOS ? 'phone' : 'desktop',
       'authRequired': session.authRequired,
       'permissions': session.permission.apiValues,
       'serverVersion': '1.0.0',

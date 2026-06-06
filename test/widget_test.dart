@@ -1,9 +1,37 @@
 import 'package:erebrus_drop/app.dart';
+import 'package:erebrus_drop/features/onboarding/onboarding_screen.dart';
+import 'package:erebrus_drop/ui/theme/drop_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('onboarding adapts to landscape Android screens', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(872, 393));
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetDevicePixelRatio();
+      return tester.binding.setSurfaceSize(null);
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: DropTheme.dark(),
+        home: OnboardingScreen(onComplete: () async {}),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Create a private Drop Room'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.drag(find.byType(PageView), const Offset(-700, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Guests can join from browser'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('shows Erebrus Drop home actions', (tester) async {
     await tester.pumpWidget(const ErebrusDropApp(skipOnboarding: true));
     await tester.pump();
@@ -21,6 +49,8 @@ void main() {
       const Size(360, 640),
       const Size(360, 780),
       const Size(393, 851),
+      const Size(640, 360),
+      const Size(872, 393),
       const Size(800, 1280),
     ];
 
@@ -50,45 +80,40 @@ void main() {
     }
   });
 
-  testWidgets(
-    'shows one hotspot guide action when app hotspot is unavailable',
-    (tester) async {
-      const channel = MethodChannel('com.erebrus.drop/network');
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
-        call,
-      ) async {
-        if (call.method == 'isLocalOnlyHotspotSupported') {
-          return {
-            'supported': false,
-            'started': false,
-            'reason': 'Use system Settings to enable a hotspot.',
-          };
-        }
-        if (call.method == 'getDeviceName') {
-          return 'Test Phone';
-        }
-        return null;
-      });
-      addTearDown(() {
-        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          channel,
-          null,
-        );
-      });
+  testWidgets('shows hotspot guide when no Wi-Fi or hotspot is available', (
+    tester,
+  ) async {
+    const channel = MethodChannel('com.erebrus.drop/network');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+      call,
+    ) async {
+      if (call.method == 'getCurrentNetworkStatus') {
+        return {'mode': 'unavailable', 'address': null, 'interface': null};
+      }
+      if (call.method == 'getDeviceName') {
+        return 'Test Phone';
+      }
+      return null;
+    });
+    addTearDown(() {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        channel,
+        null,
+      );
+    });
 
-      await tester.pumpWidget(const ErebrusDropApp(skipOnboarding: true));
-      await tester.pump();
+    await tester.pumpWidget(const ErebrusDropApp(skipOnboarding: true));
+    await tester.pump();
 
-      await tester.tap(find.text('Start Drop Room'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('Start Drop Room'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
 
-      expect(find.text('Network'), findsOneWidget);
-      expect(find.text('Hotspot Guide'), findsOneWidget);
-      expect(find.text('Create Local Hotspot'), findsNothing);
-      expect(find.text('Stop Hotspot'), findsNothing);
-    },
-  );
+    expect(find.text('Create a hotspot first'), findsOneWidget);
+    expect(find.text('Hotspot Guide'), findsOneWidget);
+    expect(find.text('Create Local Hotspot'), findsNothing);
+    expect(find.text('Stop Hotspot'), findsNothing);
+  });
 
   testWidgets('shows drop QR dialog on compact Android screens', (
     tester,

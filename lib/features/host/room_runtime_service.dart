@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/drop_models.dart';
@@ -30,14 +31,18 @@ class RoomRuntimeService {
   Future<void> publishMdnsRoom(DropRoomSession session) async {
     await _channel.invokeMethod<Object?>('publishMdnsService', {
       'serviceType': '_erebrusdrop._tcp.',
-      'serviceName': session.name,
+      'serviceName': session.deviceName.trim().isEmpty
+          ? session.name
+          : session.deviceName,
       'port': session.port,
       'txt': {
         'roomId': session.id,
         'roomName': session.name,
         'deviceName': session.deviceName,
+        'devicePlatform': _platformName(),
+        'deviceType': _deviceType(),
         'auth': session.authRequired ? 'required' : 'open',
-        'version': '1.0.0',
+        'version': '1',
         'caps': session.permission.apiValues.join(','),
       },
     });
@@ -49,5 +54,22 @@ class RoomRuntimeService {
 
   Future<void> moveAppToBackground() async {
     await _channel.invokeMethod<Object?>('moveAppToBackground');
+  }
+
+  String _platformName() {
+    if (defaultTargetPlatform == TargetPlatform.android) return 'android';
+    if (defaultTargetPlatform == TargetPlatform.iOS) return 'ios';
+    if (defaultTargetPlatform == TargetPlatform.macOS) return 'macos';
+    if (defaultTargetPlatform == TargetPlatform.windows) return 'windows';
+    if (defaultTargetPlatform == TargetPlatform.linux) return 'linux';
+    return 'unknown';
+  }
+
+  String _deviceType() {
+    if (defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS) {
+      return 'phone';
+    }
+    return 'desktop';
   }
 }

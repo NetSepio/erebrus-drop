@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../ui/theme/drop_theme.dart';
+
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({required this.onComplete, super.key});
 
@@ -16,17 +18,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   static const List<_OnboardingSlide> _slides = [
     _OnboardingSlide(
-      icon: Icons.wifi_tethering_outlined,
       title: 'Create a private Drop Room',
       body: 'Share files and text on your local network.',
     ),
     _OnboardingSlide(
-      icon: Icons.language_outlined,
       title: 'Guests can join from browser',
       body: 'No app install required for nearby devices.',
     ),
     _OnboardingSlide(
-      icon: Icons.cloud_off_outlined,
       title: 'No cloud. No account.',
       body: 'Your data stays on your devices.',
     ),
@@ -43,90 +42,70 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final isLast = _page == _slides.length - 1;
     return Scaffold(
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(22),
-          child: Column(
-            children: [
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: _saving ? null : _complete,
-                  child: const Text('Skip'),
-                ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact =
+                constraints.maxHeight < 430 ||
+                constraints.maxWidth > constraints.maxHeight * 1.45;
+            return Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: compact ? 16 : 22,
+                vertical: compact ? 10 : 22,
               ),
-              Expanded(
-                child: PageView.builder(
-                  controller: _controller,
-                  itemCount: _slides.length,
-                  onPageChanged: (page) => setState(() => _page = page),
-                  itemBuilder: (context, index) {
-                    final slide = _slides[index];
-                    return Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          width: 92,
-                          height: 92,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(24),
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF25D7FF), Color(0xFF4C7DFF)],
-                            ),
-                          ),
-                          child: Icon(
-                            slide.icon,
-                            size: 44,
-                            color: const Color(0xFF07111F),
-                          ),
-                        ),
-                        const SizedBox(height: 28),
-                        Text(
-                          slide.title,
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.headlineMedium
-                              ?.copyWith(fontWeight: FontWeight.w900),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          slide.body,
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(
-                  _slides.length,
-                  (index) => AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
-                    width: index == _page ? 26 : 8,
-                    height: 8,
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(999),
-                      color: index == _page
-                          ? Theme.of(context).colorScheme.primary
-                          : Colors.white24,
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: compact ? 36 : 48,
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        style: compact
+                            ? TextButton.styleFrom(
+                                minimumSize: const Size(64, 34),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                visualDensity: VisualDensity.compact,
+                              )
+                            : null,
+                        onPressed: _saving ? null : _complete,
+                        child: const Text('Skip'),
+                      ),
                     ),
                   ),
-                ),
+                  Expanded(
+                    child: PageView.builder(
+                      controller: _controller,
+                      itemCount: _slides.length,
+                      onPageChanged: (page) => setState(() => _page = page),
+                      itemBuilder: (context, index) {
+                        return _SlideContent(slide: _slides[index]);
+                      },
+                    ),
+                  ),
+                  if (compact)
+                    _CompactControls(
+                      page: _page,
+                      slideCount: _slides.length,
+                      isLast: isLast,
+                      saving: _saving,
+                      onPressed: isLast ? _complete : _next,
+                    )
+                  else ...[
+                    _PageDots(page: _page, slideCount: _slides.length),
+                    const SizedBox(height: 18),
+                    FilledButton.icon(
+                      onPressed: _saving
+                          ? null
+                          : isLast
+                          ? _complete
+                          : _next,
+                      icon: Icon(isLast ? Icons.check : Icons.arrow_forward),
+                      label: Text(isLast ? 'Start Dropping' : 'Next'),
+                    ),
+                  ],
+                ],
               ),
-              const SizedBox(height: 18),
-              FilledButton.icon(
-                onPressed: _saving
-                    ? null
-                    : isLast
-                    ? _complete
-                    : _next,
-                icon: Icon(isLast ? Icons.check : Icons.arrow_forward),
-                label: Text(isLast ? 'Start Dropping' : 'Next'),
-              ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
@@ -145,14 +124,180 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 }
 
-class _OnboardingSlide {
-  const _OnboardingSlide({
-    required this.icon,
-    required this.title,
-    required this.body,
+class _SlideContent extends StatelessWidget {
+  const _SlideContent({required this.slide});
+
+  final _OnboardingSlide slide;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact =
+            constraints.maxHeight < 260 ||
+            constraints.maxWidth > constraints.maxHeight * 1.8;
+        final logoSize = compact ? 68.0 : 92.0;
+        final titleStyle =
+            (compact
+                    ? Theme.of(context).textTheme.headlineSmall
+                    : Theme.of(context).textTheme.headlineMedium)
+                ?.copyWith(fontWeight: FontWeight.w900);
+        final bodyStyle = compact
+            ? Theme.of(context).textTheme.bodyLarge
+            : Theme.of(context).textTheme.titleMedium;
+
+        final logo = _DropLogo(size: logoSize);
+        final copy = Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: compact
+              ? CrossAxisAlignment.start
+              : CrossAxisAlignment.center,
+          children: [
+            Text(
+              slide.title,
+              textAlign: compact ? TextAlign.start : TextAlign.center,
+              style: titleStyle,
+            ),
+            SizedBox(height: compact ? 8 : 12),
+            Text(
+              slide.body,
+              textAlign: compact ? TextAlign.start : TextAlign.center,
+              style: bodyStyle,
+            ),
+          ],
+        );
+
+        final content = compact
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  logo,
+                  const SizedBox(width: 22),
+                  Flexible(child: copy),
+                ],
+              )
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [logo, const SizedBox(height: 28), copy],
+              );
+
+        return SingleChildScrollView(
+          physics: const ClampingScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 8),
+                child: content,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _DropLogo extends StatelessWidget {
+  const _DropLogo({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(size * 0.26),
+        boxShadow: [
+          BoxShadow(
+            color: DropTheme.orange.withValues(alpha: 0.28),
+            blurRadius: size * 0.3,
+            offset: Offset(0, size * 0.15),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Image.asset(
+        DropTheme.logoAsset,
+        fit: BoxFit.cover,
+        semanticLabel: 'Erebrus Drop logo',
+      ),
+    );
+  }
+}
+
+class _CompactControls extends StatelessWidget {
+  const _CompactControls({
+    required this.page,
+    required this.slideCount,
+    required this.isLast,
+    required this.saving,
+    required this.onPressed,
   });
 
-  final IconData icon;
+  final int page;
+  final int slideCount;
+  final bool isLast;
+  final bool saving;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _PageDots(page: page, slideCount: slideCount),
+        ),
+        FilledButton.icon(
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(108, 38),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            visualDensity: VisualDensity.compact,
+          ),
+          onPressed: saving ? null : onPressed,
+          icon: Icon(isLast ? Icons.check : Icons.arrow_forward, size: 18),
+          label: Text(isLast ? 'Start Dropping' : 'Next'),
+        ),
+      ],
+    );
+  }
+}
+
+class _PageDots extends StatelessWidget {
+  const _PageDots({required this.page, required this.slideCount});
+
+  final int page;
+  final int slideCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(
+        slideCount,
+        (index) => AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          width: index == page ? 26 : 8,
+          height: 8,
+          margin: const EdgeInsets.symmetric(horizontal: 4),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(999),
+            color: index == page
+                ? Theme.of(context).colorScheme.primary
+                : Colors.white24,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OnboardingSlide {
+  const _OnboardingSlide({required this.title, required this.body});
+
   final String title;
   final String body;
 }

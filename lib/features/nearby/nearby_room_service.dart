@@ -1,10 +1,69 @@
+import 'package:flutter/services.dart';
+
 import '../../features/join/join_room_service.dart';
 
 class NearbyRoomService {
-  static const serviceType = '_erebrusdrop._tcp';
+  NearbyRoomService({JoinRoomService? joinRoomService})
+    : _joinRoomService = joinRoomService ?? JoinRoomService();
+
+  static const serviceType = '_erebrusdrop._tcp.';
+  static const MethodChannel _channel = MethodChannel(
+    'com.erebrus.drop/network',
+  );
+
+  final JoinRoomService _joinRoomService;
+
+  Future<List<JoinRoomPreview>> discoverRooms({
+    Duration timeout = const Duration(milliseconds: 2500),
+  }) async {
+    try {
+      final result = await _channel.invokeMethod<List<Object?>>(
+        'discoverMdnsRooms',
+        {'serviceType': serviceType, 'timeoutMillis': timeout.inMilliseconds},
+      );
+      final urls = (result ?? const <Object?>[])
+          .whereType<Map<Object?, Object?>>()
+          .map(_urlFromDiscoveryMap)
+          .whereType<String>()
+          .toSet();
+      final previews = <JoinRoomPreview>[];
+      for (final url in urls) {
+        try {
+          previews.add(await _joinRoomService.preview(url));
+        } catch (_) {
+          // Stale or unreachable mDNS records are ignored.
+        }
+      }
+      previews.sort((left, right) {
+        return left.roomName.toLowerCase().compareTo(
+          right.roomName.toLowerCase(),
+        );
+      });
+      return previews;
+    } on PlatformException {
+      return const <JoinRoomPreview>[];
+    } on MissingPluginException {
+      return const <JoinRoomPreview>[];
+    }
+  }
 
   Stream<List<JoinRoomPreview>> watchRooms() {
-    // mDNS/DNS-SD plugin integration belongs here.
-    return Stream<List<JoinRoomPreview>>.value(const <JoinRoomPreview>[]);
+    return Stream<void>.periodic(
+      const Duration(seconds: 5),
+      (_) {},
+    ).asyncMap((_) => discoverRooms());
+  }
+
+  String? _urlFromDiscoveryMap(Map<Object?, Object?> map) {
+    final url = map['url']?.toString().trim();
+    if (url != null && url.isNotEmpty) {
+      return url;
+    }
+    final host = map['host']?.toString().trim();
+    final port = map['port'];
+    if (host == null || host.isEmpty || port == null) {
+      return null;
+    }
+    return 'http://$host:$port';
   }
 }

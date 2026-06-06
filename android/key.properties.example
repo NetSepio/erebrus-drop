@@ -1,0 +1,10 @@
+# Copy this file to android/key.properties and fill in your local release signing values.
+# Do not commit android/key.properties or keystore files.
+#
+# Example keystore generation command, run only when you are ready:
+# keytool -genkey -v -keystore ../release-keys/erebrus-drop-upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias erebrus-drop-upload
+
+storePassword=REPLACE_WITH_KEYSTORE_PASSWORD
+keyPassword=REPLACE_WITH_KEY_PASSWORD
+keyAlias=erebrus-drop-upload
+storeFile=../release-keys/erebrus-drop-upload.jks
