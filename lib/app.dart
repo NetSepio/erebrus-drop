@@ -144,6 +144,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   String? _libraryError;
   List<DropFileItem> _files = <DropFileItem>[];
   Timer? _refreshTimer;
+  DateTime _lastNearbyDiscovery = DateTime.fromMillisecondsSinceEpoch(0);
 
   DropRoomSession? get _session => _server.session;
 
@@ -162,6 +163,13 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (_server.isRunning && _appInForeground) {
         unawaited(_refreshRoomData());
+      }
+      if (_tab == 1 && _appInForeground && !_discoveringRooms) {
+        final now = DateTime.now();
+        if (now.difference(_lastNearbyDiscovery) >=
+            const Duration(seconds: 10)) {
+          unawaited(_discoverNearbyRooms(silent: true));
+        }
       }
     });
   }
@@ -1130,7 +1138,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     return Card(
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
-        onTap: () => _openJoinRoomDetail(preview),
+        onTap: () => unawaited(_openJoinRoomDetail(preview)),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Row(
@@ -1205,29 +1213,31 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     _foundJoinRooms = [preview, ..._foundJoinRooms].take(5).toList();
   }
 
-  Future<void> _discoverNearbyRooms() async {
+  Future<void> _discoverNearbyRooms({bool silent = false}) async {
     if (_discoveringRooms) return;
+    _lastNearbyDiscovery = DateTime.now();
     _setJoinState(() {
       _discoveringRooms = true;
-      _nearbyDiscoveryMessage = null;
+      if (!silent) {
+        _nearbyDiscoveryMessage = null;
+      }
     });
     try {
       final rooms = await _nearbyRoomService.discoverRooms();
       if (!mounted) return;
       final ownSession = _session;
-      var added = 0;
+      final visibleRooms = rooms
+          .where(
+            (room) =>
+                ownSession?.id != room.roomId &&
+                ownSession?.baseUrl != room.baseUrl,
+          )
+          .toList();
       _setJoinState(() {
-        for (final room in rooms) {
-          if (ownSession?.id == room.roomId ||
-              ownSession?.baseUrl == room.baseUrl) {
-            continue;
-          }
-          _rememberFoundRoom(room);
-          added++;
-        }
-        _nearbyDiscoveryMessage = rooms.isEmpty || added == 0
+        _foundJoinRooms = visibleRooms.take(5).toList();
+        _nearbyDiscoveryMessage = visibleRooms.isEmpty
             ? 'No other Drop Rooms found on this network.'
-            : 'Found $added Drop Room${added == 1 ? '' : 's'} nearby.';
+            : 'Found ${visibleRooms.length} Drop Room${visibleRooms.length == 1 ? '' : 's'} nearby.';
       });
     } catch (error) {
       if (mounted) {
@@ -1242,7 +1252,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     }
   }
 
-  void _openJoinRoomDetail(JoinRoomPreview preview) {
+  Future<void> _openJoinRoomDetail(JoinRoomPreview preview) async {
     _setJoinState(() {
       if (_joinPreview?.baseUrl != preview.baseUrl) {
         _joinSession = null;
@@ -1255,7 +1265,17 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       _joinPreview = preview;
       _rememberFoundRoom(preview);
     });
-    Navigator.of(context).push(
+
+    if (preview.authRequired) {
+      final password = await _promptJoinPassword(preview);
+      if (!mounted || password == null) return;
+      _joinPassword.text = password;
+    }
+
+    final joined = await _loginJoinRoom();
+    if (!mounted || !joined) return;
+
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ValueListenableBuilder<int>(
           valueListenable: _joinUiVersion,
@@ -1273,7 +1293,9 @@ class _DropHomeScreenState extends State<DropHomeScreen>
               folderNameController: _joinFolderName,
               textTitleController: _joinTextTitle,
               textBodyController: _joinTextBody,
-              onJoin: _loginJoinRoom,
+              onJoin: () async {
+                await _loginJoinRoom();
+              },
               onRefresh: _loadJoinedFiles,
               onUpFolder: _joinedUpFolder,
               onUploadFiles: _pickAndUploadJoinedFiles,
@@ -1290,6 +1312,59 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         ),
       ),
     );
+    _disconnectJoinedRoom(preview);
+  }
+
+  Future<String?> _promptJoinPassword(JoinRoomPreview preview) async {
+    _joinPassword.clear();
+    return showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(preview.roomName),
+          content: TextField(
+            controller: _joinPassword,
+            autofocus: true,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: 'Room password'),
+            onSubmitted: (value) {
+              final password = value.trim();
+              if (password.isNotEmpty) {
+                Navigator.of(context).pop(password);
+              }
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final password = _joinPassword.text.trim();
+                if (password.isNotEmpty) {
+                  Navigator.of(context).pop(password);
+                }
+              },
+              child: const Text('Join'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _disconnectJoinedRoom(JoinRoomPreview preview) {
+    if (_joinPreview?.baseUrl != preview.baseUrl) return;
+    _setJoinState(() {
+      _joinPreview = null;
+      _joinSession = null;
+      _joinItems = <DropFileItem>[];
+      _joinPath = '/';
+      _joinActivity = null;
+      _joinTransfer = null;
+      _joinPassword.clear();
+    });
   }
 
   String _initialJoinPath(JoinRoomPreview preview) {
@@ -2193,11 +2268,11 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     }
   }
 
-  Future<void> _loginJoinRoom() async {
+  Future<bool> _loginJoinRoom() async {
     final preview = _joinPreview;
     if (preview == null) {
       await _previewJoinRoom();
-      return;
+      return false;
     }
     _setJoinState(() => _joining = true);
     try {
@@ -2205,15 +2280,17 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         baseUrl: preview.baseUrl,
         password: preview.authRequired ? _joinPassword.text : '',
       );
-      if (!mounted) return;
+      if (!mounted) return false;
       _setJoinState(() {
         _joinSession = joinSession;
         _joinPath = _initialJoinPath(preview);
       });
       _snack('Joined ${preview.roomName}');
       await _loadJoinedFiles();
+      return true;
     } catch (error) {
       if (mounted) _snack('Could not join room: $error');
+      return false;
     } finally {
       if (mounted) _setJoinState(() => _joining = false);
     }
@@ -3056,37 +3133,40 @@ class _JoinedFileTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isFolder = item.type == 'folder';
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
         color: DropTheme.surfaceHigh,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: ListTile(
-        leading: Icon(
-          isFolder
-              ? Icons.folder_outlined
-              : item.streamable
-              ? Icons.play_circle_outline
-              : Icons.insert_drive_file_outlined,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: const BorderSide(color: Colors.white12),
         ),
-        title: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-        subtitle: Text(
-          isFolder
-              ? item.path
-              : '${formatBytes(item.sizeBytes)} · ${item.mimeType ?? 'file'}',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+        clipBehavior: Clip.antiAlias,
+        child: ListTile(
+          leading: Icon(
+            isFolder
+                ? Icons.folder_outlined
+                : item.streamable
+                ? Icons.play_circle_outline
+                : Icons.insert_drive_file_outlined,
+          ),
+          title: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: Text(
+            isFolder
+                ? item.path
+                : '${formatBytes(item.sizeBytes)} · ${item.mimeType ?? 'file'}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: isFolder
+              ? const Icon(Icons.chevron_right)
+              : IconButton(
+                  onPressed: () => onDownload(item),
+                  icon: const Icon(Icons.download_outlined),
+                  tooltip: 'Download',
+                ),
+          onTap: isFolder ? () => onFolderTap(item) : null,
         ),
-        trailing: isFolder
-            ? const Icon(Icons.chevron_right)
-            : IconButton(
-                onPressed: () => onDownload(item),
-                icon: const Icon(Icons.download_outlined),
-                tooltip: 'Download',
-              ),
-        onTap: isFolder ? () => onFolderTap(item) : null,
       ),
     );
   }
