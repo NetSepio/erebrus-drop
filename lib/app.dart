@@ -20,7 +20,7 @@ import 'features/onboarding/onboarding_store.dart';
 import 'server/drop_server.dart';
 import 'ui/theme/drop_theme.dart';
 
-const String _appVersion = '1.0.0+1';
+const String _appVersion = '1.0.1+2';
 const String _supportEmail = 'support@netsepio.com';
 
 class ErebrusDropApp extends StatefulWidget {
