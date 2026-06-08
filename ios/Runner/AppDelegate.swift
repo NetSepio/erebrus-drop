@@ -1,4 +1,5 @@
 import Flutter
+import AVFoundation
 import Darwin
 import Foundation
 import QuickLook
@@ -15,6 +16,7 @@ import UIKit
   private var discoveredRooms: [String: [String: Any]] = [:]
   private var pendingHostFolderResult: FlutterResult?
   private var pendingUploadPickResult: FlutterResult?
+  private var pendingQrScanResult: FlutterResult?
   private var documentInteractionController: UIDocumentInteractionController?
   private var quickLookPreviewURL: URL?
 
@@ -34,6 +36,18 @@ import UIKit
       name: "com.erebrus.drop/network",
       binaryMessenger: registrar.messenger()
     )
+    let qrScannerChannel = FlutterMethodChannel(
+      name: "com.erebrus.drop/qr_scanner",
+      binaryMessenger: registrar.messenger()
+    )
+    qrScannerChannel.setMethodCallHandler { call, result in
+      switch call.method {
+      case "scanQrCode":
+        self.scanQrCode(result: result)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
     channel.setMethodCallHandler { call, result in
       switch call.method {
       case "getDeviceName":
@@ -109,6 +123,59 @@ import UIKit
         result(FlutterMethodNotImplemented)
       }
     }
+  }
+
+  private func scanQrCode(result: @escaping FlutterResult) {
+    if pendingQrScanResult != nil {
+      result(FlutterError(
+        code: "SCAN_IN_PROGRESS",
+        message: "A QR scanner is already open.",
+        details: nil
+      ))
+      return
+    }
+    pendingQrScanResult = result
+    switch AVCaptureDevice.authorizationStatus(for: .video) {
+    case .authorized:
+      presentQrScanner()
+    case .notDetermined:
+      AVCaptureDevice.requestAccess(for: .video) { allowed in
+        DispatchQueue.main.async {
+          if allowed {
+            self.presentQrScanner()
+          } else {
+            self.finishQrScan(errorCode: "CAMERA_PERMISSION_DENIED", message: "Camera permission is required to scan a Drop Code.")
+          }
+        }
+      }
+    default:
+      finishQrScan(errorCode: "CAMERA_PERMISSION_DENIED", message: "Camera permission is required to scan a Drop Code.")
+    }
+  }
+
+  private func presentQrScanner() {
+    guard let presenter = topViewController() else {
+      finishQrScan(errorCode: "CAMERA_UNAVAILABLE", message: "The camera scanner could not start on this device.")
+      return
+    }
+    let scanner = NativeQrScannerViewController()
+    scanner.modalPresentationStyle = .fullScreen
+    scanner.onFinish = { [weak self] code in
+      self?.finishQrScan(code: code)
+    }
+    presenter.present(scanner, animated: true)
+  }
+
+  private func finishQrScan(code: String? = nil, errorCode: String? = nil, message: String? = nil) {
+    guard let result = pendingQrScanResult else {
+      return
+    }
+    pendingQrScanResult = nil
+    if let errorCode {
+      result(FlutterError(code: errorCode, message: message, details: nil))
+      return
+    }
+    result(code)
   }
 
   func documentPicker(
@@ -1069,5 +1136,151 @@ import UIKit
         ? Int64(values?.volumeTotalCapacity ?? 0)
         : fallbackTotal?.int64Value ?? 0
     ]
+  }
+}
+
+final class NativeQrScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
+  var onFinish: ((String?) -> Void)?
+  private let session = AVCaptureSession()
+  private var previewLayer: AVCaptureVideoPreviewLayer?
+  private var didFinish = false
+
+  override func viewDidLoad() {
+    super.viewDidLoad()
+    view.backgroundColor = .black
+    buildUi()
+    startSession()
+  }
+
+  override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+    previewLayer?.frame = view.bounds
+  }
+
+  override func viewWillDisappear(_ animated: Bool) {
+    super.viewWillDisappear(animated)
+    session.stopRunning()
+  }
+
+  private func startSession() {
+    guard let device = AVCaptureDevice.default(for: .video) else {
+      finish(code: nil)
+      return
+    }
+    do {
+      let input = try AVCaptureDeviceInput(device: device)
+      if session.canAddInput(input) {
+        session.addInput(input)
+      }
+      let output = AVCaptureMetadataOutput()
+      if session.canAddOutput(output) {
+        session.addOutput(output)
+        output.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
+        output.metadataObjectTypes = [.qr]
+      }
+      let layer = AVCaptureVideoPreviewLayer(session: session)
+      layer.videoGravity = .resizeAspectFill
+      layer.frame = view.bounds
+      view.layer.insertSublayer(layer, at: 0)
+      previewLayer = layer
+      DispatchQueue.global(qos: .userInitiated).async {
+        self.session.startRunning()
+      }
+    } catch {
+      finish(code: nil)
+    }
+  }
+
+  private func buildUi() {
+    let topBar = UIView()
+    topBar.translatesAutoresizingMaskIntoConstraints = false
+    topBar.backgroundColor = UIColor(red: 0.06, green: 0.06, blue: 0.06, alpha: 1)
+    view.addSubview(topBar)
+
+    let title = UILabel()
+    title.translatesAutoresizingMaskIntoConstraints = false
+    title.text = "Scan Drop Code"
+    title.textColor = .white
+    title.font = .systemFont(ofSize: 26, weight: .regular)
+    topBar.addSubview(title)
+
+    let close = UIButton(type: .system)
+    close.translatesAutoresizingMaskIntoConstraints = false
+    close.setTitle("‹", for: .normal)
+    close.setTitleColor(.white, for: .normal)
+    close.titleLabel?.font = .systemFont(ofSize: 48, weight: .regular)
+    close.accessibilityLabel = "Back"
+    close.addTarget(self, action: #selector(cancel), for: .touchUpInside)
+    topBar.addSubview(close)
+
+    let frame = UIView()
+    frame.translatesAutoresizingMaskIntoConstraints = false
+    frame.layer.borderColor = UIColor(red: 1, green: 0.41, blue: 0.16, alpha: 1).cgColor
+    frame.layer.borderWidth = 4
+    frame.layer.cornerRadius = 24
+    view.addSubview(frame)
+
+    let guide = UILabel()
+    guide.translatesAutoresizingMaskIntoConstraints = false
+    guide.text = "Point the camera at the host device Drop Code."
+    guide.textColor = .white
+    guide.font = .systemFont(ofSize: 17)
+    guide.numberOfLines = 2
+    guide.backgroundColor = UIColor(red: 0.07, green: 0.07, blue: 0.07, alpha: 0.94)
+    guide.layer.borderColor = UIColor(red: 0.18, green: 0.18, blue: 0.18, alpha: 1).cgColor
+    guide.layer.borderWidth = 1
+    guide.layer.cornerRadius = 10
+    guide.layer.masksToBounds = true
+    guide.textAlignment = .center
+    view.addSubview(guide)
+
+    NSLayoutConstraint.activate([
+      topBar.topAnchor.constraint(equalTo: view.topAnchor),
+      topBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      topBar.heightAnchor.constraint(equalToConstant: 108),
+      close.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 10),
+      close.bottomAnchor.constraint(equalTo: topBar.bottomAnchor, constant: -8),
+      close.widthAnchor.constraint(equalToConstant: 64),
+      close.heightAnchor.constraint(equalToConstant: 64),
+      title.centerXAnchor.constraint(equalTo: topBar.centerXAnchor),
+      title.centerYAnchor.constraint(equalTo: close.centerYAnchor),
+      frame.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+      frame.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+      frame.widthAnchor.constraint(equalToConstant: 276),
+      frame.heightAnchor.constraint(equalToConstant: 276),
+      guide.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+      guide.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+      guide.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -28),
+      guide.heightAnchor.constraint(equalToConstant: 82)
+    ])
+  }
+
+  @objc private func cancel() {
+    finish(code: nil)
+  }
+
+  func metadataOutput(
+    _ output: AVCaptureMetadataOutput,
+    didOutput metadataObjects: [AVMetadataObject],
+    from connection: AVCaptureConnection
+  ) {
+    guard let object = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
+      object.type == .qr,
+      let code = object.stringValue else {
+      return
+    }
+    finish(code: code)
+  }
+
+  private func finish(code: String?) {
+    if didFinish {
+      return
+    }
+    didFinish = true
+    session.stopRunning()
+    dismiss(animated: true) {
+      self.onFinish?(code)
+    }
   }
 }

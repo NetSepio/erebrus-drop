@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:flutter/services.dart';
 
 class QrScanScreen extends StatefulWidget {
   const QrScanScreen({super.key});
@@ -12,14 +12,10 @@ class QrScanScreen extends StatefulWidget {
 }
 
 class _QrScanScreenState extends State<QrScanScreen> {
-  late final MobileScannerController _controller = MobileScannerController(
-    autoStart: false,
-    facing: CameraFacing.back,
-    lensType: CameraLensType.normal,
-    formats: const [BarcodeFormat.qrCode],
+  static const MethodChannel _scannerChannel = MethodChannel(
+    'com.erebrus.drop/qr_scanner',
   );
   bool _handled = false;
-  bool _scannerRunning = false;
   String? _scannerError;
 
   @override
@@ -31,42 +27,14 @@ class _QrScanScreenState extends State<QrScanScreen> {
   }
 
   @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Scan Drop Code'),
-        actions: [
-          IconButton(
-            onPressed: _scannerRunning ? () => unawaited(_toggleTorch()) : null,
-            icon: const Icon(Icons.flashlight_on_outlined),
-            tooltip: 'Toggle flashlight',
-          ),
-          IconButton(
-            onPressed: _scannerRunning
-                ? () => unawaited(_switchCamera())
-                : null,
-            icon: const Icon(Icons.cameraswitch_outlined),
-            tooltip: 'Switch camera',
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Scan Drop Code')),
       body: Stack(
         children: [
-          MobileScanner(
-            controller: _controller,
-            onDetect: _handleDetect,
-            errorBuilder: (context, error) =>
-                _scannerErrorPanel(context, _scannerMessage(error)),
-            placeholderBuilder: _scannerPlaceholder,
-          ),
-          if (_scannerError != null)
-            _scannerErrorPanel(context, _scannerError!),
+          _scannerError == null
+              ? _scannerPlaceholder(context)
+              : _scannerErrorPanel(context, _scannerError!),
           Align(
             alignment: Alignment.center,
             child: Container(
@@ -113,60 +81,40 @@ class _QrScanScreenState extends State<QrScanScreen> {
     );
   }
 
-  void _handleDetect(BarcodeCapture capture) {
+  void _handleCode(String value) {
     if (_handled) return;
-    for (final barcode in capture.barcodes) {
-      final value = barcode.rawValue;
-      final url = value == null ? null : parseDropCodeUrl(value);
-      if (url != null) {
-        _handled = true;
-        Navigator.of(context).pop(url);
-        return;
-      }
+    final url = parseDropCodeUrl(value);
+    if (url != null) {
+      _handled = true;
+      Navigator.of(context).pop(url);
+      return;
     }
+    setState(() {
+      _scannerError = 'That QR code is not a valid Drop Link.';
+    });
   }
 
   Future<void> _startScanner() async {
     setState(() => _scannerError = null);
     try {
-      await _controller.start();
+      final value = await _scannerChannel.invokeMethod<String>('scanQrCode');
+      if (!mounted || _handled) return;
+      if (value == null || value.trim().isEmpty) {
+        Navigator.of(context).pop();
+        return;
+      }
+      _handleCode(value);
+    } on PlatformException catch (error) {
       if (!mounted) return;
-      setState(() => _scannerRunning = true);
+      setState(() => _scannerError = _scannerMessage(error));
     } catch (error) {
       if (!mounted) return;
-      setState(() {
-        _scannerRunning = false;
-        _scannerError = _scannerMessage(error);
-      });
+      setState(() => _scannerError = _scannerMessage(error));
     }
   }
 
   Future<void> _restartScanner() async {
-    try {
-      await _controller.stop();
-    } catch (_) {
-      // Ignore stop errors while recovering from native scanner failures.
-    }
-    if (mounted) {
-      setState(() => _scannerRunning = false);
-      await _startScanner();
-    }
-  }
-
-  Future<void> _toggleTorch() async {
-    try {
-      await _controller.toggleTorch();
-    } catch (error) {
-      if (mounted) setState(() => _scannerError = _scannerMessage(error));
-    }
-  }
-
-  Future<void> _switchCamera() async {
-    try {
-      await _controller.switchCamera();
-    } catch (error) {
-      if (mounted) setState(() => _scannerError = _scannerMessage(error));
-    }
+    if (mounted) await _startScanner();
   }
 
   Widget _scannerPlaceholder(BuildContext context) {
@@ -280,13 +228,14 @@ class _QrScanScreenState extends State<QrScanScreen> {
   }
 
   String _scannerMessage(Object error) {
-    if (error is MobileScannerException) {
-      final details = error.errorDetails?.message;
-      if (details != null && details.trim().isNotEmpty) return details;
-      return switch (error.errorCode) {
-        MobileScannerErrorCode.permissionDenied =>
+    if (error is PlatformException) {
+      if (error.message != null && error.message!.trim().isNotEmpty) {
+        return error.message!;
+      }
+      return switch (error.code) {
+        'CAMERA_PERMISSION_DENIED' =>
           'Camera permission is required to scan a Drop Code.',
-        MobileScannerErrorCode.unsupported =>
+        'CAMERA_UNAVAILABLE' =>
           'This device does not support the camera scanner.',
         _ => 'The camera scanner could not start on this device.',
       };

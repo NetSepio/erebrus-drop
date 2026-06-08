@@ -1,5 +1,7 @@
 # Erebrus Drop
 
+Current version: `1.0.2+3`
+
 Erebrus Drop is a local-first file and text sharing app for nearby devices. A
 phone can create a temporary Drop Room on the current Wi-Fi network or hotspot,
 and other devices can join from the mobile app or a browser without an account
@@ -13,6 +15,7 @@ or cloud upload.
 - Discover nearby Drop Rooms with mDNS on Android and iOS.
 - Share files, folders, text, and streamable media on the local network.
 - Join from the app, a QR code, a Drop Link, or the bundled browser client.
+- Scan Drop Room QR codes with native Android and iOS camera scanners.
 - Use optional room passwords and scoped folder access.
 - Save received files to the platform-appropriate user-visible location.
 - Transfer locally without analytics, tracking, accounts, or cloud relay.
@@ -26,6 +29,12 @@ or cloud upload.
 - Settings and About: app details, privacy, terms, and NetSepio ethos.
 
 ## Release
+
+Current release version:
+
+```text
+1.0.2+3
+```
 
 The Android package id is:
 
@@ -77,6 +86,13 @@ Verify:
 flutter analyze
 flutter test
 ```
+
+## Native QR Scanner
+
+The app uses its own platform-channel QR scanner instead of a third-party
+Flutter scanner plugin. Android uses CameraX with ZXing QR decoding. iOS uses
+AVFoundation QR metadata scanning. The scanner returns the raw Drop Link or Drop
+Code to Flutter, where the existing join parser validates and opens the room.
 
 ## Local Network Debugging
 

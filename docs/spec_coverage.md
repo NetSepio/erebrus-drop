@@ -1,5 +1,7 @@
 # Erebrus Drop Spec Coverage
 
+Current app version: `1.0.2+3`
+
 ## Implemented in this repo
 
 - Flutter Android/iOS app scaffold in the repository root.
@@ -22,7 +24,9 @@
 - Manual native Join flow can preview `/api/room`, authenticate to `/api/auth/login`, list remote files, create folders, send text, and download files.
 - Android and iOS app clients can multi-pick and upload files to the selected/default joined-room folder, with progress, speed, and ETA.
 - Native joined-room downloads show progress, speed, and ETA.
-- QR scanner reads raw Drop Links and spec JSON Drop Code payloads, then opens Manual Join.
+- Native QR scanner reads raw Drop Links and spec JSON Drop Code payloads, then opens Manual Join.
+- Android QR scanning uses CameraX with ZXing decoding, avoiding ML Kit and third-party Flutter scanner runtime issues.
+- iOS QR scanning uses AVFoundation QR metadata detection.
 - Android local-only hotspot can be requested through the platform channel; unsupported/OEM-denied devices show a manual guide.
 - Android foreground hosting service keeps a room higher priority while it is live.
 - App lifecycle-aware refresh avoids background UI polling while a room is being served.
@@ -35,6 +39,7 @@
 - Android/iOS platform-channel methods for local IP and storage stats.
 - Local IP selection prefers active Wi-Fi/LAN addresses and de-prioritizes carrier/VPN/CGNAT-looking addresses.
 - Android and iOS publish active rooms through mDNS/DNS-SD as `_erebrusdrop._tcp`.
+- Android and iOS discover nearby rooms through mDNS/DNS-SD on the local network.
 
 ## Files added for next spec phases
 
@@ -53,7 +58,6 @@
 
 ## Still needs plugin/native/device implementation
 
-- mDNS/DNS-SD discovery browsing.
 - Remaining external host-folder storage adapter work:
   - Android SAF delete/rename implementation for hosted rooms.
   - iOS Files/iCloud delete/rename implementation for hosted rooms.
