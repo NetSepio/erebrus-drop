@@ -34,11 +34,14 @@ import java.util.ArrayDeque
 
 class MainActivity : FlutterActivity() {
     private val channelName = "com.erebrus.drop/network"
+    private val qrScannerChannelName = "com.erebrus.drop/qr_scanner"
     private val pickUploadFileRequest = 7317
     private val pickHostFolderRequest = 7318
+    private val scanQrRequest = 7319
     private var hotspotReservation: WifiManager.LocalOnlyHotspotReservation? = null
     private var pendingPickResult: MethodChannel.Result? = null
     private var pendingHostFolderResult: MethodChannel.Result? = null
+    private var pendingQrScanResult: MethodChannel.Result? = null
     private var nsdManager: NsdManager? = null
     private var nsdRegistrationListener: NsdManager.RegistrationListener? = null
     private var discoveryManager: NsdManager? = null
@@ -65,6 +68,14 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, qrScannerChannelName).setMethodCallHandler {
+            call,
+            result ->
+            when (call.method) {
+                "scanQrCode" -> scanQrCode(result)
+                else -> result.notImplemented()
+            }
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName).setMethodCallHandler {
             call,
             result ->
@@ -138,6 +149,10 @@ class MainActivity : FlutterActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == scanQrRequest) {
+            handleQrScanResult(resultCode, data)
+            return
+        }
         if (requestCode == pickHostFolderRequest) {
             handleHostFolderResult(resultCode, data)
             return
@@ -171,6 +186,31 @@ class MainActivity : FlutterActivity() {
         } catch (error: Exception) {
             result.error("PICK_FILE_FAILED", error.message, null)
         }
+    }
+
+    private fun scanQrCode(result: MethodChannel.Result) {
+        if (pendingQrScanResult != null) {
+            result.error("SCAN_IN_PROGRESS", "A QR scanner is already open.", null)
+            return
+        }
+        pendingQrScanResult = result
+        try {
+            startActivityForResult(Intent(this, NativeQrScannerActivity::class.java), scanQrRequest)
+        } catch (error: Exception) {
+            pendingQrScanResult = null
+            result.error("CAMERA_UNAVAILABLE", error.message, null)
+        }
+    }
+
+    private fun handleQrScanResult(resultCode: Int, data: Intent?) {
+        val result = pendingQrScanResult
+        pendingQrScanResult = null
+        if (result == null) return
+        if (resultCode != RESULT_OK) {
+            result.success(null)
+            return
+        }
+        result.success(data?.getStringExtra(NativeQrScannerActivity.EXTRA_QR_CODE))
     }
 
     private fun getLocalIpAddresses(): List<String> {
