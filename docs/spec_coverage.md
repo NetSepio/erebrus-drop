@@ -1,6 +1,6 @@
 # Erebrus Drop Spec Coverage
 
-Current app version: `1.0.2+3`
+Current app version: `1.0.3+4`
 
 ## Implemented in this repo
 
