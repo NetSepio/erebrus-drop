@@ -1,6 +1,6 @@
 # Erebrus Drop
 
-Current version: `1.0.2+3`
+Current version: `1.0.3+4`
 
 Erebrus Drop is a local-first file and text sharing app for nearby devices. A
 phone can create a temporary Drop Room on the current Wi-Fi network or hotspot,
@@ -33,8 +33,15 @@ or cloud upload.
 Current release version:
 
 ```text
-1.0.2+3
+1.0.3+4
 ```
+
+Android release versioning:
+
+- The number after `+` is the Android `versionCode`.
+- Google Play permanently reserves any uploaded `versionCode`, even if the
+  draft/release is discarded.
+- Always increase the `+` build number before uploading another AAB.
 
 The Android package id is:
 
