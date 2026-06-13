@@ -250,7 +250,7 @@
 
     .file-row {
       display: grid;
-      grid-template-columns: 36px minmax(220px, 1fr) 112px 90px 56px;
+      grid-template-columns: 36px minmax(220px, 1fr) 112px 90px 98px;
       align-items: center;
       min-height: 68px;
       gap: 12px;
@@ -1192,7 +1192,7 @@
           ? `<button class="file-title" data-open="${item.path}">${escapeHtml(item.name)}</button>`
           : `<span class="file-title">${escapeHtml(item.name)}</span>`;
         const action = isFolder
-          ? `<button class="icon-btn" data-open="${item.path}" title="Open folder" aria-label="Open ${escapeHtml(item.name)}">${icon('folder')}</button>`
+          ? `<a href="/api/files/${item.id}/bundle?token=${encodeURIComponent(state.token)}&name=${encodeURIComponent(item.name)}" title="Download ${escapeHtml(item.name)} as ZIP"><button class="icon-btn" aria-label="Download ${escapeHtml(item.name)} as ZIP">${icon('download')}</button></a><button class="icon-btn" data-open="${item.path}" title="Open folder" aria-label="Open ${escapeHtml(item.name)}">${icon('folder')}</button>`
           : `<a href="/api/files/${item.id}/download?token=${encodeURIComponent(state.token)}" title="Download ${escapeHtml(item.name)}"><button class="icon-btn" aria-label="Download ${escapeHtml(item.name)}">${icon('download')}</button></a>`;
         return `
           <div class="file-row${selected ? ' selected' : ''}">
@@ -1392,17 +1392,29 @@
     async function downloadSelectedFiles() {
       const files = selectedItems();
       if (!files.length) return;
-      addActivity(`Started ${files.length} download${files.length === 1 ? '' : 's'}`);
-      for (const file of files) {
+      if (files.length === 1) {
+        addActivity(`Started download: ${files[0].name}`);
         const link = document.createElement('a');
-        link.href = `/api/files/${file.id}/download?token=${encodeURIComponent(state.token)}`;
-        link.download = file.name;
+        link.href = `/api/files/${files[0].id}/download?token=${encodeURIComponent(state.token)}`;
+        link.download = files[0].name;
         link.style.display = 'none';
         document.body.appendChild(link);
         link.click();
         link.remove();
-        await new Promise((resolve) => setTimeout(resolve, 180));
+        return;
       }
+      addActivity(`Started ZIP bundle for ${files.length} files`);
+      const params = new URLSearchParams();
+      if (state.token) params.set('token', state.token);
+      params.set('name', 'erebrus-drop-selection');
+      files.forEach((file) => params.append('id', file.id));
+      const link = document.createElement('a');
+      link.href = `/api/files/bundle?${params.toString()}`;
+      link.download = 'erebrus-drop-selection.zip';
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
     }
 
     $('login-form').addEventListener('submit', async (event) => {

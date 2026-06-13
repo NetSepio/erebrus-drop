@@ -52,6 +52,7 @@ class MainActivity : FlutterActivity() {
     private val discoveredRooms = linkedMapOf<String, Map<String, Any?>>()
     private val resolveQueue = ArrayDeque<NsdServiceInfo>()
     private var resolvingService = false
+    private var pendingSharedPayload: Map<String, Any?>? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private data class HostDocument(
@@ -101,6 +102,7 @@ class MainActivity : FlutterActivity() {
                 }
                 "pickFileForUpload" -> pickFileForUpload(result)
                 "pickFilesForUpload" -> pickFileForUpload(result)
+                "consumeSharedPayload" -> consumeSharedPayload(result)
                 "selectHostFolder" -> selectHostFolder(result)
                 "listHostFolder" -> listHostFolder(call, result)
                 "copyFileIntoHostFolder" -> copyFileIntoHostFolder(call, result)
@@ -109,6 +111,8 @@ class MainActivity : FlutterActivity() {
                 "openHostFile" -> openHostFile(call, result)
                 "shareHostFile" -> shareHostFile(call, result)
                 "deleteHostFile" -> deleteHostFile(call, result)
+                "renameHostItem" -> renameHostItem(call, result)
+                "moveHostItem" -> moveHostItem(call, result)
                 "openLocalFile" -> openLocalFile(call, result)
                 "shareLocalFile" -> shareLocalFile(call, result)
                 "saveFileToDownloads" -> saveFileToDownloads(call, result)
@@ -145,6 +149,13 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+        captureShareIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        captureShareIntent(intent)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -353,6 +364,57 @@ class MainActivity : FlutterActivity() {
             "name" to name,
             "sizeBytes" to target.length()
         )
+    }
+
+    private fun consumeSharedPayload(result: MethodChannel.Result) {
+        captureShareIntent(intent)
+        val payload = pendingSharedPayload
+        pendingSharedPayload = null
+        result.success(payload)
+    }
+
+    private fun captureShareIntent(intent: Intent?) {
+        if (intent == null) return
+        if (intent.action != Intent.ACTION_SEND && intent.action != Intent.ACTION_SEND_MULTIPLE) return
+        val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+        val uris = mutableListOf<Uri>()
+        if (intent.action == Intent.ACTION_SEND_MULTIPLE) {
+            val list = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+            }
+            list?.filterIsInstance<Uri>()?.let { uris.addAll(it) }
+        } else {
+            val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(Intent.EXTRA_STREAM)
+            }
+            uri?.let { uris.add(it) }
+        }
+        if (text.isNullOrBlank() && uris.isEmpty()) return
+        val paths = uris.mapNotNull { uri ->
+            runCatching { copySharedFile(uri) }.getOrNull()
+        }
+        pendingSharedPayload = mapOf(
+            "text" to text,
+            "filePaths" to paths
+        )
+        setIntent(Intent())
+    }
+
+    private fun copySharedFile(uri: Uri): String {
+        val name = displayName(uri)
+        val targetDirectory = File(cacheDir, "shared_intake").apply { mkdirs() }
+        val target = uniqueFile(targetDirectory, safeName(name))
+        contentResolver.openInputStream(uri).use { input ->
+            if (input == null) throw IllegalStateException("Could not open shared file.")
+            FileOutputStream(target).use { output -> input.copyTo(output) }
+        }
+        return target.absolutePath
     }
 
     private fun displayName(uri: Uri): String {
@@ -565,11 +627,75 @@ class MainActivity : FlutterActivity() {
             val path = call.argument<String>("path") ?: throw IllegalArgumentException("Missing path")
             val document = findHostDocument(Uri.parse(rootUri), path)
                 ?: throw IllegalArgumentException("File not found: $path")
-            if (document.isDirectory) throw IllegalArgumentException("Delete a file, not a folder.")
             DocumentsContract.deleteDocument(contentResolver, document.uri)
             result.success(mapOf("deleted" to true))
         } catch (error: Exception) {
             result.error("DELETE_FILE_FAILED", error.message, null)
+        }
+    }
+
+    private fun renameHostItem(call: MethodCall, result: MethodChannel.Result) {
+        try {
+            val rootUri = call.argument<String>("rootUri") ?: throw IllegalArgumentException("Missing rootUri")
+            val path = call.argument<String>("path") ?: throw IllegalArgumentException("Missing path")
+            val newName = safeName(call.argument<String>("newName") ?: throw IllegalArgumentException("Missing newName"))
+            val document = findHostDocument(Uri.parse(rootUri), path)
+                ?: throw IllegalArgumentException("Item not found: $path")
+            DocumentsContract.renameDocument(contentResolver, document.uri, newName)
+                ?: throw IllegalStateException("Could not rename item.")
+            result.success(mapOf("renamed" to true))
+        } catch (error: Exception) {
+            result.error("RENAME_ITEM_FAILED", error.message, null)
+        }
+    }
+
+    private fun moveHostItem(call: MethodCall, result: MethodChannel.Result) {
+        try {
+            val rootUri = call.argument<String>("rootUri") ?: throw IllegalArgumentException("Missing rootUri")
+            val path = call.argument<String>("path") ?: throw IllegalArgumentException("Missing path")
+            val destinationPath = call.argument<String>("destinationPath") ?: throw IllegalArgumentException("Missing destinationPath")
+            val root = Uri.parse(rootUri)
+            val source = findHostDocument(root, path)
+                ?: throw IllegalArgumentException("Item not found: $path")
+            val sourceParent = findHostDocument(root, parentHostPath(path))
+                ?: throw IllegalArgumentException("Source parent not found: $path")
+            val destinationParent = findHostDocument(root, parentHostPath(destinationPath))
+                ?: throw IllegalArgumentException("Destination parent not found: $destinationPath")
+            if (!destinationParent.isDirectory) {
+                throw IllegalArgumentException("Destination parent is not a folder.")
+            }
+            val destinationName = hostPathSegments(destinationPath).lastOrNull()
+                ?: throw IllegalArgumentException("Missing destination name.")
+            val movedUri = if (sourceParent.documentId == destinationParent.documentId) {
+                source.uri
+            } else {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+                    throw IllegalStateException("Moving between folders requires Android 7.0 or newer.")
+                }
+                DocumentsContract.moveDocument(
+                    contentResolver,
+                    source.uri,
+                    sourceParent.uri,
+                    destinationParent.uri
+                ) ?: throw IllegalStateException("Could not move item.")
+            }
+            val movedId = DocumentsContract.getDocumentId(movedUri)
+            val moved = queryDocument(root, movedId)
+                ?: HostDocument(
+                    uri = movedUri,
+                    documentId = movedId,
+                    name = source.name,
+                    mimeType = source.mimeType,
+                    sizeBytes = source.sizeBytes,
+                    modifiedAtMillis = System.currentTimeMillis()
+                )
+            if (moved.name != destinationName) {
+                DocumentsContract.renameDocument(contentResolver, moved.uri, destinationName)
+                    ?: throw IllegalStateException("Could not rename moved item.")
+            }
+            result.success(mapOf("moved" to true))
+        } catch (error: Exception) {
+            result.error("MOVE_ITEM_FAILED", error.message, null)
         }
     }
 
@@ -876,6 +1002,13 @@ class MainActivity : FlutterActivity() {
             .filter { it.isNotBlank() }
             .map { safeName(it) }
             .filter { it.isNotBlank() }
+    }
+
+    private fun parentHostPath(path: String): String {
+        val parts = hostPathSegments(path).toMutableList()
+        if (parts.isEmpty()) return "/"
+        parts.removeAt(parts.lastIndex)
+        return if (parts.isEmpty()) "/" else "/" + parts.joinToString("/")
     }
 
     private fun joinHostPath(parent: String, name: String): String {

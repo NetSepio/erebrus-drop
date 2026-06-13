@@ -1,6 +1,6 @@
 # Erebrus Drop Spec Coverage
 
-Current app version: `1.0.3+4`
+Current app version: `1.0.5+5`
 
 ## Implemented in this repo
 
@@ -13,8 +13,9 @@ Current app version: `1.0.3+4`
 - Local HTTP server on port `8787` with fallback ports through `8799`.
 - Browser Drop Link and QR code.
 - Bundled browser SPA in `assets/web/drop_client/`.
-- Browser login, polished file manager UI, breadcrumbs, icon controls, folder shortcuts, storage visualization, drag/drop upload, file list, folder creation, raw file upload, download, text paste, and media stream links.
-- Browser multi-select for files, bulk file downloads, and upload progress with percent, speed, and ETA.
+- Browser login, polished file manager UI, breadcrumbs, icon controls, folder shortcuts, storage visualization, drag/drop upload, file list, folder creation, raw and multipart upload, download, ZIP bundle download, text paste, and media stream links.
+- Browser multi-select for files, bundled file downloads, folder ZIP downloads, and upload progress with percent, speed, and ETA.
+- WebDAV endpoint at `/dav` for compatible file managers and desktop clients, with folder listing, upload, download, folder creation, delete, move, and lock compatibility.
 - HTTP range request support for streamed file responses.
 - Storage snapshot via platform channel when available, with short cache/single-flight protection to avoid repeated scans during transfers.
 - Room storage requires an OS-visible Drop folder selected from phone storage or Files; app-private hosting fallback is disabled.
@@ -26,7 +27,9 @@ Current app version: `1.0.3+4`
 - Native joined-room downloads show progress, speed, and ETA.
 - Native QR scanner reads raw Drop Links and spec JSON Drop Code payloads, then opens Manual Join.
 - Android QR scanning uses CameraX with ZXing decoding, avoiding ML Kit and third-party Flutter scanner runtime issues.
+- Android QR scanning handles Android 15 edge-to-edge system insets without deprecated system bar color APIs.
 - iOS QR scanning uses AVFoundation QR metadata detection.
+- Android and iOS share-sheet text and file intake can populate Smart Send or import files into a live room.
 - Android local-only hotspot can be requested through the platform channel; unsupported/OEM-denied devices show a manual guide.
 - Android foreground hosting service keeps a room higher priority while it is live.
 - App lifecycle-aware refresh avoids background UI polling while a room is being served.
@@ -40,6 +43,7 @@ Current app version: `1.0.3+4`
 - Local IP selection prefers active Wi-Fi/LAN addresses and de-prioritizes carrier/VPN/CGNAT-looking addresses.
 - Android and iOS publish active rooms through mDNS/DNS-SD as `_erebrusdrop._tcp`.
 - Android and iOS discover nearby rooms through mDNS/DNS-SD on the local network.
+- Server-to-server transfer APIs can pull files from a joined room into the current live room and push local room files to another room.
 
 ## Files added for next spec phases
 
@@ -61,9 +65,6 @@ Current app version: `1.0.3+4`
 - Remaining external host-folder storage adapter work:
   - Android SAF delete/rename implementation for hosted rooms.
   - iOS Files/iCloud delete/rename implementation for hosted rooms.
-- Share sheet intake.
 - Offline OCR through Android ML Kit and iOS Vision.
 - Persistent metadata database.
-- Server-to-server push/pull transfer.
-- Multipart upload handler matching the exact API spec.
-- ZIP/folder bundle download for selected folders or very large multi-file downloads.
+- Full server-to-server folder mirroring and conflict controls.

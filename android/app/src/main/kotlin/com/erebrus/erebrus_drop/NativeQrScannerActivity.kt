@@ -10,9 +10,11 @@ import android.util.Size
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import androidx.activity.SystemBarStyle
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
@@ -21,6 +23,8 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
@@ -47,8 +51,10 @@ class NativeQrScannerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = Color.BLACK
-        window.navigationBarColor = Color.BLACK
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT)
+        )
         cameraExecutor = Executors.newSingleThreadExecutor()
         setContentView(scannerView())
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
@@ -82,12 +88,25 @@ class NativeQrScannerActivity : ComponentActivity() {
             )
             scaleType = PreviewView.ScaleType.FILL_CENTER
         }
+        val topBar = topBar()
+        val guideCard = guideCard()
         return FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
             addView(previewView)
-            addView(topBar())
+            addView(topBar)
             addView(scanFrame())
-            addView(guideCard())
+            addView(guideCard)
+            ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
+                val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+                topBar.setPadding(0, bars.top, 0, 0)
+                topBar.layoutParams = (topBar.layoutParams as FrameLayout.LayoutParams).apply {
+                    height = dp(72) + bars.top
+                }
+                guideCard.layoutParams = (guideCard.layoutParams as FrameLayout.LayoutParams).apply {
+                    bottomMargin = dp(32) + bars.bottom
+                }
+                insets
+            }
         }
     }
 
@@ -96,7 +115,7 @@ class NativeQrScannerActivity : ComponentActivity() {
             setBackgroundColor(Color.rgb(15, 15, 15))
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(96),
+                dp(72),
                 Gravity.TOP
             )
             addView(TextView(context).apply {
