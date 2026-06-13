@@ -395,15 +395,20 @@ class MainActivity : FlutterActivity() {
             }
             uri?.let { uris.add(it) }
         }
-        if (text.isNullOrBlank() && uris.isEmpty()) return
-        val paths = uris.mapNotNull { uri ->
-            runCatching { copySharedFile(uri) }.getOrNull()
-        }
-        pendingSharedPayload = mapOf(
-            "text" to text,
-            "filePaths" to paths
-        )
         setIntent(Intent())
+        if (text.isNullOrBlank() && uris.isEmpty()) return
+
+        android.os.AsyncTask.execute {
+            val paths = uris.mapNotNull { uri ->
+                runCatching { copySharedFile(uri) }.getOrNull()
+            }
+            mainHandler.post {
+                pendingSharedPayload = mapOf(
+                    "text" to text,
+                    "filePaths" to paths
+                )
+            }
+        }
     }
 
     private fun copySharedFile(uri: Uri): String {

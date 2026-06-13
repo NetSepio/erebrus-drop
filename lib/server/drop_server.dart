@@ -14,6 +14,10 @@ import '../core/host_folder_bridge.dart';
 import '../core/platform_network.dart';
 
 class DropServer {
+  static final DropServer _instance = DropServer._internal();
+  factory DropServer() => _instance;
+  DropServer._internal();
+
   static const int defaultPort = 8787;
   static const int lastFallbackPort = 8799;
   static const int defaultMaxUploadBytes = 2 * 1024 * 1024 * 1024;

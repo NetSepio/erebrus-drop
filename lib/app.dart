@@ -160,6 +160,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _syncWithExistingSession();
     unawaited(_loadDeviceName());
     unawaited(_loadHostFolderSelection());
     unawaited(_refreshNetworkStatus());
@@ -180,7 +181,24 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     });
   }
 
+  void _syncWithExistingSession() {
+    final session = _server.session;
+    if (session != null) {
+      _roomName.text = session.name;
+      _deviceName.text = session.deviceName;
+      if (session.usesExternalHostFolder) {
+        _hostFolderSelection = HostFolderSelection(
+          uri: session.hostFolderUri!,
+          name: session.hostFolderName ?? 'Selected folder',
+          platform: session.hostFolderPlatform ?? 'Android SAF',
+        );
+      }
+      unawaited(_refreshRoomData());
+    }
+  }
+
   Future<void> _loadDeviceName() async {
+    if (_server.isRunning) return;
     final fallback = Platform.localHostname;
     final deviceName = await PlatformNetwork.deviceName();
     if (!mounted || deviceName.isEmpty) return;
@@ -190,6 +208,12 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   }
 
   Future<void> _loadHostFolderSelection() async {
+    if (_server.isRunning) {
+      if (mounted) {
+        setState(() => _loadingHostFolderSelection = false);
+      }
+      return;
+    }
     final selection = await _hostFolderService.loadSavedSelection();
     if (!mounted) return;
     setState(() {
@@ -267,6 +291,11 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _appInForeground = state == AppLifecycleState.resumed;
     if (_appInForeground) {
+      if (_server.isRunning) {
+        unawaited(
+          _roomRuntimeService.setKeepAwake(enabled: true).catchError((_) {}),
+        );
+      }
       unawaited(_loadLibraryFiles());
       unawaited(_refreshNetworkStatus());
       unawaited(
