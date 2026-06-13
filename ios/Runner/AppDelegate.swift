@@ -71,8 +71,14 @@ import UIKit
         result(["stopped": true])
       case "pickFileForUpload", "pickFilesForUpload":
         self.pickFilesForUpload(result: result)
+      case "consumeSharedPayload":
+        self.consumeSharedPayload(result: result)
       case "selectHostFolder":
         self.selectHostFolder(result: result)
+      case "syncShareIntakeHostFolder":
+        self.syncShareIntakeHostFolder(call: call, result: result)
+      case "clearShareIntakeHostFolder":
+        self.clearShareIntakeHostFolder(result: result)
       case "listHostFolder":
         self.listHostFolder(call: call, result: result)
       case "copyFileIntoHostFolder":
@@ -87,6 +93,10 @@ import UIKit
         self.shareHostFile(call: call, result: result)
       case "deleteHostFile":
         self.deleteHostFile(call: call, result: result)
+      case "renameHostItem":
+        self.renameHostItem(call: call, result: result)
+      case "moveHostItem":
+        self.moveHostItem(call: call, result: result)
       case "openLocalFile":
         self.openLocalFile(call: call, result: result)
       case "shareLocalFile":
@@ -178,6 +188,34 @@ import UIKit
     result(code)
   }
 
+  private func consumeSharedPayload(result: FlutterResult) {
+    let appGroupId = "group.com.erebrus.drop"
+    guard let container = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: appGroupId
+    ) else {
+      result(nil)
+      return
+    }
+    let inbox = container.appendingPathComponent("ShareInbox", isDirectory: true)
+    let manifest = inbox.appendingPathComponent("pending-share.json")
+    guard FileManager.default.fileExists(atPath: manifest.path) else {
+      result(nil)
+      return
+    }
+    do {
+      let data = try Data(contentsOf: manifest)
+      let decoded = try JSONSerialization.jsonObject(with: data)
+      try? FileManager.default.removeItem(at: manifest)
+      result(decoded)
+    } catch {
+      result(FlutterError(
+        code: "SHARE_INTAKE_FAILED",
+        message: error.localizedDescription,
+        details: nil
+      ))
+    }
+  }
+
   func documentPicker(
     _ controller: UIDocumentPickerViewController,
     didPickDocumentsAt urls: [URL]
@@ -226,11 +264,13 @@ import UIKit
         includingResourceValuesForKeys: nil,
         relativeTo: nil
       )
-      result([
+      let selection: [String: Any] = [
         "uri": "ios-bookmark:\(bookmark.base64EncodedString())",
         "name": url.lastPathComponent.isEmpty ? "Selected folder" : url.lastPathComponent,
         "platform": "iOS Files"
-      ])
+      ]
+      try? writeShareIntakeHostFolder(selection)
+      result(selection)
     } catch {
       result(FlutterError(
         code: "PICK_FOLDER_FAILED",
@@ -393,6 +433,61 @@ import UIKit
     }
   }
 
+  private func syncShareIntakeHostFolder(call: FlutterMethodCall, result: FlutterResult) {
+    guard let arguments = call.arguments as? [String: Any],
+          let selection = arguments["selection"] as? [String: Any] else {
+      result(FlutterError(
+        code: "SHARE_FOLDER_SYNC_FAILED",
+        message: "Missing Drop folder selection.",
+        details: nil
+      ))
+      return
+    }
+    do {
+      try writeShareIntakeHostFolder(selection)
+      result(["synced": true])
+    } catch {
+      result(FlutterError(
+        code: "SHARE_FOLDER_SYNC_FAILED",
+        message: error.localizedDescription,
+        details: nil
+      ))
+    }
+  }
+
+  private func clearShareIntakeHostFolder(result: FlutterResult) {
+    do {
+      let file = try shareIntakeInboxDirectory().appendingPathComponent("host-folder.json")
+      if FileManager.default.fileExists(atPath: file.path) {
+        try FileManager.default.removeItem(at: file)
+      }
+      result(["cleared": true])
+    } catch {
+      result(FlutterError(
+        code: "SHARE_FOLDER_CLEAR_FAILED",
+        message: error.localizedDescription,
+        details: nil
+      ))
+    }
+  }
+
+  private func writeShareIntakeHostFolder(_ selection: [String: Any]) throws {
+    let file = try shareIntakeInboxDirectory().appendingPathComponent("host-folder.json")
+    let data = try JSONSerialization.data(withJSONObject: selection, options: [])
+    try data.write(to: file, options: [.atomic])
+  }
+
+  private func shareIntakeInboxDirectory() throws -> URL {
+    guard let container = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: "group.com.erebrus.drop"
+    ) else {
+      throw HostFolderError.message("Shared App Group is not available.")
+    }
+    let inbox = container.appendingPathComponent("ShareInbox", isDirectory: true)
+    try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+    return inbox
+  }
+
   private func copyFileIntoHostFolder(call: FlutterMethodCall, result: FlutterResult) {
     do {
       guard let arguments = call.arguments as? [String: Any],
@@ -519,16 +614,66 @@ import UIKit
       let arguments = try hostFolderArguments(call)
       try withScopedFolder(rootUri: arguments.rootUri) { root in
         let source = hostURL(root: root, path: arguments.path)
-        let values = try source.resourceValues(forKeys: [.isDirectoryKey])
-        if values.isDirectory == true {
-          throw HostFolderError.message("Delete a file, not a folder.")
-        }
         try FileManager.default.removeItem(at: source)
       }
       result(["deleted": true])
     } catch {
       result(FlutterError(
         code: "DELETE_FILE_FAILED",
+        message: error.localizedDescription,
+        details: nil
+      ))
+    }
+  }
+
+  private func renameHostItem(call: FlutterMethodCall, result: FlutterResult) {
+    do {
+      guard let arguments = call.arguments as? [String: Any],
+            let rootUri = arguments["rootUri"] as? String,
+            let path = arguments["path"] as? String,
+            let newName = arguments["newName"] as? String else {
+        throw HostFolderError.message("Missing rootUri, path, or newName")
+      }
+      try withScopedFolder(rootUri: rootUri) { root in
+        let source = hostURL(root: root, path: path)
+        let destination = source.deletingLastPathComponent().appendingPathComponent(safeName(newName))
+        try FileManager.default.moveItem(at: source, to: destination)
+      }
+      result(["renamed": true])
+    } catch {
+      result(FlutterError(
+        code: "RENAME_ITEM_FAILED",
+        message: error.localizedDescription,
+        details: nil
+      ))
+    }
+  }
+
+  private func moveHostItem(call: FlutterMethodCall, result: FlutterResult) {
+    do {
+      guard let arguments = call.arguments as? [String: Any],
+            let rootUri = arguments["rootUri"] as? String,
+            let path = arguments["path"] as? String,
+            let destinationPath = arguments["destinationPath"] as? String else {
+        throw HostFolderError.message("Missing rootUri, path, or destinationPath")
+      }
+      try withScopedFolder(rootUri: rootUri) { root in
+        let source = hostURL(root: root, path: path)
+        let destination = hostURL(root: root, path: destinationPath)
+        let destinationParent = destination.deletingLastPathComponent()
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(
+          atPath: destinationParent.path,
+          isDirectory: &isDirectory
+        ), isDirectory.boolValue else {
+          throw HostFolderError.message("Destination parent not found.")
+        }
+        try FileManager.default.moveItem(at: source, to: destination)
+      }
+      result(["moved": true])
+    } catch {
+      result(FlutterError(
+        code: "MOVE_ITEM_FAILED",
         message: error.localizedDescription,
         details: nil
       ))

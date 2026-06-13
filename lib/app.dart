@@ -17,10 +17,11 @@ import 'features/join/qr_scan_screen.dart';
 import 'features/nearby/nearby_room_service.dart';
 import 'features/onboarding/onboarding_screen.dart';
 import 'features/onboarding/onboarding_store.dart';
+import 'features/smart_send/share_intake_service.dart';
 import 'server/drop_server.dart';
 import 'ui/theme/drop_theme.dart';
 
-const String _appVersion = '1.0.3+4';
+const String _appVersion = '1.0.5+5';
 const String _supportEmail = 'support@netsepio.com';
 
 class ErebrusDropApp extends StatefulWidget {
@@ -85,6 +86,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   final HostFolderService _hostFolderService = HostFolderService();
   final RoomRuntimeService _roomRuntimeService = RoomRuntimeService();
   final JoinRoomService _joinRoomService = JoinRoomService();
+  final ShareIntakeService _shareIntakeService = ShareIntakeService();
   late final NearbyRoomService _nearbyRoomService = NearbyRoomService(
     joinRoomService: _joinRoomService,
   );
@@ -144,6 +146,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   String? _libraryError;
   List<DropFileItem> _files = <DropFileItem>[];
   Timer? _refreshTimer;
+  StreamSubscription<SharedPayload>? _shareSubscription;
   DateTime _lastNearbyDiscovery = DateTime.fromMillisecondsSinceEpoch(0);
 
   DropRoomSession? get _session => _server.session;
@@ -160,6 +163,9 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     unawaited(_loadDeviceName());
     unawaited(_loadHostFolderSelection());
     unawaited(_refreshNetworkStatus());
+    _shareSubscription = _shareIntakeService.watchIncomingShares().listen(
+      (payload) => unawaited(_handleSharedPayload(payload)),
+    );
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (_server.isRunning && _appInForeground) {
         unawaited(_refreshRoomData());
@@ -247,6 +253,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     _joinTextBody.dispose();
     _networkUiVersion.dispose();
     _joinUiVersion.dispose();
+    unawaited(_shareSubscription?.cancel());
     unawaited(
       _roomRuntimeService.setKeepAwake(enabled: false).catchError((_) {}),
     );
@@ -262,6 +269,13 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     if (_appInForeground) {
       unawaited(_loadLibraryFiles());
       unawaited(_refreshNetworkStatus());
+      unawaited(
+        _shareIntakeService.consumeInitialShare().then((payload) {
+          if (payload != null) {
+            return _handleSharedPayload(payload);
+          }
+        }),
+      );
     }
   }
 
@@ -501,55 +515,105 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   }
 
   Widget _smartSendTab() {
+    final canSaveSmartText = _server.isRunning || _hostFolderSelection != null;
+    final destination = _server.isRunning
+        ? 'Live room: ${_session?.name ?? 'Drop Room'}'
+        : _hostFolderSelection != null
+        ? 'Drop folder: ${_hostFolderSelection!.name}'
+        : 'No Drop folder selected';
     return _Screen(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _SectionHeader(title: 'Smart Send'),
-          const SizedBox(height: 12),
-          _InfoCard(
-            title: 'Clipboard is explicit',
-            subtitle:
-                'Paste or type text here. The app only reads clipboard content after a user action.',
-            icon: Icons.content_paste_outlined,
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _smartTitle,
-            decoration: const InputDecoration(labelText: 'Title'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _smartText,
-            minLines: 7,
-            maxLines: 12,
-            decoration: const InputDecoration(
-              labelText: 'Text, SMS copy, link, or note',
+          _SectionHeader(
+            title: 'Smart Send',
+            action: IconButton.filledTonal(
+              onPressed: _pasteClipboard,
+              icon: const Icon(Icons.paste),
+              tooltip: 'Paste clipboard',
             ),
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: _server.isRunning ? _saveSmartText : null,
-                  icon: const Icon(Icons.send_outlined),
-                  label: const Text('Send to Room'),
-                ),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Icon(
+                    canSaveSmartText
+                        ? Icons.folder_special_outlined
+                        : Icons.folder_off_outlined,
+                    color: canSaveSmartText
+                        ? DropTheme.success
+                        : Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      destination,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                  if (_hostFolderSelection == null && !_server.isRunning)
+                    FilledButton.tonalIcon(
+                      onPressed: () => unawaited(_selectHostFolder()),
+                      icon: const Icon(Icons.folder_open_outlined),
+                      label: const Text('Choose'),
+                    ),
+                ],
               ),
-              const SizedBox(width: 10),
-              IconButton.filledTonal(
-                onPressed: _pasteClipboard,
-                icon: const Icon(Icons.paste),
-                tooltip: 'Paste clipboard',
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: _smartTitle,
+                    decoration: const InputDecoration(labelText: 'Title'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _smartText,
+                    minLines: 8,
+                    maxLines: 14,
+                    decoration: const InputDecoration(
+                      labelText: 'Text, link, SMS copy, or note',
+                      alignLabelWithHint: true,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: canSaveSmartText ? _saveSmartText : null,
+                          icon: const Icon(Icons.save_alt_outlined),
+                          label: const Text('Save to Drop Folder'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      IconButton.filledTonal(
+                        onPressed: () {
+                          _smartText.clear();
+                          _smartTitle.text = 'Quick text';
+                        },
+                        icon: const Icon(Icons.clear),
+                        tooltip: 'Clear',
+                      ),
+                    ],
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
           const SizedBox(height: 12),
           _FeatureGrid(
             items: const [
               ('Screenshot OCR', Icons.document_scanner_outlined, 'Planned'),
-              ('Share Sheet', Icons.ios_share_outlined, 'Planned'),
+              ('Share Sheet', Icons.ios_share_outlined, 'Android/iOS ready'),
               ('Files', Icons.attach_file_outlined, 'Native picker ready'),
               ('Links', Icons.link_outlined, 'Send as text'),
             ],
@@ -777,6 +841,22 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                         ),
                         const SizedBox(height: 6),
                         SelectableText(session.baseUrl),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: SelectableText('${session.baseUrl}/dav'),
+                            ),
+                            IconButton(
+                              onPressed: () => _copy(
+                                '${session.baseUrl}/dav',
+                                'WebDAV URL copied',
+                              ),
+                              icon: const Icon(Icons.copy, size: 18),
+                              tooltip: 'Copy WebDAV URL',
+                            ),
+                          ],
+                        ),
                       ],
                     );
                     final statuses = Wrap(
@@ -1306,6 +1386,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                 unawaited(_loadJoinedFiles());
               },
               onDownload: _downloadJoinedFile,
+              onPullToHost: _server.isRunning ? _pullJoinedFileIntoRoom : null,
               transferBuilder: _transferPanel,
             );
           },
@@ -1989,13 +2070,27 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       _snack('Paste or type text first');
       return;
     }
-    await _server.saveTextSnippet(
-      title: _smartTitle.text,
-      body: _smartText.text,
-    );
+    if (_server.isRunning) {
+      await _server.saveTextSnippet(
+        title: _smartTitle.text,
+        body: _smartText.text,
+      );
+    } else {
+      final selection = _hostFolderSelection;
+      if (selection == null) {
+        _snack('Choose a Drop folder first');
+        return;
+      }
+      await _saveTextToHostFolder(
+        selection: selection,
+        title: _smartTitle.text,
+        body: _smartText.text,
+      );
+      await _loadLibraryFiles();
+    }
     _smartText.clear();
     await _refreshRoomData();
-    _snack('Text saved to the room');
+    _snack('Text saved to the Drop folder');
   }
 
   String _dropFolderLabel() {
@@ -2429,6 +2524,58 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     }
   }
 
+  Future<void> _pullJoinedFileIntoRoom(DropFileItem item) async {
+    final preview = _joinPreview;
+    final joinSession = _joinSession;
+    if (preview == null || joinSession == null || !_server.isRunning) return;
+    final stopwatch = Stopwatch()..start();
+    var lastUpdate = DateTime.fromMillisecondsSinceEpoch(0);
+    try {
+      await _server.pullFileFromRoom(
+        sourceBaseUrl: preview.baseUrl,
+        sourceToken: joinSession.token,
+        item: item,
+        destinationPath: _defaultUploadPath,
+        onProgress: (received, total) {
+          if (!mounted) return;
+          final now = DateTime.now();
+          if (now.difference(lastUpdate).inMilliseconds < 250 &&
+              received != total) {
+            return;
+          }
+          lastUpdate = now;
+          final elapsed = math.max(stopwatch.elapsedMilliseconds / 1000, 0.001);
+          _setJoinState(
+            () => _joinTransfer = TransferProgress(
+              direction: TransferDirection.download,
+              title: 'Pulling ${item.name}',
+              detail: 'Saving into your live room',
+              sentBytes: received,
+              totalBytes: total < 0 ? item.sizeBytes : total,
+              speedBytesPerSecond: received / elapsed,
+            ),
+          );
+        },
+      );
+      if (!mounted) return;
+      _setJoinState(() {
+        _joinTransfer = TransferProgress.complete(
+          direction: TransferDirection.download,
+          title: 'Pulled ${item.name}',
+          detail: 'Saved to your Drop Room',
+          totalBytes: item.sizeBytes,
+        );
+      });
+      await _refreshRoomData();
+      _snack('Pulled ${item.name} into your room');
+    } catch (error) {
+      if (mounted) {
+        _setJoinState(() => _joinTransfer = null);
+        _snack('Could not pull file: $error');
+      }
+    }
+  }
+
   Future<void> _pickAndUploadJoinedFiles() async {
     final preview = _joinPreview;
     final joinSession = _joinSession;
@@ -2529,6 +2676,120 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       return;
     }
     _smartText.text = data.text!;
+  }
+
+  Future<void> _handleSharedPayload(SharedPayload payload) async {
+    if (payload.isEmpty || !mounted) return;
+    if (_loadingHostFolderSelection) {
+      await _loadHostFolderSelection();
+    }
+    final text = payload.text?.trim();
+    var importedFiles = 0;
+    var importedText = false;
+    final selection = _hostFolderSelection;
+    if (text != null && text.isNotEmpty) {
+      _smartTitle.text = 'Shared text';
+      _smartText.text = text;
+      if (_server.isRunning) {
+        await _server.saveTextSnippet(
+          title: _smartTitle.text,
+          body: text,
+          source: 'share_sheet',
+        );
+        importedText = true;
+      } else if (selection != null) {
+        await _saveTextToHostFolder(
+          selection: selection,
+          title: _smartTitle.text,
+          body: text,
+        );
+        importedText = true;
+      }
+    }
+    if (payload.filePaths.isNotEmpty) {
+      for (final path in payload.filePaths) {
+        final file = File(path);
+        if (!await file.exists()) continue;
+        if (_server.isRunning) {
+          await _server.importLocalFile(
+            file: file,
+            name: file.uri.pathSegments.isEmpty
+                ? 'shared-file'
+                : file.uri.pathSegments.last,
+          );
+        } else if (selection != null) {
+          await _hostFolderBridge.copyFileInto(
+            rootUri: selection.uri,
+            folderPath: '/',
+            sourcePath: file.path,
+            name: file.uri.pathSegments.isEmpty
+                ? 'shared-file'
+                : file.uri.pathSegments.last,
+            mimeType: _mimeTypeForName(file.path),
+          );
+        } else {
+          continue;
+        }
+        importedFiles++;
+      }
+    }
+    if (_server.isRunning) {
+      await _refreshRoomData();
+    } else if (selection != null) {
+      await _loadLibraryFiles();
+    }
+    if (!mounted) return;
+    if (importedFiles > 0 || importedText) {
+      final pieces = <String>[
+        if (importedFiles > 0) '$importedFiles file(s)',
+        if (importedText) 'text',
+      ];
+      _snack('Added ${pieces.join(' and ')} to the Drop folder');
+      setState(() => _tab = 2);
+    } else if (text != null && text.isNotEmpty) {
+      _snack('Choose a Drop folder to save shared content');
+      setState(() => _tab = 3);
+    } else {
+      _snack('Choose a Drop folder to save shared files');
+      setState(() => _tab = 2);
+    }
+  }
+
+  Future<void> _saveTextToHostFolder({
+    required HostFolderSelection selection,
+    required String title,
+    required String body,
+  }) async {
+    final timestamp = DateTime.now()
+        .toIso8601String()
+        .replaceAll(':', '-')
+        .replaceAll('.', '-');
+    final safeTitle = _safeSharedName(
+      title.trim().isEmpty ? 'Shared text' : title,
+    );
+    final temp = File('${Directory.systemTemp.path}/$timestamp-$safeTitle.txt');
+    await temp.writeAsString(body);
+    try {
+      await _hostFolderBridge.copyFileInto(
+        rootUri: selection.uri,
+        folderPath: '/',
+        sourcePath: temp.path,
+        name: temp.uri.pathSegments.last,
+        mimeType: 'text/plain',
+      );
+    } finally {
+      if (await temp.exists()) {
+        await temp.delete();
+      }
+    }
+  }
+
+  String _safeSharedName(String value) {
+    final safe = value
+        .replaceAll(RegExp(r'[\\/:*?"<>|]'), '-')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    return safe.isEmpty ? 'shared-file' : safe;
   }
 
   Future<bool> _selectHostFolder() async {
@@ -2724,6 +2985,8 @@ enum _BackAction { background, close }
 
 enum _LibraryFileAction { open, share, delete }
 
+enum _JoinedFileAction { download, pullToHost }
+
 enum TransferDirection { upload, download }
 
 class TransferProgress {
@@ -2801,6 +3064,7 @@ class _JoinedRoomDetailScreen extends StatelessWidget {
     required this.onSendText,
     required this.onFolderTap,
     required this.onDownload,
+    required this.onPullToHost,
     required this.transferBuilder,
   });
 
@@ -2823,6 +3087,7 @@ class _JoinedRoomDetailScreen extends StatelessWidget {
   final Future<void> Function() onSendText;
   final void Function(DropFileItem item) onFolderTap;
   final void Function(DropFileItem item) onDownload;
+  final void Function(DropFileItem item)? onPullToHost;
   final Widget Function(TransferProgress transfer) transferBuilder;
 
   @override
@@ -3038,6 +3303,7 @@ class _JoinedRoomDetailScreen extends StatelessWidget {
                   item: item,
                   onFolderTap: onFolderTap,
                   onDownload: onDownload,
+                  onPullToHost: onPullToHost,
                 ),
               ),
           ],
@@ -3124,11 +3390,13 @@ class _JoinedFileTile extends StatelessWidget {
     required this.item,
     required this.onFolderTap,
     required this.onDownload,
+    required this.onPullToHost,
   });
 
   final DropFileItem item;
   final void Function(DropFileItem item) onFolderTap;
   final void Function(DropFileItem item) onDownload;
+  final void Function(DropFileItem item)? onPullToHost;
 
   @override
   Widget build(BuildContext context) {
@@ -3160,10 +3428,34 @@ class _JoinedFileTile extends StatelessWidget {
           ),
           trailing: isFolder
               ? const Icon(Icons.chevron_right)
-              : IconButton(
-                  onPressed: () => onDownload(item),
-                  icon: const Icon(Icons.download_outlined),
-                  tooltip: 'Download',
+              : PopupMenuButton<_JoinedFileAction>(
+                  tooltip: 'File actions',
+                  icon: const Icon(Icons.more_vert),
+                  onSelected: (action) {
+                    switch (action) {
+                      case _JoinedFileAction.download:
+                        onDownload(item);
+                      case _JoinedFileAction.pullToHost:
+                        onPullToHost?.call(item);
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: _JoinedFileAction.download,
+                      child: ListTile(
+                        leading: Icon(Icons.download_outlined),
+                        title: Text('Download'),
+                      ),
+                    ),
+                    if (onPullToHost != null)
+                      const PopupMenuItem(
+                        value: _JoinedFileAction.pullToHost,
+                        child: ListTile(
+                          leading: Icon(Icons.sync_alt_outlined),
+                          title: Text('Pull to my room'),
+                        ),
+                      ),
+                  ],
                 ),
           onTap: isFolder ? () => onFolderTap(item) : null,
         ),
@@ -3722,12 +4014,12 @@ class _AboutScreen extends StatelessWidget {
             color: DropTheme.success,
           ),
           const _CapabilityCard(
-            icon: Icons.document_scanner_outlined,
-            title: 'Offline OCR and share sheet',
-            status: 'Next',
+            icon: Icons.radar_outlined,
+            title: 'Smart Send intake',
+            status: 'Available',
             detail:
-                'Smart Send text works now; screenshot OCR and OS share intake are planned native additions.',
-            color: DropTheme.amber,
+                'Android and iOS share-sheet text and files can enter Smart Send or a live room.',
+            color: DropTheme.success,
           ),
           const SizedBox(height: 18),
           const _AboutFooterLinks(),

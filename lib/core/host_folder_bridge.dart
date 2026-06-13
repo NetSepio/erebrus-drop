@@ -85,6 +85,30 @@ class HostFolderBridge {
     });
   }
 
+  Future<void> renameItem({
+    required String rootUri,
+    required String path,
+    required String newName,
+  }) async {
+    await _channel.invokeMethod<Object?>('renameHostItem', {
+      'rootUri': rootUri,
+      'path': path,
+      'newName': newName,
+    });
+  }
+
+  Future<void> moveItem({
+    required String rootUri,
+    required String path,
+    required String destinationPath,
+  }) async {
+    await _channel.invokeMethod<Object?>('moveHostItem', {
+      'rootUri': rootUri,
+      'path': path,
+      'destinationPath': destinationPath,
+    });
+  }
+
   Future<void> openLocalFile({
     required String path,
     required String name,

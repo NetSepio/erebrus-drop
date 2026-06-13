@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -53,7 +54,9 @@ class HostFolderService {
       if (decoded is! Map<String, Object?>) {
         return null;
       }
-      return HostFolderSelection.fromJson(decoded);
+      final selection = HostFolderSelection.fromJson(decoded);
+      unawaited(_syncShareIntakeHostFolder(selection));
+      return selection;
     } on Object {
       return null;
     }
@@ -63,6 +66,19 @@ class HostFolderService {
     final file = await _selectionFile();
     await file.parent.create(recursive: true);
     await file.writeAsString(jsonEncode(selection.toJson()));
+    await _syncShareIntakeHostFolder(selection);
+  }
+
+  Future<void> _syncShareIntakeHostFolder(HostFolderSelection selection) async {
+    try {
+      await _channel.invokeMethod<Object?>('syncShareIntakeHostFolder', {
+        'selection': selection.toJson(),
+      });
+    } on MissingPluginException {
+      // Share-extension folder sync is native-platform specific.
+    } on PlatformException {
+      // The in-app saved selection remains valid even if extension sync fails.
+    }
   }
 
   Future<void> clearSelection() async {
@@ -73,6 +89,13 @@ class HostFolderService {
       }
     } on Object {
       // Missing saved metadata is harmless.
+    }
+    try {
+      await _channel.invokeMethod<Object?>('clearShareIntakeHostFolder');
+    } on MissingPluginException {
+      // Share-extension folder sync is native-platform specific.
+    } on PlatformException {
+      // Clearing the app-side selection is enough to stop in-app hosting.
     }
   }
 

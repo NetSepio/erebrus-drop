@@ -1,6 +1,6 @@
 # Erebrus Drop
 
-Current version: `1.0.3+4`
+Current version: `1.0.5+5`
 
 Erebrus Drop is a local-first file and text sharing app for nearby devices. A
 phone can create a temporary Drop Room on the current Wi-Fi network or hotspot,
@@ -14,8 +14,12 @@ or cloud upload.
 - Create a local Drop Room over Wi-Fi or hotspot.
 - Discover nearby Drop Rooms with mDNS on Android and iOS.
 - Share files, folders, text, and streamable media on the local network.
+- Receive Android and iOS share-sheet text and files into Smart Send or a live room.
 - Join from the app, a QR code, a Drop Link, or the bundled browser client.
+- Download selected browser files or folders as ZIP bundles.
+- Connect WebDAV clients to a live Drop Room through the `/dav` endpoint.
 - Scan Drop Room QR codes with native Android and iOS camera scanners.
+- Pull files from a joined room directly into a live hosted room.
 - Use optional room passwords and scoped folder access.
 - Save received files to the platform-appropriate user-visible location.
 - Transfer locally without analytics, tracking, accounts, or cloud relay.
@@ -33,7 +37,7 @@ or cloud upload.
 Current release version:
 
 ```text
-1.0.3+4
+1.0.5+5
 ```
 
 Android release versioning:
