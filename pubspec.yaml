@@ -35,6 +35,9 @@ dependencies:
   cupertino_icons: ^1.0.8
   path_provider: ^2.1.5
   qr_flutter: ^4.1.0
+  # Runtime API (preserve/remove) is used from main.dart, so this is a
+  # regular dependency; the splash assets are generated at build time.
+  flutter_native_splash: ^2.4.4
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -45,6 +48,38 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+
+  # Generates the Android/iOS launcher icons from the glossy brand mark.
+  flutter_launcher_icons: ^0.14.4
+
+# Launcher icon generation (run: dart run flutter_launcher_icons).
+# Glossy mark is the primary app icon (spec §1); flattened onto the brand
+# near-black for iOS (icons must be opaque) and used as the adaptive
+# foreground on a near-black background on Android.
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/erebrus-glossy.png"
+  min_sdk_android: 21
+  remove_alpha_ios: true
+  background_color_ios: "#050505"
+  adaptive_icon_background: "#050505"
+  adaptive_icon_foreground: "assets/images/erebrus-glossy.png"
+
+# Native splash screen (run: dart run flutter_native_splash:create).
+# Glossy mark centred on the brand near-black; dark-only app so a single
+# colour covers light + dark system themes. Android 12+ uses its own splash
+# API (icon masked to a circle over the same background).
+flutter_native_splash:
+  color: "#050505"
+  image: assets/images/erebrus-glossy.png
+  fullscreen: true
+  android: true
+  ios: true
+  android_12:
+    image: assets/images/erebrus-glossy.png
+    color: "#050505"
+    icon_background_color: "#050505"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -60,6 +95,27 @@ flutter:
   assets:
     - assets/images/
     - assets/web/drop_client/
+
+  fonts:
+    # Display / headlines — Bricolage Grotesque (static weights so the
+    # pubspec weight descriptors map exactly). Bundled, never fetched at
+    # runtime, to honour the app's local-first / offline promise.
+    - family: Bricolage Grotesque
+      fonts:
+        - asset: assets/fonts/BricolageGrotesque-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/BricolageGrotesque-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/BricolageGrotesque-ExtraBold.ttf
+          weight: 800
+    # Body / UI — Manrope (variable; fontWeight drives the wght axis).
+    - family: Manrope
+      fonts:
+        - asset: assets/fonts/Manrope.ttf
+    # Mono — JetBrains Mono (variable) for IPs, URLs, /dav, versions, paths.
+    - family: JetBrains Mono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

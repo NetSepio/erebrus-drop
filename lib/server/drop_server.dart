@@ -44,6 +44,15 @@ class DropServer {
 
   bool get isRunning => _server != null;
 
+  /// Number of currently-valid guest tokens — a live proxy for how many guests
+  /// have joined this room (drives the "N joined" pill on the host dashboard).
+  /// Expired tokens are pruned on read.
+  int get activeGuestCount {
+    final now = DateTime.now();
+    _tokens.removeWhere((_, expiresAt) => now.isAfter(expiresAt));
+    return _tokens.length;
+  }
+
   Future<DropRoomSession> startForTesting({
     required Directory rootDirectory,
   }) async {

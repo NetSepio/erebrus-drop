@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../ui/theme/drop_theme.dart';
+import '../../ui/widgets/drop_widgets.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({required this.onComplete, super.key});
@@ -41,72 +42,80 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget build(BuildContext context) {
     final isLast = _page == _slides.length - 1;
     return Scaffold(
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final compact =
-                constraints.maxHeight < 430 ||
-                constraints.maxWidth > constraints.maxHeight * 1.45;
-            return Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: compact ? 16 : 22,
-                vertical: compact ? 10 : 22,
-              ),
-              child: Column(
-                children: [
-                  SizedBox(
-                    height: compact ? 36 : 48,
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton(
-                        style: compact
-                            ? TextButton.styleFrom(
-                                minimumSize: const Size(64, 34),
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                visualDensity: VisualDensity.compact,
-                              )
-                            : null,
-                        onPressed: _saving ? null : _complete,
-                        child: const Text('Skip'),
+      body: Stack(
+        children: [
+          const Positioned.fill(child: AmbientGlow()),
+          SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final compact =
+                    constraints.maxHeight < 430 ||
+                    constraints.maxWidth > constraints.maxHeight * 1.45;
+                return Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: compact ? 16 : 22,
+                    vertical: compact ? 10 : 22,
+                  ),
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        height: compact ? 36 : 48,
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            style: compact
+                                ? TextButton.styleFrom(
+                                    minimumSize: const Size(64, 34),
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                    visualDensity: VisualDensity.compact,
+                                  )
+                                : null,
+                            onPressed: _saving ? null : _complete,
+                            child: const Text('Skip'),
+                          ),
+                        ),
                       ),
-                    ),
+                      Expanded(
+                        child: PageView.builder(
+                          controller: _controller,
+                          itemCount: _slides.length,
+                          onPageChanged: (page) => setState(() => _page = page),
+                          itemBuilder: (context, index) {
+                            return _SlideContent(slide: _slides[index]);
+                          },
+                        ),
+                      ),
+                      if (compact)
+                        _CompactControls(
+                          page: _page,
+                          slideCount: _slides.length,
+                          isLast: isLast,
+                          saving: _saving,
+                          onPressed: isLast ? _complete : _next,
+                        )
+                      else ...[
+                        _PageDots(page: _page, slideCount: _slides.length),
+                        const SizedBox(height: 18),
+                        PrimaryButton(
+                          label: isLast ? 'Start Dropping' : 'Next',
+                          icon: isLast
+                              ? Icons.check_rounded
+                              : Icons.arrow_forward_rounded,
+                          busy: _saving,
+                          expand: false,
+                          onPressed: _saving
+                              ? null
+                              : (isLast ? _complete : _next),
+                        ),
+                      ],
+                    ],
                   ),
-                  Expanded(
-                    child: PageView.builder(
-                      controller: _controller,
-                      itemCount: _slides.length,
-                      onPageChanged: (page) => setState(() => _page = page),
-                      itemBuilder: (context, index) {
-                        return _SlideContent(slide: _slides[index]);
-                      },
-                    ),
-                  ),
-                  if (compact)
-                    _CompactControls(
-                      page: _page,
-                      slideCount: _slides.length,
-                      isLast: isLast,
-                      saving: _saving,
-                      onPressed: isLast ? _complete : _next,
-                    )
-                  else ...[
-                    _PageDots(page: _page, slideCount: _slides.length),
-                    const SizedBox(height: 18),
-                    FilledButton.icon(
-                      onPressed: _saving
-                          ? null
-                          : isLast
-                          ? _complete
-                          : _next,
-                      icon: Icon(isLast ? Icons.check : Icons.arrow_forward),
-                      label: Text(isLast ? 'Start Dropping' : 'Next'),
-                    ),
-                  ],
-                ],
-              ),
-            );
-          },
-        ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -251,15 +260,12 @@ class _CompactControls extends StatelessWidget {
         Expanded(
           child: _PageDots(page: page, slideCount: slideCount),
         ),
-        FilledButton.icon(
-          style: FilledButton.styleFrom(
-            minimumSize: const Size(108, 38),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            visualDensity: VisualDensity.compact,
-          ),
+        PrimaryButton(
+          label: isLast ? 'Start Dropping' : 'Next',
+          icon: isLast ? Icons.check_rounded : Icons.arrow_forward_rounded,
+          busy: saving,
+          expand: false,
           onPressed: saving ? null : onPressed,
-          icon: Icon(isLast ? Icons.check : Icons.arrow_forward, size: 18),
-          label: Text(isLast ? 'Start Dropping' : 'Next'),
         ),
       ],
     );
