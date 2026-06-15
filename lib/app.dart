@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -20,6 +21,7 @@ import 'features/onboarding/onboarding_store.dart';
 import 'features/smart_send/share_intake_service.dart';
 import 'server/drop_server.dart';
 import 'ui/theme/drop_theme.dart';
+import 'ui/widgets/drop_widgets.dart';
 
 const String _appVersion = '1.0.5+5';
 const String _supportEmail = 'support@netsepio.com';
@@ -51,9 +53,7 @@ class _ErebrusDropAppState extends State<ErebrusDropApp> {
               future: _onboardingComplete,
               builder: (context, snapshot) {
                 if (snapshot.connectionState != ConnectionState.done) {
-                  return const Scaffold(
-                    body: Center(child: CircularProgressIndicator()),
-                  );
+                  return const _BootScreen();
                 }
                 final complete = snapshot.data == true || _completedThisRun;
                 if (complete) {
@@ -69,6 +69,27 @@ class _ErebrusDropAppState extends State<ErebrusDropApp> {
                 );
               },
             ),
+    );
+  }
+}
+
+/// Branded boot screen shown for the instant between the native splash and the
+/// first real screen — visually identical to the native splash (glossy mark on
+/// the brand near-black) so the handoff is seamless.
+class _BootScreen extends StatelessWidget {
+  const _BootScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: DropTheme.black,
+      body: Center(
+        child: SizedBox(
+          width: 176,
+          height: 176,
+          child: Image(image: AssetImage(DropTheme.logoGlossy)),
+        ),
+      ),
     );
   }
 }
@@ -330,39 +351,55 @@ class _DropHomeScreenState extends State<DropHomeScreen>
             ],
           ),
         ),
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: _tab,
-          onDestinationSelected: (index) {
-            setState(() => _tab = index);
-            if (index == 1) {
-              unawaited(_discoverNearbyRooms());
-            }
-            if (index == 2) {
-              unawaited(_loadLibraryFiles());
-            }
-          },
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.home_outlined),
-              label: 'Home',
+        bottomNavigationBar: ClipRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+            child: DecoratedBox(
+              decoration: const BoxDecoration(
+                color: Color(0xDB080809),
+                border: Border(top: BorderSide(color: DropTheme.line)),
+              ),
+              child: NavigationBar(
+                selectedIndex: _tab,
+                onDestinationSelected: (index) {
+                  setState(() => _tab = index);
+                  if (index == 1) {
+                    unawaited(_discoverNearbyRooms());
+                  }
+                  if (index == 2) {
+                    unawaited(_loadLibraryFiles());
+                  }
+                },
+                destinations: const [
+                  NavigationDestination(
+                    icon: Icon(Icons.home_outlined),
+                    selectedIcon: Icon(Icons.home_rounded),
+                    label: 'Home',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.hub_outlined),
+                    selectedIcon: Icon(Icons.hub),
+                    label: 'Rooms',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.folder_outlined),
+                    selectedIcon: Icon(Icons.folder_rounded),
+                    label: 'Library',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.bolt_outlined),
+                    selectedIcon: Icon(Icons.bolt),
+                    label: 'Send',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.settings_outlined),
+                    selectedIcon: Icon(Icons.settings),
+                    label: 'Settings',
+                  ),
+                ],
+              ),
             ),
-            NavigationDestination(
-              icon: Icon(Icons.hub_outlined),
-              label: 'Rooms',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.folder_outlined),
-              label: 'Library',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.flash_on_outlined),
-              label: 'Smart Send',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.settings_outlined),
-              label: 'Settings',
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -370,81 +407,121 @@ class _DropHomeScreenState extends State<DropHomeScreen>
 
   Widget _homeTab() {
     final session = _session;
+    final ready = _networkStatus.isReady;
+    final online = session != null || ready;
     return _Screen(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _brandHeader(),
+          EnterTransition(child: _brandHeader()),
           const SizedBox(height: 18),
-          _StatusPill(
-            icon: session == null ? Icons.wifi_off_outlined : Icons.public,
-            label: session == null ? 'Offline' : 'Hosting Drop Room',
-            color: session == null ? Colors.white54 : DropTheme.success,
-          ),
-          const SizedBox(height: 22),
-          Text(
-            'Start, scan, send.',
-            style: Theme.of(
-              context,
-            ).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            session == null
-                ? 'Drop files, text, and media between nearby devices without a cloud account or forced app install.'
-                : 'Share the Drop Code or link with guests on this network.',
-          ),
-          const SizedBox(height: 22),
-          _ActionGrid(
-            children: session == null
-                ? [
-                    _PrimaryAction(
-                      icon: Icons.add_circle_outline,
-                      title: 'Start Drop Room',
-                      subtitle: 'Host a local browser room on this network.',
-                      onTap: _showStartRoomSheet,
-                    ),
-                    _PrimaryAction(
-                      icon: Icons.login_outlined,
-                      title: 'Join Drop Room',
-                      subtitle:
-                          'Enter a local Drop Link and browse after auth.',
-                      onTap: () => setState(() => _tab = 1),
-                    ),
-                  ]
-                : [
-                    _PrimaryAction(
-                      icon: Icons.qr_code,
-                      title: 'Show Drop Code',
-                      subtitle: 'Let nearby guests scan and join this room.',
-                      onTap: () => _showQrDialog(session),
-                    ),
-                    _PrimaryAction(
-                      icon: Icons.copy,
-                      title: 'Copy Drop Link',
-                      subtitle: 'Share the browser link for this live room.',
-                      onTap: () => _copy(session.baseUrl, 'Drop Link copied'),
-                    ),
-                  ],
-          ),
-          const SizedBox(height: 18),
-          _QuickActions(
-            onSmartSend: () => setState(() => _tab = 3),
-            onLibrary: () => setState(() => _tab = 2),
-            onQr: session == null
-                ? _scanDropCode
-                : () => _showQrDialog(session),
-          ),
-          const SizedBox(height: 18),
-          if (session == null)
-            _InfoCard(
-              title: 'Ready when your Wi-Fi is',
-              subtitle:
-                  'Start a room, share the QR code, and browser guests can upload, download, create folders, paste text, and stream local media.',
-              icon: Icons.wifi_tethering_outlined,
-            )
-          else
+          if (session == null) ...[
+            DropPill(
+              dot: online,
+              icon: online ? null : Icons.wifi_off_rounded,
+              label: ready ? 'Ready · ${_networkStatus.label}' : 'Offline',
+              color: online ? DropTheme.success : DropTheme.muted,
+            ),
+            const SizedBox(height: 22),
+            EnterTransition(delayMs: 60, child: _homeHeadline()),
+            const SizedBox(height: 12),
+            Text(
+              'Drop files, text, and media between nearby devices — no cloud '
+              'account, no forced app install.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 24),
+            EnterTransition(
+              delayMs: 110,
+              child: _homeActionCard(
+                hero: true,
+                icon: Icons.add_rounded,
+                title: 'Start Drop Room',
+                subtitle: 'Host a local browser room on this network.',
+                onTap: _showStartRoomSheet,
+              ),
+            ),
+            const SizedBox(height: 12),
+            _homeActionCard(
+              hero: false,
+              icon: Icons.login_rounded,
+              title: 'Join Drop Room',
+              subtitle: 'Enter a local Drop Link and browse after auth.',
+              onTap: () => setState(() => _tab = 1),
+            ),
+            const SizedBox(height: 16),
+            _trustStrip(),
+          ] else
             _hostDashboard(session),
+        ],
+      ),
+    );
+  }
+
+  Widget _homeHeadline() {
+    final base = Theme.of(context).textTheme.displaySmall;
+    return Text.rich(
+      TextSpan(
+        children: [
+          const TextSpan(text: 'Start, scan, '),
+          TextSpan(
+            text: 'send.',
+            style: const TextStyle(color: DropTheme.orange),
+          ),
+        ],
+      ),
+      style: base,
+    );
+  }
+
+  Widget _homeActionCard({
+    required bool hero,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    final row = Row(
+      children: [
+        LeadingTile(icon: icon, gradient: hero, size: 46),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 3),
+              Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        const Icon(Icons.chevron_right_rounded, color: DropTheme.faint),
+      ],
+    );
+    if (hero) {
+      return DropCard.tinted(onTap: onTap, glow: true, child: row);
+    }
+    return DropCard(onTap: onTap, child: row);
+  }
+
+  Widget _trustStrip() {
+    return DropCard.tinted(
+      accent: DropTheme.success,
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
+          const Icon(Icons.shield_rounded, color: DropTheme.success, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Nothing leaves your network. No cloud relay, ever.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: DropTheme.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -453,31 +530,56 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   Widget _roomsTab() {
     final session = _session;
     return _Screen(
+      glowAlignment: Alignment.topLeft,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SectionHeader(
+          _Head(
             title: 'Rooms',
+            subtitle: 'Nearby on ${_networkStatus.label}',
             action: session == null
-                ? FilledButton.icon(
+                ? TonalButton(
+                    label: 'Start',
+                    icon: Icons.add_rounded,
                     onPressed: _showStartRoomSheet,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Start'),
                   )
-                : FilledButton.tonalIcon(
+                : TonalButton(
+                    label: 'Drop Code',
+                    icon: Icons.qr_code_rounded,
                     onPressed: () => _showQrDialog(session),
-                    icon: const Icon(Icons.qr_code),
-                    label: const Text('Drop Code'),
                   ),
           ),
-          const SizedBox(height: 12),
-          if (session != null) _hostDashboard(session),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
+          if (session != null) ...[
+            _hostDashboard(session),
+            const SizedBox(height: 12),
+          ],
           _nearbyRoomsCard(),
           const SizedBox(height: 12),
           _manualJoinCard(),
-          const SizedBox(height: 12),
-          _foundRoomsSection(),
+          const SizedBox(height: 18),
+          _scanningFooter(),
+        ],
+      ),
+    );
+  }
+
+  Widget _scanningFooter() {
+    return Center(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PulsingDot(
+            color: _discoveringRooms ? DropTheme.orange : DropTheme.faint,
+            size: 8,
+          ),
+          const SizedBox(width: 10),
+          Flexible(
+            child: Text(
+              'Scanning network with mDNS…',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
         ],
       ),
     );
@@ -486,25 +588,23 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   Widget _libraryTab() {
     final hasLibrarySource = _server.isRunning || _hostFolderSelection != null;
     return _Screen(
+      glowAlignment: Alignment.topRight,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SectionHeader(
+          _Head(
             title: 'Library',
-            action: IconButton(
+            subtitle: 'Shared this session',
+            action: DropIconButton(
+              icon: Icons.refresh_rounded,
+              busy: _loadingLibraryFiles,
+              tooltip: 'Refresh',
               onPressed: hasLibrarySource
                   ? () => unawaited(_loadLibraryFiles())
                   : null,
-              icon: _loadingLibraryFiles
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.refresh),
-              tooltip: 'Refresh',
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           if (!hasLibrarySource)
             _InfoCard(
               title: 'Choose a Drop folder',
@@ -515,7 +615,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
             )
           else ...[
             _libraryPathBar(),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             if (_libraryError != null)
               _InfoCard(
                 title: 'Could not open folder',
@@ -536,116 +636,204 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                 icon: Icons.folder_open_outlined,
               )
             else
-              ..._files.map(_fileTile),
+              _libraryFilesCard(),
           ],
         ],
       ),
     );
   }
 
-  Widget _smartSendTab() {
-    final canSaveSmartText = _server.isRunning || _hostFolderSelection != null;
-    final destination = _server.isRunning
-        ? 'Live room: ${_session?.name ?? 'Drop Room'}'
-        : _hostFolderSelection != null
-        ? 'Drop folder: ${_hostFolderSelection!.name}'
-        : 'No Drop folder selected';
-    return _Screen(
+  Widget _libraryFilesCard() {
+    return DropCard(
+      padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SectionHeader(
+          for (var i = 0; i < _files.length; i++)
+            _fileTile(_files[i], first: i == 0),
+        ],
+      ),
+    );
+  }
+
+  (Color, IconData) _fileTypeStyle(DropFileItem item) {
+    if (item.type == 'folder') return (DropTheme.orange, Icons.folder_rounded);
+    final mime = (item.mimeType ?? '').toLowerCase();
+    final name = item.name.toLowerCase();
+    if (mime.startsWith('image/')) {
+      return (DropTheme.success, Icons.image_rounded);
+    }
+    if (mime.startsWith('video/')) {
+      return (DropTheme.amber, Icons.movie_rounded);
+    }
+    if (mime.startsWith('audio/')) {
+      return (DropTheme.amber, Icons.audiotrack_rounded);
+    }
+    if (mime.contains('pdf') || name.endsWith('.pdf')) {
+      return (DropTheme.danger, Icons.picture_as_pdf_rounded);
+    }
+    if (name.endsWith('.zip') ||
+        name.endsWith('.rar') ||
+        name.endsWith('.gz') ||
+        name.endsWith('.tar') ||
+        name.endsWith('.7z')) {
+      return (DropTheme.orange, Icons.folder_zip_rounded);
+    }
+    if (mime.startsWith('text/') ||
+        name.endsWith('.txt') ||
+        name.endsWith('.md')) {
+      return (DropTheme.muted, Icons.description_rounded);
+    }
+    return (DropTheme.muted, Icons.insert_drive_file_rounded);
+  }
+
+  String _shortWhen(DateTime time) {
+    final diff = DateTime.now().difference(time);
+    if (diff.inSeconds < 45) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return '${time.year}-${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')}';
+  }
+
+  Widget _smartSendTab() {
+    final hosting = _server.isRunning;
+    final canSaveSmartText = hosting || _hostFolderSelection != null;
+    return _Screen(
+      glowAlignment: Alignment.topLeft,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _Head(
             title: 'Smart Send',
-            action: IconButton.filledTonal(
-              onPressed: _pasteClipboard,
-              icon: const Icon(Icons.paste),
+            subtitle: 'Push text into the room',
+            action: DropIconButton(
+              icon: Icons.content_paste_rounded,
+              tonal: true,
               tooltip: 'Paste clipboard',
+              onPressed: _pasteClipboard,
             ),
           ),
+          const SizedBox(height: 16),
+          _smartDestinationCard(),
           const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                children: [
-                  Icon(
-                    canSaveSmartText
-                        ? Icons.folder_special_outlined
-                        : Icons.folder_off_outlined,
-                    color: canSaveSmartText
-                        ? DropTheme.success
-                        : Theme.of(context).colorScheme.primary,
+          DropCard(
+            child: Column(
+              children: [
+                TextField(
+                  controller: _smartTitle,
+                  decoration: const InputDecoration(labelText: 'Title'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _smartText,
+                  minLines: 7,
+                  maxLines: 13,
+                  decoration: const InputDecoration(
+                    labelText: 'Text, link, SMS copy, or note',
+                    alignLabelWithHint: true,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      destination,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                  if (_hostFolderSelection == null && !_server.isRunning)
-                    FilledButton.tonalIcon(
-                      onPressed: () => unawaited(_selectHostFolder()),
-                      icon: const Icon(Icons.folder_open_outlined),
-                      label: const Text('Choose'),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                children: [
-                  TextField(
-                    controller: _smartTitle,
-                    decoration: const InputDecoration(labelText: 'Title'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _smartText,
-                    minLines: 8,
-                    maxLines: 14,
-                    decoration: const InputDecoration(
-                      labelText: 'Text, link, SMS copy, or note',
-                      alignLabelWithHint: true,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: canSaveSmartText ? _saveSmartText : null,
-                          icon: const Icon(Icons.save_alt_outlined),
-                          label: const Text('Save to Drop Folder'),
-                        ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: PrimaryButton(
+                        label: hosting ? 'Send to Room' : 'Save to Folder',
+                        icon: Icons.send_rounded,
+                        onPressed: canSaveSmartText ? _saveSmartText : null,
                       ),
-                      const SizedBox(width: 10),
-                      IconButton.filledTonal(
-                        onPressed: () {
-                          _smartText.clear();
-                          _smartTitle.text = 'Quick text';
-                        },
-                        icon: const Icon(Icons.clear),
-                        tooltip: 'Clear',
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+                    ),
+                    const SizedBox(width: 10),
+                    DropIconButton(
+                      icon: Icons.clear_rounded,
+                      tooltip: 'Clear',
+                      onPressed: () {
+                        _smartText.clear();
+                        _smartTitle.text = 'Quick text';
+                      },
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 12),
-          _FeatureGrid(
-            items: const [
-              ('Screenshot OCR', Icons.document_scanner_outlined, 'Planned'),
-              ('Share Sheet', Icons.ios_share_outlined, 'Android/iOS ready'),
-              ('Files', Icons.attach_file_outlined, 'Native picker ready'),
-              ('Links', Icons.link_outlined, 'Send as text'),
+          const _FeatureGrid(
+            items: [
+              ('Share Sheet', Icons.ios_share_rounded, 'From any app'),
+              ('Files', Icons.attach_file_rounded, 'Native picker'),
+              ('Links', Icons.link_rounded, 'Send as text'),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _smartDestinationCard() {
+    final hosting = _server.isRunning;
+    final hasFolder = _hostFolderSelection != null;
+    if (hosting || hasFolder) {
+      return DropCard.tinted(
+        accent: DropTheme.success,
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Eyebrow(
+                    hosting ? 'Live room' : 'Drop folder',
+                    color: DropTheme.success,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    hosting
+                        ? (_session?.name ?? 'Drop Room')
+                        : _hostFolderSelection!.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Icon(
+              Icons.check_circle_rounded,
+              color: DropTheme.success,
+              size: 22,
+            ),
+          ],
+        ),
+      );
+    }
+    return DropCard(
+      child: Row(
+        children: [
+          const LeadingTile(icon: Icons.folder_off_rounded, size: 42),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'No Drop folder selected',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Choose where text is saved',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          TonalButton(
+            label: 'Choose',
+            onPressed: () => unawaited(_selectHostFolder()),
           ),
         ],
       ),
@@ -657,32 +845,343 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _SectionHeader(title: 'Settings'),
+          const _Head(title: 'Settings'),
+          const SizedBox(height: 16),
+          DropCard(
+            padding: EdgeInsets.zero,
+            child: Column(
+              children: [
+                _toggleRow(
+                  icon: Icons.lock_rounded,
+                  title: 'Require password by default',
+                  description: 'New rooms start with a password.',
+                  value: _usePassword,
+                  onChanged: (value) => setState(() => _usePassword = value),
+                  first: true,
+                ),
+                _toggleRow(
+                  icon: Icons.local_fire_department_rounded,
+                  title: 'Burn Mode default',
+                  description: 'Auto-expire new rooms after 2 hours.',
+                  value: _burnMode,
+                  onChanged: (value) => setState(() => _burnMode = value),
+                  first: false,
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 12),
-          _SettingsTile(
-            icon: Icons.security_outlined,
-            title: 'Require password by default',
-            value: _usePassword,
-            onChanged: (value) => setState(() => _usePassword = value),
-          ),
-          _SettingsTile(
-            icon: Icons.local_fire_department_outlined,
-            title: 'Burn Mode default',
-            value: _burnMode,
-            onChanged: (value) => setState(() => _burnMode = value),
-          ),
-          const SizedBox(height: 8),
           _hostFolderSettingsCard(),
-          const SizedBox(height: 28),
-          Align(
-            alignment: Alignment.centerRight,
-            child: _FooterIconButton(
-              onTap: () => _openInfoScreen(
+          const SizedBox(height: 12),
+          _privateByDesignCard(),
+          const SizedBox(height: 24),
+          _settingsFooter(),
+        ],
+      ),
+    );
+  }
+
+  Widget _toggleRow({
+    required IconData icon,
+    required String title,
+    required String description,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+    required bool first,
+  }) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: first
+            ? null
+            : const Border(top: BorderSide(color: DropTheme.line)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+        child: Row(
+          children: [
+            LeadingTile(
+              icon: icon,
+              accent: value ? DropTheme.orange : null,
+              size: 42,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: Theme.of(context).textTheme.titleSmall),
+                  const SizedBox(height: 2),
+                  Text(
+                    description,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Switch(value: value, onChanged: onChanged),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _hostFolderSettingsCard() {
+    final selection = _hostFolderSelection;
+    final pathLabel = selection == null
+        ? (_loadingHostFolderSelection ? 'Checking…' : 'No folder selected')
+        : selection.name;
+    return DropCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const LeadingTile(
+                icon: Icons.folder_special_rounded,
+                accent: DropTheme.orange,
+                size: 42,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Drop folder',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    MonoText(pathLabel, size: 12, color: DropTheme.muted),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              TonalButton(
+                label: selection == null ? 'Select' : 'Change',
+                busy: _hostFolderBusy,
+                onPressed: _hostFolderBusy
+                    ? null
+                    : () => unawaited(_selectHostFolder()),
+              ),
+            ],
+          ),
+          if (selection != null && !_server.isRunning) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _hostFolderBusy ? null : _forgetHostFolderSelection,
+                icon: const Icon(Icons.restart_alt_outlined, size: 18),
+                label: const Text('Forget folder'),
+                style: TextButton.styleFrom(foregroundColor: DropTheme.muted),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _privateByDesignCard() {
+    return DropCard.tinted(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const LeadingTile(
+                icon: Icons.shield_rounded,
+                gradient: true,
+                size: 42,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Private by design',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'Everything stays on your network.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: const [
+              _PrivacyChip('No analytics'),
+              _PrivacyChip('No tracking'),
+              _PrivacyChip('No accounts'),
+              _PrivacyChip('No cloud relay'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _settingsFooter() {
+    final shortVersion = _appVersion.split('+').first;
+    return Column(
+      children: [
+        Center(
+          child: PressableScale(
+            onTap: () => _openInfoScreen(
+              _AboutScreen(
+                networkLoading: _networkLoading,
+                networkStatus: _networkStatus,
+              ),
+            ),
+            child: const BrandLockup(markSize: 34, wordmarkSize: 18),
+          ),
+        ),
+        const SizedBox(height: 10),
+        MonoText(
+          'v$shortVersion · NetSepio',
+          size: 12,
+          color: DropTheme.faint,
+          weight: FontWeight.w500,
+        ),
+        const SizedBox(height: 4),
+        Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            TextButton(
+              onPressed: () => _openInfoScreen(
                 _AboutScreen(
                   networkLoading: _networkLoading,
                   networkStatus: _networkStatus,
                 ),
               ),
+              child: const Text('About'),
+            ),
+            const Text('·', style: TextStyle(color: DropTheme.faint)),
+            TextButton(
+              onPressed: () => _openInfoScreen(const _PrivacyScreen()),
+              child: const Text('Privacy'),
+            ),
+            const Text('·', style: TextStyle(color: DropTheme.faint)),
+            TextButton(
+              onPressed: () => _openInfoScreen(const _TermsScreen()),
+              child: const Text('Terms'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _dropFolderStartCard(StateSetter setSheetState) {
+    final selection = _hostFolderSelection;
+    return DropCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              LeadingTile(
+                icon: selection == null
+                    ? Icons.folder_special_rounded
+                    : Icons.folder_rounded,
+                accent: selection == null ? DropTheme.amber : DropTheme.orange,
+                size: 40,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Drop folder',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      selection == null ? 'Required' : selection.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              TonalButton(
+                label: selection == null ? 'Select' : 'Change',
+                busy: _hostFolderBusy,
+                onPressed: _hostFolderBusy
+                    ? null
+                    : () async {
+                        await _selectHostFolder();
+                        setSheetState(() {});
+                      },
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            selection == null
+                ? 'Used by Library, uploads, text, and browser drops.'
+                : 'Library, uploads, text, and browser drops use this root.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _hostDashboard(DropRoomSession session) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _Head(
+          title: 'Live Room',
+          subtitle: 'Hosting on ${_networkStatus.label}',
+          action: _livePill(),
+        ),
+        const SizedBox(height: 16),
+        _liveRoomCard(session),
+        const SizedBox(height: 12),
+        _webDavCard(session),
+        const SizedBox(height: 12),
+        _hostStatCards(session),
+      ],
+    );
+  }
+
+  Widget _livePill() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+      decoration: BoxDecoration(
+        color: DropTheme.success.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: DropTheme.success.withValues(alpha: 0.30)),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PulsingDot(color: DropTheme.success, size: 7),
+          SizedBox(width: 7),
+          Text(
+            'LIVE',
+            style: TextStyle(
+              color: DropTheme.success,
+              fontFamily: DropTheme.bodyFont,
+              fontWeight: FontWeight.w800,
+              fontSize: 12,
+              letterSpacing: 0.5,
             ),
           ),
         ],
@@ -690,570 +1189,564 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     );
   }
 
-  Widget _hostFolderSettingsCard() {
-    final selection = _hostFolderSelection;
-    return DecoratedBox(
+  Widget _qrTile(String data, double size) {
+    return Container(
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: DropTheme.surfaceHigh,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white12),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.folder_special_outlined,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-                const SizedBox(width: 10),
-                const Expanded(
-                  child: Text(
-                    'Drop folder',
-                    style: TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              selection == null
-                  ? _loadingHostFolderSelection
-                        ? 'Checking saved Drop folder...'
-                        : 'No folder selected'
-                  : selection.name,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              selection == null
-                  ? 'Choose the phone storage folder used by Library and Drop Rooms.'
-                  : 'Library and rooms use this ${selection.platform} folder.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton.tonalIcon(
-                  onPressed: _hostFolderBusy
-                      ? null
-                      : () => unawaited(_selectHostFolder()),
-                  icon: _hostFolderBusy
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.folder_open_outlined),
-                  label: Text(
-                    selection == null ? 'Select Drop Folder' : 'Change Folder',
-                  ),
-                ),
-                if (selection != null && !_server.isRunning)
-                  TextButton.icon(
-                    onPressed: _hostFolderBusy
-                        ? null
-                        : _forgetHostFolderSelection,
-                    icon: const Icon(Icons.restart_alt_outlined),
-                    label: const Text('Forget Folder'),
-                  ),
-              ],
-            ),
-          ],
-        ),
+      child: QrImageView(
+        data: data,
+        version: QrVersions.auto,
+        size: size,
+        backgroundColor: Colors.white,
       ),
     );
   }
 
-  Widget _dropFolderStartCard(StateSetter setSheetState) {
-    final selection = _hostFolderSelection;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  selection == null
-                      ? Icons.folder_special_outlined
-                      : Icons.folder_open_outlined,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Drop folder',
-                        style: TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        selection == null ? 'Required' : selection.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                FilledButton.tonalIcon(
-                  onPressed: _hostFolderBusy
-                      ? null
-                      : () async {
-                          await _selectHostFolder();
-                          setSheetState(() {});
-                        },
-                  icon: _hostFolderBusy
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.folder_open_outlined),
-                  label: Text(selection == null ? 'Select' : 'Change'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              selection == null
-                  ? 'Used by Library, uploads, text, and browser drops.'
-                  : 'Library, uploads, text, and browser drops use this root.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _hostDashboard(DropRoomSession session) {
-    final storage = _storage;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final narrow = constraints.maxWidth < 430;
-                    final qr = Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: QrImageView(
-                        data: session.baseUrl,
-                        version: QrVersions.auto,
-                        size: narrow ? 116 : 132,
-                        backgroundColor: Colors.white,
-                      ),
-                    );
-                    final headline = Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          session.name,
-                          style: Theme.of(context).textTheme.titleLarge
-                              ?.copyWith(fontWeight: FontWeight.w800),
-                        ),
-                        const SizedBox(height: 6),
-                        SelectableText(session.baseUrl),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: SelectableText('${session.baseUrl}/dav'),
-                            ),
-                            IconButton(
-                              onPressed: () => _copy(
-                                '${session.baseUrl}/dav',
-                                'WebDAV URL copied',
-                              ),
-                              icon: const Icon(Icons.copy, size: 18),
-                              tooltip: 'Copy WebDAV URL',
-                            ),
-                          ],
-                        ),
-                      ],
-                    );
-                    final statuses = Wrap(
+  Widget _liveRoomCard(DropRoomSession session) {
+    final guests = _server.activeGuestCount;
+    return DropCard(
+      glow: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _qrTile(session.baseUrl, 92),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      session.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 6),
+                    MonoText(
+                      '${session.localIp}:${session.port}',
+                      color: DropTheme.muted,
+                      size: 13,
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        _StatusPill(
+                        DropPill(
                           icon: session.authRequired
-                              ? Icons.lock_outline
-                              : Icons.lock_open_outlined,
-                          label: session.authRequired
-                              ? 'Password room'
-                              : 'Open room',
+                              ? Icons.lock_rounded
+                              : Icons.lock_open_rounded,
+                          label: session.authRequired ? 'Password' : 'Open',
                           color: session.authRequired
                               ? DropTheme.amber
                               : DropTheme.success,
                         ),
-                        _StatusPill(
-                          icon: session.usesExternalHostFolder
-                              ? Icons.folder_open_outlined
-                              : Icons.folder_special_outlined,
-                          label: session.usesExternalHostFolder
-                              ? 'Drop folder ${session.hostFolderName ?? 'Selected folder'}'
-                              : 'Drop folder not selected',
-                          color: DropTheme.orange,
-                        ),
-                        if (Platform.isIOS)
-                          const _StatusPill(
-                            icon: Icons.visibility_outlined,
-                            label: 'Screen stays awake',
-                            color: DropTheme.amber,
-                          ),
-                      ],
-                    );
-                    if (narrow) {
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              qr,
-                              const SizedBox(width: 12),
-                              Expanded(child: headline),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          statuses,
-                        ],
-                      );
-                    }
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        qr,
-                        const SizedBox(width: 14),
-                        Expanded(child: headline),
-                        const SizedBox(width: 14),
-                        ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 320),
-                          child: statuses,
+                        DropPill(
+                          icon: Icons.group_rounded,
+                          label: '$guests joined',
+                          color: guests > 0
+                              ? DropTheme.success
+                              : DropTheme.muted,
                         ),
                       ],
-                    );
-                  },
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 14),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final copy = FilledButton.icon(
-                      onPressed: () =>
-                          _copy(session.baseUrl, 'Drop Link copied'),
-                      icon: const Icon(Icons.copy),
-                      label: const Text('Copy Drop Link'),
-                    );
-                    final qrButton = IconButton.filledTonal(
-                      onPressed: () => _showQrDialog(session),
-                      icon: const Icon(Icons.qr_code),
-                      tooltip: 'Show QR',
-                    );
-                    final stop = IconButton.filledTonal(
-                      onPressed: _stopRoom,
-                      icon: const Icon(Icons.stop_circle_outlined),
-                      tooltip: 'Stop room',
-                    );
-                    if (constraints.maxWidth < 360) {
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          copy,
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              qrButton,
-                              const SizedBox(width: 10),
-                              stop,
-                            ],
-                          ),
-                        ],
-                      );
-                    }
-                    return Row(
-                      children: [
-                        Expanded(child: copy),
-                        const SizedBox(width: 10),
-                        qrButton,
-                        const SizedBox(width: 10),
-                        stop,
-                      ],
-                    );
-                  },
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Storage',
-                  style: TextStyle(fontWeight: FontWeight.w700),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: PrimaryButton(
+                  label: 'Copy Drop Link',
+                  icon: Icons.link_rounded,
+                  onPressed: () => _copy(session.baseUrl, 'Drop Link copied'),
                 ),
-                const SizedBox(height: 10),
-                LinearProgressIndicator(
-                  value: _storageProgress(session, storage),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  storage == null
-                      ? 'Loading storage...'
-                      : _storageSummary(session, storage),
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 10),
+              DropIconButton(
+                icon: Icons.qr_code_rounded,
+                tonal: true,
+                tooltip: 'Show Drop Code',
+                onPressed: () => _showQrDialog(session),
+              ),
+              const SizedBox(width: 10),
+              DropIconButton(
+                icon: Icons.stop_rounded,
+                tooltip: 'Stop room',
+                onPressed: _stopRoom,
+              ),
+            ],
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  Widget _fileTile(DropFileItem item) {
-    final isFolder = item.type == 'folder';
-    return Card(
-      child: ListTile(
-        leading: Icon(
-          isFolder ? Icons.folder_outlined : Icons.insert_drive_file_outlined,
-        ),
-        title: Text(item.name),
-        subtitle: Text(
-          isFolder
-              ? item.path
-              : '${formatBytes(item.sizeBytes)} · ${item.mimeType ?? 'file'}',
-        ),
-        trailing: isFolder
-            ? const Icon(Icons.chevron_right)
-            : PopupMenuButton<_LibraryFileAction>(
-                tooltip: 'File actions',
-                icon: const Icon(Icons.more_vert),
-                onSelected: (action) {
-                  switch (action) {
-                    case _LibraryFileAction.open:
-                      unawaited(_openLibraryFile(item));
-                    case _LibraryFileAction.share:
-                      unawaited(_shareLibraryFile(item));
-                    case _LibraryFileAction.delete:
-                      unawaited(_confirmDeleteLibraryFile(item));
-                  }
-                },
-                itemBuilder: (context) => const [
-                  PopupMenuItem(
-                    value: _LibraryFileAction.open,
-                    child: ListTile(
-                      leading: Icon(Icons.open_in_new_outlined),
-                      title: Text('Open'),
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: _LibraryFileAction.share,
-                    child: ListTile(
-                      leading: Icon(Icons.ios_share_outlined),
-                      title: Text('Share'),
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: _LibraryFileAction.delete,
-                    child: ListTile(
-                      leading: Icon(Icons.delete_outline),
-                      title: Text('Delete'),
-                    ),
-                  ),
-                ],
+  Widget _webDavCard(DropRoomSession session) {
+    final davUrl = '${session.baseUrl}/dav';
+    final davDisplay = '${session.localIp}:${session.port}/dav';
+    return DropCard.tinted(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const LeadingTile(
+                icon: Icons.desktop_windows_rounded,
+                accent: DropTheme.orange,
+                size: 42,
               ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            'Connect from desktop',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _miniTag('WEBDAV'),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'Mount the room as a network drive.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _endpointInset(davDisplay, davUrl),
+          const SizedBox(height: 14),
+          const Wrap(
+            spacing: 16,
+            runSpacing: 8,
+            children: [
+              _WebDavClient(icon: Icons.laptop_mac_rounded, label: 'Finder'),
+              _WebDavClient(icon: Icons.computer_rounded, label: 'Explorer'),
+              _WebDavClient(icon: Icons.devices_rounded, label: 'Any client'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _miniTag(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: DropTheme.orange.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: DropTheme.orange.withValues(alpha: 0.30)),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontFamily: DropTheme.bodyFont,
+          fontSize: 9.5,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 1.2,
+          color: DropTheme.orange,
+        ),
+      ),
+    );
+  }
+
+  Widget _endpointInset(String display, String copyValue) {
+    return Container(
+      height: 48,
+      padding: const EdgeInsets.only(left: 14, right: 6),
+      decoration: BoxDecoration(
+        color: DropTheme.black,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: DropTheme.line),
+      ),
+      child: Row(
+        children: [
+          Expanded(child: MonoText(display, size: 13, color: DropTheme.white)),
+          IconButton(
+            onPressed: () => _copy(copyValue, 'WebDAV URL copied'),
+            icon: const Icon(Icons.copy_rounded, size: 18),
+            color: DropTheme.orange,
+            tooltip: 'Copy WebDAV URL',
+            visualDensity: VisualDensity.compact,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _hostStatCards(DropRoomSession session) {
+    final storage = _storage;
+    final sharedBytes = session.usesExternalHostFolder
+        ? (storage?.folderUsedBytes ?? storage?.roomUsedBytes)
+        : storage?.roomUsedBytes;
+    final sharedStr = storage == null
+        ? '—'
+        : (sharedBytes == null ? '—' : formatBytes(sharedBytes));
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: DropCard(
+              child: StatBlock(
+                icon: Icons.swap_vert_rounded,
+                value: sharedStr,
+                label: 'Shared',
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: DropCard(child: _UptimeStat(since: session.createdAt)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _fileTile(DropFileItem item, {required bool first}) {
+    final isFolder = item.type == 'folder';
+    final (color, icon) = _fileTypeStyle(item);
+    final meta = isFolder
+        ? 'Folder · ${_shortWhen(item.modifiedAt)}'
+        : '${formatBytes(item.sizeBytes)} · ${_shortWhen(item.modifiedAt)}';
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: first
+            ? null
+            : const Border(top: BorderSide(color: DropTheme.line)),
+      ),
+      child: PressableScale(
         onTap: isFolder
             ? () {
                 setState(() => _libraryPath = item.path);
                 unawaited(_loadLibraryFiles());
               }
-            : () => _openLibraryFile(item),
+            : () => unawaited(_openLibraryFile(item)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+          child: Row(
+            children: [
+              LeadingTile(icon: icon, accent: color, size: 42),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 3),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            meta,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                        if (item.streamable) ...[
+                          const SizedBox(width: 8),
+                          _miniBadge('Streamable', DropTheme.amber),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              if (isFolder)
+                const Padding(
+                  padding: EdgeInsets.only(right: 6),
+                  child: Icon(
+                    Icons.chevron_right_rounded,
+                    color: DropTheme.faint,
+                  ),
+                )
+              else ...[
+                IconButton(
+                  onPressed: () => unawaited(_shareLibraryFile(item)),
+                  icon: const Icon(Icons.ios_share_rounded, size: 19),
+                  color: DropTheme.faint,
+                  tooltip: 'Share',
+                  visualDensity: VisualDensity.compact,
+                ),
+                PopupMenuButton<_LibraryFileAction>(
+                  tooltip: 'File actions',
+                  icon: const Icon(
+                    Icons.more_vert_rounded,
+                    color: DropTheme.faint,
+                  ),
+                  onSelected: (action) {
+                    switch (action) {
+                      case _LibraryFileAction.open:
+                        unawaited(_openLibraryFile(item));
+                      case _LibraryFileAction.share:
+                        unawaited(_shareLibraryFile(item));
+                      case _LibraryFileAction.delete:
+                        unawaited(_confirmDeleteLibraryFile(item));
+                    }
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: _LibraryFileAction.open,
+                      child: ListTile(
+                        leading: Icon(Icons.open_in_new_outlined),
+                        title: Text('Open'),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: _LibraryFileAction.share,
+                      child: ListTile(
+                        leading: Icon(Icons.ios_share_outlined),
+                        title: Text('Share'),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: _LibraryFileAction.delete,
+                      child: ListTile(
+                        leading: Icon(Icons.delete_outline),
+                        title: Text('Delete'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _miniBadge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.26)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontFamily: DropTheme.bodyFont,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
       ),
     );
   }
 
   Widget _libraryPathBar() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Browsing ${_dropFolderLabel()} $_libraryPath',
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ),
+    final atRoot = _libraryPath == '/';
+    final label = atRoot
+        ? _dropFolderLabel()
+        : '${_dropFolderLabel()}$_libraryPath';
+    return DropCard(
+      padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+      child: Row(
+        children: [
+          const Icon(Icons.folder_rounded, color: DropTheme.orange, size: 18),
+          const SizedBox(width: 10),
+          Expanded(child: MonoText(label, size: 12.5, color: DropTheme.white)),
+          const SizedBox(width: 8),
+          Text(
+            '${_files.length} item${_files.length == 1 ? '' : 's'}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          if (!atRoot)
             IconButton(
-              onPressed: _libraryPath == '/' ? null : _libraryUpFolder,
-              icon: const Icon(Icons.drive_folder_upload_outlined),
+              onPressed: _libraryUpFolder,
+              icon: const Icon(Icons.drive_folder_upload_outlined, size: 19),
+              color: DropTheme.faint,
               tooltip: 'Up folder',
+              visualDensity: VisualDensity.compact,
             ),
-          ],
-        ),
+        ],
       ),
     );
   }
 
   Widget _manualJoinCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.link_outlined,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-                const SizedBox(width: 10),
-                const Expanded(
-                  child: Text(
-                    'Find a Drop Room',
-                    style: TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _joinUrl,
-              keyboardType: TextInputType.url,
-              decoration: const InputDecoration(
-                labelText: 'Drop Link',
-                hintText: 'http://192.168.1.23:8787',
+    return DropCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const LeadingTile(
+                icon: Icons.link_rounded,
+                accent: DropTheme.orange,
+                size: 38,
               ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Join with a link',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _joinUrl,
+            keyboardType: TextInputType.url,
+            style: const TextStyle(
+              fontFamily: DropTheme.monoFont,
+              fontSize: 13.5,
+              fontWeight: FontWeight.w600,
             ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                FilledButton.tonalIcon(
+            decoration: const InputDecoration(
+              hintText: 'http://192.168.1.23:8787',
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: PrimaryButton(
+                  label: 'Join',
+                  icon: Icons.login_rounded,
+                  busy: _joining,
                   onPressed: _joining ? null : _previewJoinRoom,
-                  icon: _joining
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.travel_explore),
-                  label: const Text('Check Room'),
                 ),
-                FilledButton.icon(
-                  onPressed: _joining ? null : _scanDropCode,
-                  icon: const Icon(Icons.qr_code_scanner_outlined),
-                  label: const Text('Scan Code'),
-                ),
-              ],
-            ),
-          ],
-        ),
+              ),
+              const SizedBox(width: 10),
+              TonalButton(
+                label: 'Scan QR',
+                icon: Icons.qr_code_scanner_rounded,
+                onPressed: _joining ? null : _scanDropCode,
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
   Widget _nearbyRoomsCard() {
-    final message =
-        _nearbyDiscoveryMessage ??
-        'Browse this Wi-Fi or hotspot network for advertised Drop Rooms.';
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              Icons.radar_outlined,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Nearby Rooms',
-                    style: TextStyle(fontWeight: FontWeight.w800),
+    final rooms = _foundJoinRooms;
+    return DropCard(
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 10, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Nearby rooms',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        rooms.isEmpty
+                            ? (_nearbyDiscoveryMessage ??
+                                  'Listening for advertised Drop Rooms')
+                            : '${rooms.length} room${rooms.length == 1 ? '' : 's'} nearby',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(message),
+                ),
+                DropIconButton(
+                  icon: Icons.refresh_rounded,
+                  busy: _discoveringRooms,
+                  size: 40,
+                  tooltip: 'Discover nearby rooms',
+                  onPressed: _discoveringRooms
+                      ? null
+                      : () => unawaited(_discoverNearbyRooms()),
+                ),
+              ],
+            ),
+          ),
+          if (rooms.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 2, 16, 18),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.radar_rounded,
+                    color: DropTheme.faint,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Scan a Drop Code or paste a local link to add a room.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
                 ],
               ),
-            ),
-            const SizedBox(width: 10),
-            IconButton.filledTonal(
-              onPressed: _discoveringRooms
-                  ? null
-                  : () => unawaited(_discoverNearbyRooms()),
-              icon: _discoveringRooms
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.refresh),
-              tooltip: 'Discover nearby rooms',
-            ),
-          ],
-        ),
+            )
+          else
+            for (var i = 0; i < rooms.length; i++)
+              _nearbyRoomRow(rooms[i], first: i == 0),
+        ],
       ),
     );
   }
 
-  Widget _foundRoomsSection() {
-    if (_foundJoinRooms.isEmpty) {
-      return const _InfoCard(
-        title: 'No rooms found yet',
-        subtitle:
-            'Scan a Drop Code or paste a local Drop Link to add a room here.',
-        icon: Icons.travel_explore_outlined,
-      );
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const _SectionHeader(title: 'Found Rooms'),
-        const SizedBox(height: 10),
-        ..._foundJoinRooms.map(_foundRoomTile),
-      ],
-    );
-  }
-
-  Widget _foundRoomTile(JoinRoomPreview preview) {
+  Widget _nearbyRoomRow(JoinRoomPreview preview, {required bool first}) {
     final active =
         _joinPreview?.baseUrl == preview.baseUrl && _joinSession != null;
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+    final state = active
+        ? 'Joined'
+        : preview.authRequired
+        ? 'Password'
+        : 'Open';
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: first
+            ? null
+            : const Border(top: BorderSide(color: DropTheme.line)),
+      ),
+      child: PressableScale(
         onTap: () => unawaited(_openJoinRoomDetail(preview)),
         child: Padding(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _RoomAvatar(icon: _roomIcon(preview), active: active),
+              LeadingTile(
+                icon: _roomIcon(preview),
+                accent: active ? DropTheme.success : DropTheme.orange,
+                size: 42,
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -1261,49 +1754,27 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                   children: [
                     Text(
                       preview.roomName,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall,
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     Text(
-                      '${preview.deviceName} · ${_roomPlatformLabel(preview)}',
+                      '$state · ${_roomPlatformLabel(preview)}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _StatusPill(
-                          icon: preview.authRequired
-                              ? Icons.lock_outline
-                              : Icons.lock_open_outlined,
-                          label: preview.authRequired ? 'Password' : 'Open',
-                          color: preview.authRequired
-                              ? DropTheme.amber
-                              : DropTheme.success,
-                        ),
-                        _StatusPill(
-                          icon: Icons.folder_outlined,
-                          label: preview.scopedToDefaultFolder
-                              ? 'Scoped'
-                              : 'Drop folder',
-                          color: DropTheme.orange,
-                        ),
-                        if (active)
-                          const _StatusPill(
-                            icon: Icons.check_circle_outline,
-                            label: 'Joined',
-                            color: DropTheme.success,
-                          ),
-                      ],
-                    ),
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
-              const Icon(Icons.chevron_right),
+              const SizedBox(width: 10),
+              const SignalMeter(bars: 3, color: DropTheme.success),
+              const SizedBox(width: 12),
+              TonalButton(
+                label: 'Join',
+                onPressed: () => unawaited(_openJoinRoomDetail(preview)),
+              ),
             ],
           ),
         ),
@@ -1519,7 +1990,12 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     final total = transfer.totalBytes <= 0
         ? formatBytes(transfer.sentBytes)
         : '${formatBytes(transfer.sentBytes)} / ${formatBytes(transfer.totalBytes)}';
-    return Card(
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: DropTheme.surfaceHigh,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: DropTheme.line),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -1529,25 +2005,39 @@ class _DropHomeScreenState extends State<DropHomeScreen>
               children: [
                 Icon(
                   transfer.direction == TransferDirection.upload
-                      ? Icons.upload_outlined
-                      : Icons.download_outlined,
-                  color: Theme.of(context).colorScheme.primary,
+                      ? Icons.upload_rounded
+                      : Icons.download_rounded,
+                  color: DropTheme.orange,
+                  size: 18,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     transfer.title,
-                    style: const TextStyle(fontWeight: FontWeight.w800),
+                    style: Theme.of(context).textTheme.titleSmall,
                   ),
                 ),
                 if (progress != null)
-                  Text('${(progress * 100).clamp(0, 100).round()}%'),
+                  Text(
+                    '${(progress * 100).clamp(0, 100).round()}%',
+                    style: const TextStyle(
+                      fontFamily: DropTheme.monoFont,
+                      fontWeight: FontWeight.w600,
+                      color: DropTheme.orange,
+                    ),
+                  ),
               ],
             ),
             const SizedBox(height: 10),
-            LinearProgressIndicator(value: progress),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(value: progress, minHeight: 6),
+            ),
             const SizedBox(height: 8),
-            Text('$total · $speed · $eta'),
+            Text(
+              '$total · $speed · $eta',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
             if (transfer.detail.isNotEmpty) ...[
               const SizedBox(height: 4),
               Text(
@@ -1582,65 +2072,71 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     final guideLabel = Platform.isIOS
         ? 'Personal Hotspot Guide'
         : 'Hotspot Guide';
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(icon, color: Theme.of(context).colorScheme.primary),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(description),
-                    ],
-                  ),
+    final accent = isReady
+        ? (status.isHotspot ? DropTheme.amber : DropTheme.success)
+        : DropTheme.amber;
+    return DropCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              LeadingTile(icon: icon, accent: accent, size: 40),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 3),
+                    Text(
+                      description,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
                 ),
-                IconButton(
-                  onPressed: _networkLoading
-                      ? null
-                      : () => unawaited(_refreshNetworkStatus()),
-                  icon: const Icon(Icons.refresh),
-                  tooltip: 'Refresh network',
+              ),
+              IconButton(
+                onPressed: _networkLoading
+                    ? null
+                    : () => unawaited(_refreshNetworkStatus()),
+                icon: const Icon(Icons.refresh_rounded),
+                color: DropTheme.faint,
+                tooltip: 'Refresh network',
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (_networkLoading)
+            Row(
+              children: [
+                const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  'Checking network…',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
+            )
+          else if (isReady)
+            DropPill(
+              icon: Icons.check_circle_rounded,
+              label: status.label,
+              color: accent,
+            )
+          else
+            TonalButton(
+              label: guideLabel,
+              icon: Icons.help_outline_rounded,
+              color: DropTheme.amber,
+              onPressed: _showManualHotspotGuide,
             ),
-            const SizedBox(height: 12),
-            if (_networkLoading)
-              const Row(
-                children: [
-                  SizedBox.square(
-                    dimension: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  SizedBox(width: 10),
-                  Text('Checking network...'),
-                ],
-              )
-            else if (isReady)
-              _StatusPill(
-                icon: Icons.check_circle_outline,
-                label: 'Mode: ${status.label}',
-                color: status.isHotspot ? DropTheme.amber : DropTheme.success,
-              )
-            else
-              FilledButton.tonalIcon(
-                onPressed: _showManualHotspotGuide,
-                icon: const Icon(Icons.help_outline),
-                label: Text(guideLabel),
-              ),
-          ],
-        ),
+        ],
       ),
     );
   }
@@ -1750,7 +2246,12 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                           },
                         ),
                         const SizedBox(height: 12),
-                        FilledButton.icon(
+                        PrimaryButton(
+                          label: 'Start Room',
+                          icon: _networkStatus.isHotspot
+                              ? Icons.wifi_tethering_rounded
+                              : Icons.wifi_rounded,
+                          busy: _starting,
                           onPressed:
                               _starting ||
                                   passwordRequiredButEmpty ||
@@ -1761,19 +2262,6 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                                   final started = await _startRoom();
                                   if (mounted && started) navigator.pop();
                                 },
-                          icon: _starting
-                              ? const SizedBox.square(
-                                  dimension: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : Icon(
-                                  _networkStatus.isHotspot
-                                      ? Icons.wifi_tethering
-                                      : Icons.network_wifi_outlined,
-                                ),
-                          label: const Text('Start Room'),
                         ),
                         if (passwordRequiredButEmpty) ...[
                           const SizedBox(height: 8),
@@ -2134,55 +2622,6 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     return 'No Drop folder selected';
   }
 
-  double? _storageProgress(DropRoomSession session, StorageSnapshot? storage) {
-    final total = storage?.totalBytes;
-    if (storage == null || total == null || total <= 0) {
-      return null;
-    }
-    final used = session.usesExternalHostFolder
-        ? storage.folderUsedBytes
-        : storage.roomUsedBytes;
-    if (used == null) {
-      return null;
-    }
-    return (used / total).clamp(0.0, 1.0).toDouble();
-  }
-
-  String _storageSummary(DropRoomSession session, StorageSnapshot storage) {
-    if (session.usesExternalHostFolder) {
-      return '${session.hostFolderName ?? 'Selected folder'} · ${_folderUsageSummary(storage)} · Transfer capacity ${formatBytes(storage.availableBytes)} · Upload cap ${formatBytes(storage.maxUploadBytes)}';
-    }
-    return 'Room ${formatBytes(storage.roomUsedBytes)} · Drop ${formatBytes(storage.dropUsedBytes)} · Transfer capacity ${formatBytes(storage.availableBytes)}';
-  }
-
-  String _folderUsageSummary(StorageSnapshot storage) {
-    final used = storage.folderUsedBytes;
-    if (used != null) {
-      final scannedAt = storage.folderScannedAt;
-      final age = scannedAt == null
-          ? ''
-          : ' · scanned ${_shortAge(scannedAt)} ago';
-      return 'Folder ${formatBytes(used)}$age';
-    }
-    if (storage.folderScanStatus == 'queued' ||
-        storage.folderScanStatus == 'scanning') {
-      return 'Folder scanning...';
-    }
-    return 'Folder size unavailable';
-  }
-
-  String _shortAge(DateTime time) {
-    final seconds = DateTime.now().difference(time).inSeconds;
-    if (seconds < 60) {
-      return '${math.max(0, seconds)}s';
-    }
-    final minutes = (seconds / 60).round();
-    if (minutes < 60) {
-      return '${minutes}m';
-    }
-    return '${(minutes / 60).round()}h';
-  }
-
   Future<void> _openLibraryFile(DropFileItem item) async {
     try {
       final selection = _hostFolderSelection;
@@ -2252,7 +2691,11 @@ class _DropHomeScreenState extends State<DropHomeScreen>
             onPressed: () => Navigator.of(context).pop(false),
             child: const Text('Cancel'),
           ),
-          FilledButton.tonalIcon(
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: DropTheme.danger,
+              foregroundColor: DropTheme.white,
+            ),
             onPressed: () => Navigator.of(context).pop(true),
             icon: const Icon(Icons.delete_outline),
             label: const Text('Delete'),
@@ -2972,38 +3415,18 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   Widget _brandHeader() {
     return Row(
       children: [
-        Container(
-          width: 52,
-          height: 52,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(13),
-            boxShadow: [
-              BoxShadow(
-                color: DropTheme.orange.withValues(alpha: 0.28),
-                blurRadius: 20,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: Image.asset(
-            DropTheme.logoAsset,
-            fit: BoxFit.cover,
-            semanticLabel: 'Erebrus Drop logo',
+        const Expanded(
+          child: BrandLockup(
+            markSize: 46,
+            eyebrow: 'Local-first',
+            subtitle: 'No cloud. No account. Nearby only.',
           ),
         ),
         const SizedBox(width: 12),
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Erebrus Drop',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
-              ),
-              Text('No cloud. No account. Nearby only.'),
-            ],
-          ),
+        DropIconButton(
+          icon: Icons.qr_code_scanner_rounded,
+          onPressed: _scanDropCode,
+          tooltip: 'Scan Drop Code',
         ),
       ],
     );
@@ -3152,109 +3575,99 @@ class _JoinedRoomDetailScreen extends StatelessWidget {
   }
 
   Widget _roomHeader(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _RoomAvatar(icon: _roomIcon, active: session != null),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        preview.roomName,
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${preview.deviceName} · $_platformLabel',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                      const SizedBox(height: 6),
-                      SelectableText(
-                        preview.baseUrl,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
+    return DropCard(
+      glow: session != null,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              LeadingTile(
+                icon: _roomIcon,
+                accent: session != null ? DropTheme.success : DropTheme.orange,
+                size: 46,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      preview.roomName,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${preview.deviceName} · $_platformLabel',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 6),
+                    MonoText(preview.baseUrl, size: 12, color: DropTheme.muted),
+                  ],
                 ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _StatusPill(
-                  icon: preview.authRequired
-                      ? Icons.lock_outline
-                      : Icons.lock_open_outlined,
-                  label: preview.authRequired ? 'Password room' : 'Open room',
-                  color: preview.authRequired
-                      ? DropTheme.amber
-                      : DropTheme.success,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              DropPill(
+                icon: preview.authRequired
+                    ? Icons.lock_rounded
+                    : Icons.lock_open_rounded,
+                label: preview.authRequired ? 'Password' : 'Open',
+                color: preview.authRequired
+                    ? DropTheme.amber
+                    : DropTheme.success,
+              ),
+              DropPill(
+                icon: Icons.folder_rounded,
+                label: preview.scopedToDefaultFolder
+                    ? 'Scoped folder'
+                    : 'Drop folder',
+                color: DropTheme.orange,
+              ),
+              if (session != null)
+                const DropPill(
+                  icon: Icons.check_circle_rounded,
+                  label: 'Joined',
+                  color: DropTheme.success,
                 ),
-                _StatusPill(
-                  icon: Icons.folder_outlined,
-                  label: preview.scopedToDefaultFolder
-                      ? 'Scoped folder'
-                      : 'Drop folder',
-                  color: DropTheme.orange,
-                ),
-                if (session != null)
-                  const _StatusPill(
-                    icon: Icons.check_circle_outline,
-                    label: 'Joined',
-                    color: DropTheme.success,
-                  ),
-              ],
-            ),
-          ],
-        ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
   Widget _joinCard(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              preview.authRequired ? 'Enter room password' : 'Join open room',
-              style: const TextStyle(fontWeight: FontWeight.w800),
-            ),
-            if (preview.authRequired) ...[
-              const SizedBox(height: 10),
-              TextField(
-                controller: passwordController,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'Room password'),
-              ),
-            ],
+    return DropCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            preview.authRequired ? 'Enter room password' : 'Join open room',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          if (preview.authRequired) ...[
             const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: joining ? null : () => unawaited(onJoin()),
-              icon: joining
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.login),
-              label: Text(joining ? 'Joining...' : 'Join Room'),
+            TextField(
+              controller: passwordController,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'Room password'),
             ),
           ],
-        ),
+          const SizedBox(height: 14),
+          PrimaryButton(
+            label: joining ? 'Joining…' : 'Join Room',
+            icon: Icons.login_rounded,
+            busy: joining,
+            onPressed: joining ? null : () => unawaited(onJoin()),
+          ),
+        ],
       ),
     );
   }
@@ -3262,130 +3675,127 @@ class _JoinedRoomDetailScreen extends StatelessWidget {
   Widget _joinedFilesCard(BuildContext context) {
     final scopedRoot = preview.scopedToDefaultFolder ? preview.scopePath : '/';
     final canGoUp = path != '/' && path != scopedRoot;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Files',
-                        style: TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(path, style: Theme.of(context).textTheme.bodySmall),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => unawaited(onRefresh()),
-                  icon: const Icon(Icons.refresh),
-                  tooltip: 'Refresh room',
-                ),
-                IconButton(
-                  onPressed: canGoUp ? onUpFolder : null,
-                  icon: const Icon(Icons.drive_folder_upload_outlined),
-                  tooltip: 'Up folder',
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                _StatusPill(
-                  icon: Icons.folder_outlined,
-                  label: 'Upload target $path',
-                  color: DropTheme.orange,
-                ),
-                FilledButton.tonalIcon(
-                  onPressed: transfer?.isActive == true
-                      ? null
-                      : () => unawaited(onUploadFiles()),
-                  icon: const Icon(Icons.upload_file_outlined),
-                  label: const Text('Upload Files'),
-                ),
-              ],
-            ),
-            if (transfer != null) ...[
-              const SizedBox(height: 10),
-              transferBuilder(transfer!),
-            ],
-            if (activity != null) ...[
-              const SizedBox(height: 10),
-              _InlineActivity(message: activity!),
-            ],
-            const SizedBox(height: 12),
-            if (items.isEmpty && activity == null)
-              const _EmptyFolderState()
-            else
-              ...items.map(
-                (item) => _JoinedFileTile(
-                  item: item,
-                  onFolderTap: onFolderTap,
-                  onDownload: onDownload,
-                  onPullToHost: onPullToHost,
+    return DropCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Files',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 3),
+                    MonoText(path, size: 12, color: DropTheme.muted),
+                  ],
                 ),
               ),
+              IconButton(
+                onPressed: () => unawaited(onRefresh()),
+                icon: const Icon(Icons.refresh_rounded),
+                color: DropTheme.faint,
+                tooltip: 'Refresh room',
+              ),
+              IconButton(
+                onPressed: canGoUp ? onUpFolder : null,
+                icon: const Icon(Icons.drive_folder_upload_outlined),
+                color: DropTheme.faint,
+                tooltip: 'Up folder',
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: DropPill(
+                  icon: Icons.upload_rounded,
+                  label: 'Upload to $path',
+                  color: DropTheme.orange,
+                ),
+              ),
+              const SizedBox(width: 10),
+              TonalButton(
+                label: 'Upload',
+                icon: Icons.upload_file_rounded,
+                onPressed: transfer?.isActive == true
+                    ? null
+                    : () => unawaited(onUploadFiles()),
+              ),
+            ],
+          ),
+          if (transfer != null) ...[
+            const SizedBox(height: 10),
+            transferBuilder(transfer!),
           ],
-        ),
+          if (activity != null) ...[
+            const SizedBox(height: 10),
+            _InlineActivity(message: activity!),
+          ],
+          const SizedBox(height: 12),
+          if (items.isEmpty && activity == null)
+            const _EmptyFolderState()
+          else
+            ...items.map(
+              (item) => _JoinedFileTile(
+                item: item,
+                onFolderTap: onFolderTap,
+                onDownload: onDownload,
+                onPullToHost: onPullToHost,
+              ),
+            ),
+        ],
       ),
     );
   }
 
   Widget _sendToolsCard(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Send', style: TextStyle(fontWeight: FontWeight.w800)),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: folderNameController,
-                    decoration: const InputDecoration(labelText: 'New folder'),
-                  ),
+    return DropCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Send', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: folderNameController,
+                  decoration: const InputDecoration(labelText: 'New folder'),
                 ),
-                const SizedBox(width: 8),
-                IconButton.filledTonal(
-                  onPressed: () => unawaited(onCreateFolder()),
-                  icon: const Icon(Icons.create_new_folder_outlined),
-                  tooltip: 'Create folder',
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: textTitleController,
-              decoration: const InputDecoration(labelText: 'Text title'),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: textBodyController,
-              minLines: 3,
-              maxLines: 5,
-              decoration: const InputDecoration(labelText: 'Text to send'),
-            ),
-            const SizedBox(height: 10),
-            FilledButton.tonalIcon(
-              onPressed: () => unawaited(onSendText()),
-              icon: const Icon(Icons.send_outlined),
-              label: const Text('Send Text'),
-            ),
-          ],
-        ),
+              ),
+              const SizedBox(width: 10),
+              DropIconButton(
+                icon: Icons.create_new_folder_rounded,
+                tonal: true,
+                tooltip: 'Create folder',
+                onPressed: () => unawaited(onCreateFolder()),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: textTitleController,
+            decoration: const InputDecoration(labelText: 'Text title'),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: textBodyController,
+            minLines: 3,
+            maxLines: 5,
+            decoration: const InputDecoration(labelText: 'Text to send'),
+          ),
+          const SizedBox(height: 12),
+          PrimaryButton(
+            label: 'Send Text',
+            icon: Icons.send_rounded,
+            onPressed: () => unawaited(onSendText()),
+          ),
+        ],
       ),
     );
   }
@@ -3430,63 +3840,101 @@ class _JoinedFileTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isFolder = item.type == 'folder';
+    final Color color;
+    final IconData icon;
+    if (isFolder) {
+      color = DropTheme.orange;
+      icon = Icons.folder_rounded;
+    } else if (item.streamable) {
+      color = DropTheme.amber;
+      icon = Icons.play_circle_rounded;
+    } else {
+      color = DropTheme.muted;
+      icon = Icons.insert_drive_file_rounded;
+    }
+    final meta = isFolder
+        ? 'Folder'
+        : '${formatBytes(item.sizeBytes)} · ${item.mimeType ?? 'file'}';
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Material(
-        color: DropTheme.surfaceHigh,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-          side: const BorderSide(color: Colors.white12),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: DropTheme.surfaceHigh,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: DropTheme.line),
         ),
-        clipBehavior: Clip.antiAlias,
-        child: ListTile(
-          leading: Icon(
-            isFolder
-                ? Icons.folder_outlined
-                : item.streamable
-                ? Icons.play_circle_outline
-                : Icons.insert_drive_file_outlined,
-          ),
-          title: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-          subtitle: Text(
-            isFolder
-                ? item.path
-                : '${formatBytes(item.sizeBytes)} · ${item.mimeType ?? 'file'}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          trailing: isFolder
-              ? const Icon(Icons.chevron_right)
-              : PopupMenuButton<_JoinedFileAction>(
-                  tooltip: 'File actions',
-                  icon: const Icon(Icons.more_vert),
-                  onSelected: (action) {
-                    switch (action) {
-                      case _JoinedFileAction.download:
-                        onDownload(item);
-                      case _JoinedFileAction.pullToHost:
-                        onPullToHost?.call(item);
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    const PopupMenuItem(
-                      value: _JoinedFileAction.download,
-                      child: ListTile(
-                        leading: Icon(Icons.download_outlined),
-                        title: Text('Download'),
+        child: PressableScale(
+          onTap: isFolder ? () => onFolderTap(item) : () => onDownload(item),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
+            child: Row(
+              children: [
+                LeadingTile(icon: icon, accent: color, size: 40),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleSmall,
                       ),
+                      const SizedBox(height: 3),
+                      Text(
+                        meta,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                if (isFolder)
+                  const Padding(
+                    padding: EdgeInsets.only(right: 6),
+                    child: Icon(
+                      Icons.chevron_right_rounded,
+                      color: DropTheme.faint,
                     ),
-                    if (onPullToHost != null)
+                  )
+                else
+                  PopupMenuButton<_JoinedFileAction>(
+                    tooltip: 'File actions',
+                    icon: const Icon(
+                      Icons.more_vert_rounded,
+                      color: DropTheme.faint,
+                    ),
+                    onSelected: (action) {
+                      switch (action) {
+                        case _JoinedFileAction.download:
+                          onDownload(item);
+                        case _JoinedFileAction.pullToHost:
+                          onPullToHost?.call(item);
+                      }
+                    },
+                    itemBuilder: (context) => [
                       const PopupMenuItem(
-                        value: _JoinedFileAction.pullToHost,
+                        value: _JoinedFileAction.download,
                         child: ListTile(
-                          leading: Icon(Icons.sync_alt_outlined),
-                          title: Text('Pull to my room'),
+                          leading: Icon(Icons.download_outlined),
+                          title: Text('Download'),
                         ),
                       ),
-                  ],
-                ),
-          onTap: isFolder ? () => onFolderTap(item) : null,
+                      if (onPullToHost != null)
+                        const PopupMenuItem(
+                          value: _JoinedFileAction.pullToHost,
+                          child: ListTile(
+                            leading: Icon(Icons.sync_alt_outlined),
+                            title: Text('Pull to my room'),
+                          ),
+                        ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -3500,23 +3948,23 @@ class _EmptyFolderState extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 28),
       decoration: BoxDecoration(
         color: DropTheme.surfaceHigh,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: DropTheme.line),
       ),
       child: Column(
         children: [
-          Icon(
-            Icons.folder_open_outlined,
+          const Icon(
+            Icons.folder_open_rounded,
             size: 34,
-            color: Theme.of(context).colorScheme.primary,
+            color: DropTheme.faint,
           ),
-          const SizedBox(height: 8),
-          const Text(
+          const SizedBox(height: 10),
+          Text(
             'This folder is empty',
-            style: TextStyle(fontWeight: FontWeight.w800),
+            style: Theme.of(context).textTheme.titleSmall,
           ),
         ],
       ),
@@ -3535,8 +3983,8 @@ class _InlineActivity extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: DropTheme.surfaceHigh,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: DropTheme.line),
       ),
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -3550,7 +3998,12 @@ class _InlineActivity extends StatelessWidget {
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
             const SizedBox(width: 10),
-            Expanded(child: Text(message)),
+            Expanded(
+              child: Text(
+                message,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
           ],
         ),
       ),
@@ -3558,83 +4011,179 @@ class _InlineActivity extends StatelessWidget {
   }
 }
 
-class _RoomAvatar extends StatelessWidget {
-  const _RoomAvatar({required this.icon, required this.active});
+/// Live, self-ticking uptime stat (hh:mm:ss) for the host dashboard.
+class _UptimeStat extends StatefulWidget {
+  const _UptimeStat({required this.since});
 
-  final IconData icon;
-  final bool active;
+  final DateTime since;
+
+  @override
+  State<_UptimeStat> createState() => _UptimeStatState();
+}
+
+class _UptimeStatState extends State<_UptimeStat> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final color = active
-        ? DropTheme.success
-        : Theme.of(context).colorScheme.primary;
+    final raw = DateTime.now().difference(widget.since);
+    final d = raw.isNegative ? Duration.zero : raw;
+    final h = d.inHours.toString().padLeft(2, '0');
+    final m = (d.inMinutes % 60).toString().padLeft(2, '0');
+    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
+    return StatBlock(
+      icon: Icons.timer_outlined,
+      value: '$h:$m:$s',
+      label: 'Uptime',
+      mono: true,
+    );
+  }
+}
+
+/// A "Private by design" assurance chip: success check + label.
+class _PrivacyChip extends StatelessWidget {
+  const _PrivacyChip(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      width: 48,
-      height: 48,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.48)),
+        color: DropTheme.success.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: DropTheme.success.withValues(alpha: 0.24)),
       ),
-      child: Icon(icon, color: color),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.check_rounded, color: DropTheme.success, size: 14),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: const TextStyle(
+              fontFamily: DropTheme.bodyFont,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              color: DropTheme.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A WebDAV client affordance: small icon + label (Finder · Explorer · …).
+class _WebDavClient extends StatelessWidget {
+  const _WebDavClient({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: DropTheme.muted),
+        const SizedBox(width: 7),
+        Text(
+          label,
+          style: const TextStyle(
+            fontFamily: DropTheme.bodyFont,
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
+            color: DropTheme.muted,
+          ),
+        ),
+      ],
     );
   }
 }
 
 class _Screen extends StatelessWidget {
-  const _Screen({required this.child});
+  const _Screen({required this.child, this.glowAlignment = Alignment.topRight});
 
   final Widget child;
+  final Alignment glowAlignment;
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(18),
-      child: Align(
-        alignment: Alignment.topLeft,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 920),
-          child: child,
+    return Stack(
+      children: [
+        Positioned.fill(child: AmbientGlow(alignment: glowAlignment)),
+        SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 920),
+              child: child,
+            ),
+          ),
         ),
-      ),
+      ],
+    );
+  }
+}
+
+/// Screen "Head": display title with optional subtitle and a trailing action.
+class _Head extends StatelessWidget {
+  const _Head({required this.title, this.subtitle, this.action});
+
+  final String title;
+  final String? subtitle;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(title, style: Theme.of(context).textTheme.headlineSmall),
+        if (subtitle != null) ...[
+          const SizedBox(height: 3),
+          Text(subtitle!, style: Theme.of(context).textTheme.bodySmall),
+        ],
+      ],
+    );
+    if (action == null) return text;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Expanded(child: text),
+        const SizedBox(width: 12),
+        action!,
+      ],
     );
   }
 }
 
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title, this.action});
+  const _SectionHeader({required this.title});
 
   final String title;
-  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final titleWidget = Text(
-          title,
-          style: Theme.of(
-            context,
-          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
-        );
-        if (action == null) {
-          return titleWidget;
-        }
-        if (constraints.maxWidth < 360) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [titleWidget, const SizedBox(height: 8), action!],
-          );
-        }
-        return Row(
-          children: [
-            Expanded(child: titleWidget),
-            action!,
-          ],
-        );
-      },
-    );
+    return Text(title, style: Theme.of(context).textTheme.titleLarge);
   }
 }
 
@@ -3655,13 +4204,13 @@ class _CapabilityCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: DropCard(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: Theme.of(context).colorScheme.primary),
+            LeadingTile(icon: icon, accent: color, size: 42),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -3674,145 +4223,17 @@ class _CapabilityCard extends StatelessWidget {
                     children: [
                       Text(
                         title,
-                        style: const TextStyle(fontWeight: FontWeight.w800),
+                        style: Theme.of(context).textTheme.titleSmall,
                       ),
-                      _StatusPill(
-                        icon: Icons.circle,
-                        label: status,
-                        color: color,
-                      ),
+                      DropPill(label: status, color: color, dot: true),
                     ],
                   ),
                   const SizedBox(height: 6),
-                  Text(detail),
+                  Text(detail, style: Theme.of(context).textTheme.bodySmall),
                 ],
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _StatusPill extends StatelessWidget {
-  const _StatusPill({
-    required this.icon,
-    required this.label,
-    required this.color,
-  });
-
-  final IconData icon;
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: color, size: 16),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(color: color, fontWeight: FontWeight.w700),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ActionGrid extends StatelessWidget {
-  const _ActionGrid({required this.children});
-
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth > 640) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (var i = 0; i < children.length; i++) ...[
-                if (i > 0) const SizedBox(width: 12),
-                Expanded(child: SizedBox(height: 132, child: children[i])),
-              ],
-            ],
-          );
-        }
-        return Column(
-          children: [
-            for (var i = 0; i < children.length; i++) ...[
-              if (i > 0) const SizedBox(height: 12),
-              SizedBox(width: double.infinity, child: children[i]),
-            ],
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _PrimaryAction extends StatelessWidget {
-  const _PrimaryAction({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Icon(
-                icon,
-                size: 34,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(subtitle),
-                  ],
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );
@@ -3849,13 +4270,13 @@ class DropCodeDialog extends StatelessWidget {
                   context,
                 ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 18),
               Center(
                 child: Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(16),
                   ),
                   child: SizedBox.square(
                     dimension: qrSize,
@@ -3868,21 +4289,32 @@ class DropCodeDialog extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              SelectableText(link, textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              Center(
+                child: MonoText(
+                  link,
+                  size: 12.5,
+                  color: DropTheme.muted,
+                  selectable: true,
+                ),
+              ),
               const SizedBox(height: 18),
-              Wrap(
-                alignment: WrapAlignment.end,
-                spacing: 8,
-                runSpacing: 8,
+              Row(
                 children: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Close'),
+                  Expanded(
+                    child: TonalButton(
+                      label: 'Close',
+                      expand: true,
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
                   ),
-                  FilledButton(
-                    onPressed: onCopy,
-                    child: const Text('Copy Link'),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: PrimaryButton(
+                      label: 'Copy Link',
+                      icon: Icons.copy_rounded,
+                      onPressed: onCopy,
+                    ),
                   ),
                 ],
               ),
@@ -3890,69 +4322,6 @@ class DropCodeDialog extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _QuickActions extends StatelessWidget {
-  const _QuickActions({
-    required this.onSmartSend,
-    required this.onLibrary,
-    required this.onQr,
-  });
-
-  final VoidCallback onSmartSend;
-  final VoidCallback onLibrary;
-  final VoidCallback? onQr;
-
-  @override
-  Widget build(BuildContext context) {
-    final actions = [
-      FilledButton.tonalIcon(
-        onPressed: onSmartSend,
-        icon: const Icon(Icons.flash_on_outlined),
-        label: const Text('Smart Send'),
-      ),
-      FilledButton.tonalIcon(
-        onPressed: onQr,
-        icon: const Icon(Icons.qr_code_scanner),
-        label: const Text('Scan QR'),
-      ),
-      FilledButton.tonalIcon(
-        onPressed: onLibrary,
-        icon: const Icon(Icons.folder_outlined),
-        label: const Text('Library'),
-      ),
-    ];
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 430) {
-          return Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: actions
-                .map(
-                  (action) => SizedBox(
-                    width: (constraints.maxWidth - 8) / 2,
-                    child: action,
-                  ),
-                )
-                .toList(),
-          );
-        }
-        return Row(
-          children: actions
-              .map(
-                (action) => Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: action,
-                  ),
-                ),
-              )
-              .toList(),
-        );
-      },
     );
   }
 }
@@ -4029,7 +4398,7 @@ class _AboutScreen extends StatelessWidget {
                 ? 'Drops start on the current ${networkStatus.label} network.'
                 : 'Connect to Wi-Fi or create a hotspot in system Settings before starting a room.',
             color: networkLoading
-                ? Colors.white54
+                ? DropTheme.muted
                 : networkStatus.isReady
                 ? DropTheme.success
                 : DropTheme.amber,
@@ -4167,45 +4536,12 @@ class _AppLogoLockup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final logoSize = compact ? 76.0 : 96.0;
     return Center(
-      child: Column(
-        children: [
-          Container(
-            width: logoSize,
-            height: logoSize,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(compact ? 18 : 24),
-              boxShadow: [
-                BoxShadow(
-                  color: DropTheme.orange.withValues(alpha: 0.28),
-                  blurRadius: compact ? 24 : 32,
-                  offset: Offset(0, compact ? 10 : 14),
-                ),
-              ],
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: Image.asset(
-              DropTheme.logoAsset,
-              fit: BoxFit.cover,
-              semanticLabel: 'Erebrus Drop logo',
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Erebrus Drop',
-            textAlign: TextAlign.center,
-            style: Theme.of(
-              context,
-            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Version $_appVersion',
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-        ],
+      child: BrandLockup(
+        centered: true,
+        markSize: compact ? 76 : 96,
+        wordmarkSize: compact ? 26 : 30,
+        subtitle: 'Version $_appVersion',
       ),
     );
   }
@@ -4218,8 +4554,8 @@ class _TextCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(padding: const EdgeInsets.all(16), child: Text(text)),
+    return DropCard(
+      child: Text(text, style: Theme.of(context).textTheme.bodyMedium),
     );
   }
 }
@@ -4257,46 +4593,6 @@ class _AboutFooterLinks extends StatelessWidget {
   }
 }
 
-class _FooterIconButton extends StatelessWidget {
-  const _FooterIconButton({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: 'About Erebrus Drop',
-      child: Semantics(
-        label: 'About Erebrus Drop',
-        button: true,
-        child: GestureDetector(
-          onTap: onTap,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: DropTheme.orange.withValues(alpha: 0.34),
-              ),
-              color: DropTheme.surfaceHigh,
-              boxShadow: [
-                BoxShadow(
-                  color: DropTheme.orange.withValues(alpha: 0.12),
-                  blurRadius: 18,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: const Padding(
-              padding: EdgeInsets.all(10),
-              child: Icon(Icons.info_outline),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _InfoCard extends StatelessWidget {
   const _InfoCard({
     required this.title,
@@ -4312,36 +4608,27 @@ class _InfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Icon(icon, color: Theme.of(context).colorScheme.primary),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(subtitle),
-                  ],
-                ),
-              ),
-              if (onTap != null) ...[
-                const SizedBox(width: 8),
-                const Icon(Icons.chevron_right),
+    return DropCard(
+      onTap: onTap,
+      child: Row(
+        children: [
+          LeadingTile(icon: icon, accent: DropTheme.orange, size: 42),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 3),
+                Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
               ],
-            ],
+            ),
           ),
-        ),
+          if (onTap != null) ...[
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right_rounded, color: DropTheme.faint),
+          ],
+        ],
       ),
     );
   }
@@ -4350,82 +4637,79 @@ class _InfoCard extends StatelessWidget {
 class _FeatureGrid extends StatelessWidget {
   const _FeatureGrid({required this.items});
 
+  /// (title, icon, sub) — all features render a success "Ready" caption.
   final List<(String, IconData, String)> items;
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final twoColumns = constraints.maxWidth >= 520;
-        final width = twoColumns
-            ? (constraints.maxWidth - 10) / 2
-            : constraints.maxWidth;
-        return Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: items
-              .map(
-                (item) => SizedBox(
-                  width: width,
-                  child: Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Row(
-                        children: [
-                          Icon(item.$2),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  item.$1,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  item.$3,
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              )
-              .toList(),
-        );
-      },
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < items.length; i++) ...[
+            if (i > 0) const SizedBox(width: 10),
+            Expanded(child: _featureCard(context, items[i])),
+          ],
+        ],
+      ),
     );
   }
-}
 
-class _SettingsTile extends StatelessWidget {
-  const _SettingsTile({
-    required this.icon,
-    required this.title,
-    required this.value,
-    required this.onChanged,
-  });
-
-  final IconData icon;
-  final String title;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: SwitchListTile(
-        secondary: Icon(icon),
-        title: Text(title),
-        value: value,
-        onChanged: onChanged,
+  Widget _featureCard(BuildContext context, (String, IconData, String) item) {
+    return DropCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(item.$2, color: DropTheme.orange, size: 22),
+          const SizedBox(height: 12),
+          Text(
+            item.$1,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontFamily: DropTheme.bodyFont,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: DropTheme.white,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            item.$3,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontFamily: DropTheme.bodyFont,
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              color: DropTheme.muted,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Container(
+                width: 6,
+                height: 6,
+                decoration: const BoxDecoration(
+                  color: DropTheme.success,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              const Text(
+                'Ready',
+                style: TextStyle(
+                  fontFamily: DropTheme.bodyFont,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  color: DropTheme.success,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

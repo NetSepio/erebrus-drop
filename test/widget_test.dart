@@ -36,10 +36,10 @@ void main() {
     await tester.pumpWidget(const ErebrusDropApp(skipOnboarding: true));
     await tester.pump();
 
-    expect(find.text('Erebrus Drop'), findsWidgets);
+    expect(find.text('Erebrus Drop', findRichText: true), findsWidgets);
     expect(find.text('Start Drop Room'), findsOneWidget);
     expect(find.text('Join Drop Room'), findsOneWidget);
-    expect(find.text('Smart Send'), findsWidgets);
+    expect(find.text('Send'), findsWidgets);
   });
 
   testWidgets('renders primary tabs across common Android screen sizes', (
@@ -69,7 +69,7 @@ void main() {
       for (final icon in const [
         Icons.hub_outlined,
         Icons.folder_outlined,
-        Icons.flash_on_outlined,
+        Icons.bolt_outlined,
         Icons.settings_outlined,
         Icons.home_outlined,
       ]) {
