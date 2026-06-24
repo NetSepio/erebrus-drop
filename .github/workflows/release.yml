@@ -1,0 +1,152 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  build-android:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      version_name: ${{ steps.version.outputs.version_name }}
+      version_code: ${{ steps.version.outputs.version_code }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION_LINE="$(grep '^version:' pubspec.yaml | awk '{print $2}')"
+          VERSION_NAME="${VERSION_LINE%%+*}"
+          VERSION_CODE="${VERSION_LINE##*+}"
+          echo "version_name=${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "version_code=${VERSION_CODE}" >> "${GITHUB_OUTPUT}"
+          echo "tag=v${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
+
+      - name: Configure ephemeral signing (sideload builds only)
+        run: |
+          mkdir -p android/release-keys
+          cat > android/key.properties <<'EOF'
+          playstore.storeFile=../release-keys/erebrus-drop-playstore.jks
+          playstore.storePassword=ci-sideload
+          playstore.keyAlias=erebrus-drop-playstore
+          playstore.keyPassword=ci-sideload
+          dappstore.storeFile=../release-keys/erebrus-drop-dappstore.jks
+          dappstore.storePassword=ci-sideload
+          dappstore.keyAlias=erebrus-drop-dappstore
+          dappstore.keyPassword=ci-sideload
+          EOF
+          keytool -genkeypair -v \
+            -keystore android/release-keys/erebrus-drop-playstore.jks \
+            -alias erebrus-drop-playstore \
+            -keyalg RSA -keysize 2048 -validity 1 \
+            -storepass ci-sideload -keypass ci-sideload \
+            -dname "CN=Erebrus Drop CI, OU=Sideload, O=NetSepio, L=CI, ST=CI, C=US"
+          keytool -genkeypair -v \
+            -keystore android/release-keys/erebrus-drop-dappstore.jks \
+            -alias erebrus-drop-dappstore \
+            -keyalg RSA -keysize 2048 -validity 1 \
+            -storepass ci-sideload -keypass ci-sideload \
+            -dname "CN=Erebrus Drop CI, OU=Sideload, O=NetSepio, L=CI, ST=CI, C=US"
+
+      - run: flutter pub get
+
+      - name: Build release APKs
+        run: |
+          flutter build apk --flavor playstore --release
+          flutter build apk --flavor dappstore --release
+
+      - name: Package sideload artifacts
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-playstore-release.apk \
+            "dist/erebrus-drop-playstore-${{ steps.version.outputs.tag }}.apk"
+          cp build/app/outputs/flutter-apk/app-dappstore-release.apk \
+            "dist/erebrus-drop-dappstore-${{ steps.version.outputs.tag }}.apk"
+          cat > dist/README.txt <<EOF
+          Erebrus Drop sideload builds (${{ steps.version.outputs.version_name }}+${{ steps.version.outputs.version_code }})
+
+          These APKs are built in CI with an ephemeral signing key for testing only.
+          They are not signed for Google Play or the Solana dApp Store.
+
+          - erebrus-drop-playstore-*.apk  -> general Android / Google Play flavor
+          - erebrus-drop-dappstore-*.apk  -> Solana dApp Store flavor
+          EOF
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-sideload-${{ steps.version.outputs.tag }}
+          if-no-files-found: error
+          path: dist/*
+
+  github-release:
+    needs: build-android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -fa "${{ needs.build-android.outputs.tag }}" -m "Release ${{ needs.build-android.outputs.tag }}"
+          git push origin "${{ needs.build-android.outputs.tag }}" --force
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-sideload-${{ needs.build-android.outputs.tag }}
+          path: dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build-android.outputs.tag }}
+          name: Erebrus Drop ${{ needs.build-android.outputs.version_name }}
+          generate_release_notes: true
+          body: |
+            Sideload APKs for testing. Not signed with production store keys.
+
+            Version: `${{ needs.build-android.outputs.version_name }}+${{ needs.build-android.outputs.version_code }}`
+
+            | APK | Flavor |
+            |-----|--------|
+            | `erebrus-drop-playstore-*.apk` | General Android |
+            | `erebrus-drop-dappstore-*.apk` | Solana Mobile / dApp Store flavor |
+          files: dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
