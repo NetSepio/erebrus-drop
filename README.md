@@ -112,6 +112,15 @@ flutter analyze
 flutter test
 ```
 
+## CI/CD
+
+GitHub Actions:
+
+- **CI** — `flutter analyze` and `flutter test` on every PR and `main` push
+- **Release** — manual workflow: tags `v{semver}` from `pubspec.yaml`, uploads sideload APKs
+
+See `docs/github-release.md`.
+
 ## Native QR Scanner
 
 The app uses its own platform-channel QR scanner instead of a third-party
