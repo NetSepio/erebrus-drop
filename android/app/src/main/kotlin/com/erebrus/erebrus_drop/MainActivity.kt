@@ -35,6 +35,7 @@ import java.util.ArrayDeque
 class MainActivity : FlutterActivity() {
     private val channelName = "com.erebrus.drop/network"
     private val qrScannerChannelName = "com.erebrus.drop/qr_scanner"
+    private val walletChannelName = "com.erebrus.drop/wallet"
     private val pickUploadFileRequest = 7317
     private val pickHostFolderRequest = 7318
     private val scanQrRequest = 7319
@@ -74,6 +75,44 @@ class MainActivity : FlutterActivity() {
             result ->
             when (call.method) {
                 "scanQrCode" -> scanQrCode(result)
+                else -> result.notImplemented()
+            }
+        }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, walletChannelName).setMethodCallHandler {
+            call,
+            result ->
+            when (call.method) {
+                "listWallets" -> result.success(SolanaWalletBridge.listWallets(this))
+                "authorizeWallet" -> {
+                    val packageName = call.argument<String>("packageName")
+                    if (packageName.isNullOrBlank()) {
+                        result.error("INVALID_ARGS", "packageName is required.", null)
+                        return@setMethodCallHandler
+                    }
+                    SolanaWalletBridge.authorizeWallet(
+                        activity = this,
+                        packageName = packageName,
+                        authToken = call.argument("authToken"),
+                        result = result,
+                    )
+                }
+                "cancelWalletOperation" -> {
+                    SolanaWalletBridge.cancelPendingOperation(result)
+                }
+                "deauthorizeWallet" -> {
+                    val packageName = call.argument<String>("packageName")
+                    val authToken = call.argument<String>("authToken")
+                    if (packageName.isNullOrBlank() || authToken.isNullOrBlank()) {
+                        result.error("INVALID_ARGS", "packageName and authToken are required.", null)
+                        return@setMethodCallHandler
+                    }
+                    SolanaWalletBridge.deauthorizeWallet(
+                        activity = this,
+                        packageName = packageName,
+                        authToken = authToken,
+                        result = result,
+                    )
+                }
                 else -> result.notImplemented()
             }
         }
@@ -160,6 +199,9 @@ class MainActivity : FlutterActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (SolanaWalletBridge.onActivityResult(requestCode, resultCode)) {
+            return
+        }
         if (requestCode == scanQrRequest) {
             handleQrScanResult(resultCode, data)
             return

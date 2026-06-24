@@ -19,6 +19,9 @@ import 'features/nearby/nearby_room_service.dart';
 import 'features/onboarding/onboarding_screen.dart';
 import 'features/onboarding/onboarding_store.dart';
 import 'features/smart_send/share_intake_service.dart';
+import 'features/wallet/solana_device_detector.dart';
+import 'features/wallet/solana_wallet_card.dart';
+import 'features/wallet/solana_wallet_service.dart';
 import 'server/drop_server.dart';
 import 'ui/theme/drop_theme.dart';
 import 'ui/widgets/drop_widgets.dart';
@@ -114,6 +117,8 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   final NativeFilePickerService _nativeFilePickerService =
       NativeFilePickerService();
   final HostFolderBridge _hostFolderBridge = HostFolderBridge();
+  final SolanaWalletService _solanaWalletService = SolanaWalletService();
+  bool _isSolanaMobileDevice = false;
   final ValueNotifier<int> _networkUiVersion = ValueNotifier<int>(0);
   final ValueNotifier<int> _joinUiVersion = ValueNotifier<int>(0);
   final TextEditingController _roomName = TextEditingController(
@@ -185,6 +190,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     unawaited(_loadDeviceName());
     unawaited(_loadHostFolderSelection());
     unawaited(_refreshNetworkStatus());
+    unawaited(_detectSolanaMobileDevice());
     _shareSubscription = _shareIntakeService.watchIncomingShares().listen(
       (payload) => unawaited(_handleSharedPayload(payload)),
     );
@@ -216,6 +222,14 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       }
       unawaited(_refreshRoomData());
     }
+  }
+
+  Future<void> _detectSolanaMobileDevice() async {
+    final isSolanaDevice = await isSolanaMobileDevice();
+    if (!mounted) {
+      return;
+    }
+    setState(() => _isSolanaMobileDevice = isSolanaDevice);
   }
 
   Future<void> _loadDeviceName() async {
@@ -846,6 +860,10 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const _Head(title: 'Settings'),
+          if (_isSolanaMobileDevice) ...[
+            const SizedBox(height: 16),
+            SolanaWalletCard(walletService: _solanaWalletService),
+          ],
           const SizedBox(height: 16),
           DropCard(
             padding: EdgeInsets.zero,
@@ -931,51 +949,54 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     final pathLabel = selection == null
         ? (_loadingHostFolderSelection ? 'Checking…' : 'No folder selected')
         : selection.name;
+    final canForget = selection != null && !_server.isRunning;
     return DropCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              const LeadingTile(
-                icon: Icons.folder_special_rounded,
-                accent: DropTheme.orange,
-                size: 42,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Drop folder',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 4),
-                    MonoText(pathLabel, size: 12, color: DropTheme.muted),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              TonalButton(
-                label: selection == null ? 'Select' : 'Change',
-                busy: _hostFolderBusy,
-                onPressed: _hostFolderBusy
-                    ? null
-                    : () => unawaited(_selectHostFolder()),
-              ),
-            ],
+          const LeadingTile(
+            icon: Icons.folder_special_rounded,
+            accent: DropTheme.orange,
+            size: 42,
           ),
-          if (selection != null && !_server.isRunning) ...[
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: _hostFolderBusy ? null : _forgetHostFolderSelection,
-                icon: const Icon(Icons.restart_alt_outlined, size: 18),
-                label: const Text('Forget folder'),
-                style: TextButton.styleFrom(foregroundColor: DropTheme.muted),
-              ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Drop folder',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 2),
+                MonoText(
+                  pathLabel,
+                  size: 12,
+                  color: DropTheme.muted,
+                ),
+              ],
+            ),
+          ),
+          DropIconButton(
+            icon: Icons.drive_folder_upload_rounded,
+            tooltip: selection == null ? 'Select folder' : 'Change folder',
+            tonal: true,
+            color: DropTheme.orange,
+            size: 40,
+            busy: _hostFolderBusy,
+            onPressed: _hostFolderBusy
+                ? null
+                : () => unawaited(_selectHostFolder()),
+          ),
+          if (canForget) ...[
+            const SizedBox(width: 4),
+            DropIconButton(
+              icon: Icons.restart_alt_rounded,
+              tooltip: 'Forget folder',
+              tonal: true,
+              color: DropTheme.muted,
+              size: 40,
+              busy: _hostFolderBusy,
+              onPressed: _hostFolderBusy ? null : _forgetHostFolderSelection,
             ),
           ],
         ],
@@ -1014,15 +1035,14 @@ class _DropHomeScreenState extends State<DropHomeScreen>
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: const [
-              _PrivacyChip('No analytics'),
-              _PrivacyChip('No tracking'),
-              _PrivacyChip('No accounts'),
-              _PrivacyChip('No cloud relay'),
+          const SizedBox(height: 12),
+          const Row(
+            children: [
+              Expanded(child: _PrivacyChip('No analytics')),
+              SizedBox(width: 6),
+              Expanded(child: _PrivacyChip('No tracking')),
+              SizedBox(width: 6),
+              Expanded(child: _PrivacyChip('No cloud relay')),
             ],
           ),
         ],
@@ -4070,17 +4090,22 @@ class _PrivacyChip extends StatelessWidget {
         border: Border.all(color: DropTheme.success.withValues(alpha: 0.24)),
       ),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.check_rounded, color: DropTheme.success, size: 14),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: const TextStyle(
-              fontFamily: DropTheme.bodyFont,
-              fontSize: 11.5,
-              fontWeight: FontWeight.w700,
-              color: DropTheme.white,
+          const Icon(Icons.check_rounded, color: DropTheme.success, size: 13),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontFamily: DropTheme.bodyFont,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+                color: DropTheme.white,
+              ),
             ),
           ),
         ],

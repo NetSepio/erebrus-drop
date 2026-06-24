@@ -1,10 +1,15 @@
-# Copy this file to android/key.properties and fill in your local release signing values.
+# Copy to android/key.properties and fill in your local signing values.
 # Do not commit android/key.properties or keystore files.
-#
-# Example keystore generation command, run only when you are ready:
-# keytool -genkey -v -keystore ../release-keys/erebrus-drop-upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias erebrus-drop-upload
 
-storePassword=REPLACE_WITH_KEYSTORE_PASSWORD
-keyPassword=REPLACE_WITH_KEY_PASSWORD
-keyAlias=erebrus-drop-upload
-storeFile=../release-keys/erebrus-drop-upload.jks
+# --- Play Store (Google Play) ---
+playstore.storeFile=../release-keys/erebrus-drop-playstore.jks
+playstore.storePassword=<playstore-keystore-password>
+playstore.keyAlias=erebrus-drop-playstore
+playstore.keyPassword=<playstore-key-password>
+
+# --- dApp Store (Solana) ---
+# Must be a separate keystore from Play Store. See docs/solana-dapp-store-release.md.
+dappstore.storeFile=../release-keys/erebrus-drop-dappstore.jks
+dappstore.storePassword=<dappstore-keystore-password>
+dappstore.keyAlias=erebrus-drop-dappstore
+dappstore.keyPassword=<dappstore-key-password>
