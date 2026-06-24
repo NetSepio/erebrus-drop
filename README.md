@@ -53,28 +53,42 @@ The Android package id is:
 com.erebrus.drop
 ```
 
-Android release signing uses a local upload keystore configured through:
+Android uses two deploy flavors:
+
+| Flavor | Output | Store |
+|--------|--------|-------|
+| `playstore` | AAB | Google Play |
+| `dappstore` | APK | Solana dApp Store |
+
+Both signing blocks live in one file:
 
 ```text
 android/key.properties
 ```
 
-Do not commit signing secrets. The template lives at:
+Template:
 
 ```text
 android/key.properties.example
 ```
 
-Build the Play Store bundle with:
-
-```sh
-flutter build appbundle --release
-```
-
-The release bundle is generated at:
+Full signing and publish commands:
 
 ```text
-build/app/outputs/bundle/release/app-release.aab
+docs/solana-dapp-store-release.md
+```
+
+Build commands:
+
+```sh
+# Debug Android defaults to playstore (no --flavor needed)
+flutter run
+
+# Google Play
+flutter build appbundle --flavor playstore --release
+
+# Solana dApp Store
+flutter build apk --flavor dappstore --release
 ```
 
 ## Development

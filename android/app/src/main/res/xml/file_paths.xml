@@ -3,4 +3,7 @@
     <root-path
         name="app_private"
         path="." />
+    <cache-path
+        name="cache"
+        path="." />
 </paths>
