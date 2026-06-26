@@ -7,8 +7,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import 'core/desktop_shell.dart';
 import 'core/drop_models.dart';
 import 'core/host_folder_bridge.dart';
+import 'core/platform_capabilities.dart';
 import 'core/platform_network.dart';
 import 'features/host/host_folder_service.dart';
 import 'features/host/room_runtime_service.dart';
@@ -23,10 +25,13 @@ import 'features/wallet/solana_device_detector.dart';
 import 'features/wallet/solana_wallet_card.dart';
 import 'features/wallet/solana_wallet_service.dart';
 import 'server/drop_server.dart';
+import 'ui/layout/desktop_layout.dart';
 import 'ui/theme/drop_theme.dart';
 import 'ui/widgets/drop_widgets.dart';
 
 const String _appVersion = '1.0.5+5';
+const String _copyrightNotice =
+    'Erebrus © 2026 NetSepio LLC. All rights reserved.';
 const String _supportEmail = 'support@netsepio.com';
 
 class ErebrusDropApp extends StatefulWidget {
@@ -194,6 +199,9 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     _shareSubscription = _shareIntakeService.watchIncomingShares().listen(
       (payload) => unawaited(_handleSharedPayload(payload)),
     );
+    if (isDesktopPlatform) {
+      DesktopShell.instance.registerQuitHandler(_desktopQuit);
+    }
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (_server.isRunning && _appInForeground) {
         unawaited(_refreshRoomData());
@@ -343,8 +351,21 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     }
   }
 
+  void _selectTab(int index) {
+    setState(() => _tab = index);
+    if (index == 1) {
+      unawaited(_discoverNearbyRooms());
+    }
+    if (index == 2) {
+      unawaited(_loadLibraryFiles());
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final useSideRail = DesktopLayout.useSideRail(
+      MediaQuery.sizeOf(context).width,
+    );
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -354,68 +375,116 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       },
       child: Scaffold(
         body: SafeArea(
-          child: IndexedStack(
-            index: _tab,
+          child: Row(
             children: [
-              _homeTab(),
-              _roomsTab(),
-              _libraryTab(),
-              _smartSendTab(),
-              _settingsTab(),
+              if (useSideRail) ...[
+                _desktopNavigationRail(),
+                const VerticalDivider(width: 1, color: DropTheme.line),
+              ],
+              Expanded(
+                child: IndexedStack(
+                  index: _tab,
+                  children: [
+                    _homeTab(),
+                    _roomsTab(),
+                    _libraryTab(),
+                    _smartSendTab(),
+                    _settingsTab(),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
-        bottomNavigationBar: ClipRect(
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-            child: DecoratedBox(
-              decoration: const BoxDecoration(
-                color: Color(0xDB080809),
-                border: Border(top: BorderSide(color: DropTheme.line)),
+        bottomNavigationBar: useSideRail
+            ? null
+            : ClipRect(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                  child: DecoratedBox(
+                    decoration: const BoxDecoration(
+                      color: Color(0xDB080809),
+                      border: Border(top: BorderSide(color: DropTheme.line)),
+                    ),
+                    child: NavigationBar(
+                      selectedIndex: _tab,
+                      onDestinationSelected: _selectTab,
+                      destinations: const [
+                        NavigationDestination(
+                          icon: Icon(Icons.home_outlined),
+                          selectedIcon: Icon(Icons.home_rounded),
+                          label: 'Home',
+                        ),
+                        NavigationDestination(
+                          icon: Icon(Icons.hub_outlined),
+                          selectedIcon: Icon(Icons.hub),
+                          label: 'Rooms',
+                        ),
+                        NavigationDestination(
+                          icon: Icon(Icons.folder_outlined),
+                          selectedIcon: Icon(Icons.folder_rounded),
+                          label: 'Library',
+                        ),
+                        NavigationDestination(
+                          icon: Icon(Icons.bolt_outlined),
+                          selectedIcon: Icon(Icons.bolt),
+                          label: 'Send',
+                        ),
+                        NavigationDestination(
+                          icon: Icon(Icons.settings_outlined),
+                          selectedIcon: Icon(Icons.settings),
+                          label: 'Settings',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-              child: NavigationBar(
-                selectedIndex: _tab,
-                onDestinationSelected: (index) {
-                  setState(() => _tab = index);
-                  if (index == 1) {
-                    unawaited(_discoverNearbyRooms());
-                  }
-                  if (index == 2) {
-                    unawaited(_loadLibraryFiles());
-                  }
-                },
-                destinations: const [
-                  NavigationDestination(
-                    icon: Icon(Icons.home_outlined),
-                    selectedIcon: Icon(Icons.home_rounded),
-                    label: 'Home',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.hub_outlined),
-                    selectedIcon: Icon(Icons.hub),
-                    label: 'Rooms',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.folder_outlined),
-                    selectedIcon: Icon(Icons.folder_rounded),
-                    label: 'Library',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.bolt_outlined),
-                    selectedIcon: Icon(Icons.bolt),
-                    label: 'Send',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.settings_outlined),
-                    selectedIcon: Icon(Icons.settings),
-                    label: 'Settings',
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
       ),
+    );
+  }
+
+  Widget _desktopNavigationRail() {
+    return NavigationRail(
+      selectedIndex: _tab,
+      onDestinationSelected: _selectTab,
+      labelType: NavigationRailLabelType.all,
+      backgroundColor: DropTheme.black,
+      indicatorColor: DropTheme.orange.withValues(alpha: 0.18),
+      selectedIconTheme: const IconThemeData(color: DropTheme.orange),
+      selectedLabelTextStyle: const TextStyle(
+        color: DropTheme.orange,
+        fontWeight: FontWeight.w700,
+      ),
+      unselectedIconTheme: const IconThemeData(color: DropTheme.faint),
+      unselectedLabelTextStyle: const TextStyle(color: DropTheme.muted),
+      destinations: const [
+        NavigationRailDestination(
+          icon: Icon(Icons.home_outlined),
+          selectedIcon: Icon(Icons.home_rounded),
+          label: Text('Home'),
+        ),
+        NavigationRailDestination(
+          icon: Icon(Icons.hub_outlined),
+          selectedIcon: Icon(Icons.hub),
+          label: Text('Rooms'),
+        ),
+        NavigationRailDestination(
+          icon: Icon(Icons.folder_outlined),
+          selectedIcon: Icon(Icons.folder_rounded),
+          label: Text('Library'),
+        ),
+        NavigationRailDestination(
+          icon: Icon(Icons.bolt_outlined),
+          selectedIcon: Icon(Icons.bolt),
+          label: Text('Send'),
+        ),
+        NavigationRailDestination(
+          icon: Icon(Icons.settings_outlined),
+          selectedIcon: Icon(Icons.settings),
+          label: Text('Settings'),
+        ),
+      ],
     );
   }
 
@@ -603,6 +672,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     final hasLibrarySource = _server.isRunning || _hostFolderSelection != null;
     return _Screen(
       glowAlignment: Alignment.topRight,
+      layout: DesktopContentLayout.library,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1659,12 +1729,14 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                   onPressed: _joining ? null : _previewJoinRoom,
                 ),
               ),
-              const SizedBox(width: 10),
-              TonalButton(
-                label: 'Scan QR',
-                icon: Icons.qr_code_scanner_rounded,
-                onPressed: _joining ? null : _scanDropCode,
-              ),
+              if (supportsNativeQrScanner) ...[
+                const SizedBox(width: 10),
+                TonalButton(
+                  label: 'Scan QR',
+                  icon: Icons.qr_code_scanner_rounded,
+                  onPressed: _joining ? null : _scanDropCode,
+                ),
+              ],
             ],
           ),
         ],
@@ -2338,25 +2410,12 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           hostFolderPlatform: _hostFolderSelection?.platform,
         ),
       );
-      try {
-        await _roomRuntimeService.setKeepAwake(enabled: true);
-      } on PlatformException {
-        // Keep-awake is a foreground convenience; hosting still works without it.
-      }
-      try {
-        await _roomRuntimeService.startForegroundRoom(
-          roomName: session.name,
-          baseUrl: session.baseUrl,
-        );
-      } on PlatformException {
-        // Some Android builds deny foreground notifications until the user
-        // grants notification permission. The local server can still run.
-      }
-      try {
-        await _roomRuntimeService.publishMdnsRoom(session);
-      } on PlatformException {
-        // mDNS is best-effort. The direct Drop Link still works.
-      }
+      await _roomRuntimeService.setKeepAwake(enabled: true);
+      await _roomRuntimeService.startForegroundRoom(
+        roomName: session.name,
+        baseUrl: session.baseUrl,
+      );
+      await _roomRuntimeService.publishMdnsRoom(session);
       await _refreshRoomData();
       if (mounted) {
         _snack('Drop Room is live');
@@ -2428,6 +2487,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   Future<_BackAction?> _showBackActionDialog() {
     final hosting = _server.isRunning;
     final canBackground = !Platform.isIOS;
+    final desktopTray = isDesktopPlatform;
     return showDialog<_BackAction>(
       context: context,
       builder: (context) => AlertDialog(
@@ -2442,7 +2502,11 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           hosting
               ? Platform.isIOS
                     ? 'The screen stays awake while this room is active. Keep Erebrus Drop open while guests transfer; iOS pauses local hosting if the app is backgrounded. Closing the app will stop the room.'
+                    : desktopTray
+                    ? 'A Drop Room is active. Minimize to the menu bar tray to keep hosting, or quit to stop the room and disconnect guests.'
                     : 'A Drop Room is active. You can keep Erebrus Drop running in the background so guests can continue transfers. Closing the app will stop the room and disconnect guests.'
+              : desktopTray
+              ? 'Erebrus Drop can stay in the menu bar tray while hosting or joining. Quit from the tray menu to exit completely.'
               : Platform.isIOS
               ? 'Close Erebrus Drop?'
               : 'You can keep Erebrus Drop in the background or close the app.',
@@ -2454,13 +2518,27 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(_BackAction.close),
-            child: Text(hosting ? 'Stop Room & Close' : 'Close App'),
+            child: Text(
+              hosting
+                  ? 'Stop Room & Quit'
+                  : desktopTray
+                  ? 'Quit App'
+                  : 'Close App',
+            ),
           ),
           if (canBackground)
             FilledButton(
               onPressed: () =>
                   Navigator.of(context).pop(_BackAction.background),
-              child: Text(hosting ? 'Keep Hosting' : 'Background'),
+              child: Text(
+                hosting
+                    ? desktopTray
+                          ? 'Minimize to Tray'
+                          : 'Keep Hosting'
+                    : desktopTray
+                    ? 'Minimize to Tray'
+                    : 'Background',
+              ),
             )
           else
             FilledButton(
@@ -2473,6 +2551,10 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   }
 
   Future<void> _moveAppToBackground() async {
+    if (isDesktopPlatform) {
+      await DesktopShell.instance.hideToTray();
+      return;
+    }
     try {
       await _roomRuntimeService.moveAppToBackground();
     } on PlatformException {
@@ -2480,7 +2562,17 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     }
   }
 
+  Future<void> _desktopQuit() async {
+    if (_server.isRunning) {
+      await _stopRoom();
+    }
+  }
+
   Future<void> _closeAppFromBack() async {
+    if (isDesktopPlatform) {
+      await DesktopShell.instance.quit();
+      return;
+    }
     if (_server.isRunning) {
       await _stopRoom();
     }
@@ -2488,21 +2580,9 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   }
 
   Future<void> _stopRoom() async {
-    try {
-      await _roomRuntimeService.setKeepAwake(enabled: false);
-    } on PlatformException {
-      // Keep-awake reset is best-effort.
-    }
-    try {
-      await _roomRuntimeService.stopMdnsRoom();
-    } on PlatformException {
-      // Local discovery publishing is best-effort.
-    }
-    try {
-      await _roomRuntimeService.stopForegroundRoom();
-    } on PlatformException {
-      // The foreground service is Android-only and best-effort.
-    }
+    await _roomRuntimeService.setKeepAwake(enabled: false);
+    await _roomRuntimeService.stopMdnsRoom();
+    await _roomRuntimeService.stopForegroundRoom();
     await _server.stop();
     if (!mounted) return;
     setState(() {
@@ -2575,8 +2655,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       if (!mounted) return;
       setState(() {
         _files = <DropFileItem>[];
-        _libraryError =
-            'Folder browsing needs the latest native build. Stop the app and run a fresh build, then try again.';
+        _libraryError = 'Folder browsing is not available on this build.';
       });
     } catch (error) {
       if (!mounted) return;
@@ -3442,12 +3521,14 @@ class _DropHomeScreenState extends State<DropHomeScreen>
             subtitle: 'No cloud. No account. Nearby only.',
           ),
         ),
-        const SizedBox(width: 12),
-        DropIconButton(
-          icon: Icons.qr_code_scanner_rounded,
-          onPressed: _scanDropCode,
-          tooltip: 'Scan Drop Code',
-        ),
+        if (supportsNativeQrScanner) ...[
+          const SizedBox(width: 12),
+          DropIconButton(
+            icon: Icons.qr_code_scanner_rounded,
+            onPressed: _scanDropCode,
+            tooltip: 'Scan Drop Code',
+          ),
+        ],
       ],
     );
   }
@@ -3578,6 +3659,7 @@ class _JoinedRoomDetailScreen extends StatelessWidget {
         ],
       ),
       body: _Screen(
+        layout: DesktopContentLayout.library,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -4143,25 +4225,38 @@ class _WebDavClient extends StatelessWidget {
 }
 
 class _Screen extends StatelessWidget {
-  const _Screen({required this.child, this.glowAlignment = Alignment.topRight});
+  const _Screen({
+    required this.child,
+    this.glowAlignment = Alignment.topRight,
+    this.layout = DesktopContentLayout.standard,
+  });
 
   final Widget child;
   final Alignment glowAlignment;
+  final DesktopContentLayout layout;
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
         Positioned.fill(child: AmbientGlow(alignment: glowAlignment)),
-        SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
-          child: Align(
-            alignment: Alignment.topLeft,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 920),
-              child: child,
-            ),
-          ),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final maxWidth = DesktopLayout.contentMaxWidth(
+              windowWidth: constraints.maxWidth,
+              layout: layout,
+            );
+            return SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: maxWidth),
+                  child: child,
+                ),
+              ),
+            );
+          },
         ),
       ],
     );
@@ -4401,14 +4496,15 @@ class _AboutScreen extends StatelessWidget {
                 'Join another room by entering its Drop Link, then browse, send text, create folders, and download files.',
             color: DropTheme.success,
           ),
-          const _CapabilityCard(
-            icon: Icons.qr_code_scanner_outlined,
-            title: 'QR scan',
-            status: 'Available',
-            detail:
-                'Scan a host Drop Code with the camera and join from the detected Drop Link.',
-            color: DropTheme.success,
-          ),
+          if (supportsNativeQrScanner)
+            const _CapabilityCard(
+              icon: Icons.qr_code_scanner_outlined,
+              title: 'QR scan',
+              status: 'Available',
+              detail:
+                  'Scan a host Drop Code with the camera and join from the detected Drop Link.',
+              color: DropTheme.success,
+            ),
           _CapabilityCard(
             icon: Icons.network_wifi_outlined,
             title: 'Hosting network',
@@ -4433,7 +4529,7 @@ class _AboutScreen extends StatelessWidget {
             title: 'Nearby Rooms',
             status: 'Available',
             detail:
-                'Live rooms advertise _erebrusdrop._tcp on Android and iOS. Apps on the same local network can discover and open nearby rooms.',
+                'Live rooms advertise _erebrusdrop._tcp on the local network. Apps on the same Wi-Fi or hotspot can discover and open nearby rooms.',
             color: DropTheme.success,
           ),
           const _CapabilityCard(
@@ -4446,6 +4542,16 @@ class _AboutScreen extends StatelessWidget {
           ),
           const SizedBox(height: 18),
           const _AboutFooterLinks(),
+          const SizedBox(height: 12),
+          Center(
+            child: Text(
+              _copyrightNotice,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: DropTheme.faint,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -4539,15 +4645,22 @@ class _InfoScaffold extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: Text(title)),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(18),
-          child: Align(
-            alignment: Alignment.topLeft,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 920),
-              child: child,
-            ),
-          ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final maxWidth = DesktopLayout.contentMaxWidth(
+              windowWidth: constraints.maxWidth,
+            );
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(18),
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: maxWidth),
+                  child: child,
+                ),
+              ),
+            );
+          },
         ),
       ),
     );

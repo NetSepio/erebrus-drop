@@ -1,5 +1,8 @@
 import 'package:flutter/services.dart';
 
+import 'desktop_host_folder.dart';
+import 'platform_capabilities.dart';
+
 class HostFolderBridge {
   static const MethodChannel _channel = MethodChannel(
     'com.erebrus.drop/network',
@@ -9,6 +12,9 @@ class HostFolderBridge {
     required String rootUri,
     required String path,
   }) async {
+    if (isDesktopPlatform) {
+      return DesktopHostFolder.list(rootUri: rootUri, path: path);
+    }
     final result = await _channel.invokeMethod<List<Object?>>(
       'listHostFolder',
       {'rootUri': rootUri, 'path': path},
@@ -26,6 +32,15 @@ class HostFolderBridge {
     required String name,
     required String mimeType,
   }) async {
+    if (isDesktopPlatform) {
+      return DesktopHostFolder.copyFileInto(
+        rootUri: rootUri,
+        folderPath: folderPath,
+        sourcePath: sourcePath,
+        name: name,
+        mimeType: mimeType,
+      );
+    }
     final result = await _channel
         .invokeMethod<Map<Object?, Object?>>('copyFileIntoHostFolder', {
           'rootUri': rootUri,
@@ -41,6 +56,9 @@ class HostFolderBridge {
     required String rootUri,
     required String path,
   }) async {
+    if (isDesktopPlatform) {
+      return DesktopHostFolder.createFolder(rootUri: rootUri, path: path);
+    }
     await _channel.invokeMethod<Object?>('createHostFolder', {
       'rootUri': rootUri,
       'path': path,
@@ -51,6 +69,9 @@ class HostFolderBridge {
     required String rootUri,
     required String path,
   }) async {
+    if (isDesktopPlatform) {
+      return DesktopHostFolder.copyFileToCache(rootUri: rootUri, path: path);
+    }
     final result = await _channel.invokeMethod<Map<Object?, Object?>>(
       'copyHostFileToCache',
       {'rootUri': rootUri, 'path': path},
@@ -59,6 +80,9 @@ class HostFolderBridge {
   }
 
   Future<void> openFile({required String rootUri, required String path}) async {
+    if (isDesktopPlatform) {
+      return DesktopHostFolder.openFile(rootUri: rootUri, path: path);
+    }
     await _channel.invokeMethod<Object?>('openHostFile', {
       'rootUri': rootUri,
       'path': path,
@@ -69,6 +93,9 @@ class HostFolderBridge {
     required String rootUri,
     required String path,
   }) async {
+    if (isDesktopPlatform) {
+      return DesktopHostFolder.shareFile(rootUri: rootUri, path: path);
+    }
     await _channel.invokeMethod<Object?>('shareHostFile', {
       'rootUri': rootUri,
       'path': path,
@@ -79,6 +106,9 @@ class HostFolderBridge {
     required String rootUri,
     required String path,
   }) async {
+    if (isDesktopPlatform) {
+      return DesktopHostFolder.deleteFile(rootUri: rootUri, path: path);
+    }
     await _channel.invokeMethod<Object?>('deleteHostFile', {
       'rootUri': rootUri,
       'path': path,
@@ -90,6 +120,13 @@ class HostFolderBridge {
     required String path,
     required String newName,
   }) async {
+    if (isDesktopPlatform) {
+      return DesktopHostFolder.renameItem(
+        rootUri: rootUri,
+        path: path,
+        newName: newName,
+      );
+    }
     await _channel.invokeMethod<Object?>('renameHostItem', {
       'rootUri': rootUri,
       'path': path,
@@ -102,6 +139,13 @@ class HostFolderBridge {
     required String path,
     required String destinationPath,
   }) async {
+    if (isDesktopPlatform) {
+      return DesktopHostFolder.moveItem(
+        rootUri: rootUri,
+        path: path,
+        destinationPath: destinationPath,
+      );
+    }
     await _channel.invokeMethod<Object?>('moveHostItem', {
       'rootUri': rootUri,
       'path': path,
@@ -114,6 +158,13 @@ class HostFolderBridge {
     required String name,
     required String mimeType,
   }) async {
+    if (isDesktopPlatform) {
+      return DesktopHostFolder.openLocalFile(
+        path: path,
+        name: name,
+        mimeType: mimeType,
+      );
+    }
     await _channel.invokeMethod<Object?>('openLocalFile', {
       'path': path,
       'name': name,
@@ -126,6 +177,13 @@ class HostFolderBridge {
     required String name,
     required String mimeType,
   }) async {
+    if (isDesktopPlatform) {
+      return DesktopHostFolder.shareLocalFile(
+        path: path,
+        name: name,
+        mimeType: mimeType,
+      );
+    }
     await _channel.invokeMethod<Object?>('shareLocalFile', {
       'path': path,
       'name': name,

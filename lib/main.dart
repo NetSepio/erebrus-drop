@@ -3,9 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 
 import 'app.dart';
+import 'core/desktop_shell.dart';
+import 'core/platform_capabilities.dart';
 
-void main() {
+Future<void> main() async {
   final binding = WidgetsFlutterBinding.ensureInitialized();
+  if (isDesktopPlatform) {
+    await DesktopShell.ensureInitialized();
+  }
   final useNativeSplash = !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS);

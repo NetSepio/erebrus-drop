@@ -10,14 +10,16 @@ flutter build apk --flavor dappstore --release         # Solana dApp Store
 ```
 
 Signing: copy `android/key.properties.example` → `android/key.properties`.  
-See [solana-dapp-store-release.md](solana-dapp-store-release.md) and [github-release.md](github-release.md).
+See [solana-dapp-store-release.md](solana-dapp-store-release.md).
 
 ## Desktop (macOS / Windows / Linux)
 
-Erebrus Drop ships as a Flutter desktop app on all three platforms. The core
-Drop Room server is pure Dart; native method channels fall back gracefully on
-desktop where mobile-only APIs (hotspot, share sheet, Solana Mobile Wallet) are
-unavailable.
+Erebrus Drop ships as a Flutter desktop app on all three platforms. Shared Dart
+code drives the UI, tray, window sizing, responsive layout, mDNS discovery,
+folder library, and in-app About/Privacy/Terms.
+
+Native pieces differ only where the OS requires it (e.g. macOS template tray
+icon, folder picker bridges).
 
 ### Prerequisites
 
@@ -29,10 +31,32 @@ unavailable.
 
 Run `flutter doctor` and enable the desktop platform you target.
 
+### Brand assets (run before desktop release builds)
+
+```bash
+python3 scripts/generate-desktop-assets.py
+```
+
+This script:
+
+| Output | Used for |
+|--------|----------|
+| `assets/images/erebrus-tray*.png` | System tray (all desktop) |
+| `macos/Runner/Assets.xcassets/AppIcon.appiconset/` | Dock icon |
+| `macos/Runner/Assets.xcassets/AboutIcon.imageset/` | Menu bar **About** panel (glossy, no black border) |
+| `windows/runner/resources/app_icon.ico` | Taskbar / window icon |
+| `linux/runner/resources/app_icon.png` | Taskbar / window icon |
+
+It also runs `dart run flutter_launcher_icons` for mobile launcher icons from
+`assets/images/erebrus-glossy.png`.
+
+Re-run after any change to `erebrus-glossy.png` or `erebrus-glyph.png`.
+
 ### Dev
 
 ```bash
 flutter pub get
+python3 scripts/generate-desktop-assets.py   # first time or after logo changes
 flutter run -d macos      # or windows / linux
 ```
 
@@ -40,10 +64,14 @@ Shortcut on macOS:
 
 ```bash
 ./scripts/setup-macos-dev.sh
+python3 scripts/generate-desktop-assets.py
 flutter run -d macos
 ```
 
 ### Release
+
+`scripts/build-desktop.sh` runs asset generation automatically, then builds and
+packages:
 
 ```bash
 ./scripts/build-desktop.sh macos
@@ -60,12 +88,25 @@ Artifacts land in `dist/`:
 | `erebrus-drop-windows-v*.zip` | `Release/` folder with `.exe` |
 | `erebrus-drop-linux-v*.tar.gz` | `bundle/` directory |
 
+### Desktop feature parity
+
+| Feature | macOS | Windows | Linux |
+|---------|-------|---------|-------|
+| System tray + hide on close | ✓ | ✓ | ✓ |
+| Window default 880×820, min 720×640 | ✓ | ✓ | ✓ |
+| Responsive layout + side rail | ✓ | ✓ | ✓ |
+| mDNS nearby rooms (Bonsoir) | ✓ | ✓ | ✓ |
+| Folder library / file ops | ✓ | ✓ | ✓ |
+| In-app About / copyright | ✓ | ✓ | ✓ |
+| Launcher / taskbar icon | ✓ | ✓ | ✓ |
+| Menu bar About (native) | ✓ | — | — |
+
 ### Desktop notes
 
 - **Hosting:** local HTTP server binds on the LAN; allow incoming connections in the OS firewall if prompted.
-- **mDNS:** room discovery uses native bridges on mobile; desktop may need manual join via IP/QR until desktop mDNS is wired.
-- **Folders:** use the in-app folder picker; paths are stored per platform.
+- **Folders:** macOS uses a native folder picker; Windows/Linux folder selection may need additional native wiring for the picker UI (file ops work via Dart).
 - **Wallet:** Solana Mobile Wallet features are Android-only by design.
+- **QR scan:** hidden on desktop; use manual join or Drop Link.
 
 ## Verify
 
@@ -73,3 +114,9 @@ Artifacts land in `dist/`:
 flutter analyze
 flutter test
 ```
+
+## GitHub Release workflow
+
+CI desktop jobs call `scripts/build-desktop.sh` (macOS/Linux) or
+`scripts/generate-desktop-assets.py` + `flutter build windows` (Windows).
+GitHub Release steps: **Actions → Release → Run workflow** (see README release checklist).

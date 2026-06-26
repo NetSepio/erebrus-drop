@@ -42,6 +42,9 @@ dependencies:
   solana: ^0.31.2+1
   device_info_plus: ^13.1.0
   shared_preferences: ^2.5.5
+  bonsoir: ^7.1.4
+  tray_manager: ^0.5.3
+  window_manager: ^0.5.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -69,6 +72,13 @@ flutter_launcher_icons:
   background_color_ios: "#050505"
   adaptive_icon_background: "#050505"
   adaptive_icon_foreground: "assets/images/erebrus-glossy.png"
+  macos:
+    generate: true
+    image_path: "assets/images/erebrus-glossy.png"
+  windows:
+    generate: true
+    image_path: "assets/images/erebrus-glossy.png"
+    icon_size: 256
 
 # Native splash screen (run: dart run flutter_native_splash:create).
 # Glossy mark centred on the brand near-black; dark-only app so a single

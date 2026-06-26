@@ -5,6 +5,9 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../core/desktop_host_folder.dart';
+import '../../core/platform_capabilities.dart';
+
 class HostFolderSelection {
   const HostFolderSelection({
     required this.name,
@@ -35,6 +38,9 @@ class HostFolderService {
   );
 
   Future<HostFolderSelection?> selectHostFolder() async {
+    if (isDesktopPlatform) {
+      return DesktopHostFolder.selectFolder();
+    }
     final result = await _channel.invokeMethod<Map<Object?, Object?>>(
       'selectHostFolder',
     );

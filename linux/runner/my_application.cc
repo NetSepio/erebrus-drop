@@ -14,6 +14,23 @@ struct _MyApplication {
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
+static gchar* my_application_icon_path() {
+  g_autofree gchar* exe = g_file_read_link("/proc/self/exe", NULL);
+  if (exe == NULL) {
+    return NULL;
+  }
+  g_autofree gchar* dir = g_path_get_dirname(exe);
+  return g_build_filename(dir, "data", "icons", "app_icon.png", NULL);
+}
+
+static void my_application_apply_icon(GtkWindow* window) {
+  g_autofree gchar* icon_path = my_application_icon_path();
+  if (icon_path == NULL || !g_file_test(icon_path, G_FILE_TEST_EXISTS)) {
+    return;
+  }
+  gtk_window_set_icon_from_file(window, icon_path, NULL);
+}
+
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
@@ -45,14 +62,15 @@ static void my_application_activate(GApplication* application) {
   if (use_header_bar) {
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_show(GTK_WIDGET(header_bar));
-    gtk_header_bar_set_title(header_bar, "erebrus_drop");
+    gtk_header_bar_set_title(header_bar, "Erebrus Drop");
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
   } else {
-    gtk_window_set_title(window, "erebrus_drop");
+    gtk_window_set_title(window, "Erebrus Drop");
   }
 
-  gtk_window_set_default_size(window, 1280, 720);
+  gtk_window_set_default_size(window, 880, 820);
+  my_application_apply_icon(window);
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(
@@ -101,11 +119,12 @@ static gboolean my_application_local_command_line(GApplication* application,
 
 // Implements GApplication::startup.
 static void my_application_startup(GApplication* application) {
-  // MyApplication* self = MY_APPLICATION(object);
-
-  // Perform any actions required at application startup.
-
   G_APPLICATION_CLASS(my_application_parent_class)->startup(application);
+
+  g_autofree gchar* icon_path = my_application_icon_path();
+  if (icon_path != NULL && g_file_test(icon_path, G_FILE_TEST_EXISTS)) {
+    gtk_window_set_default_icon_from_file(icon_path, NULL);
+  }
 }
 
 // Implements GApplication::shutdown.

@@ -1,5 +1,7 @@
 import 'package:flutter/services.dart';
 
+import '../../core/desktop_mdns_service.dart';
+import '../../core/platform_capabilities.dart';
 import '../../features/join/join_room_service.dart';
 
 class NearbyRoomService {
@@ -17,13 +19,11 @@ class NearbyRoomService {
     Duration timeout = const Duration(milliseconds: 2500),
   }) async {
     try {
-      final result = await _channel.invokeMethod<List<Object?>>(
-        'discoverMdnsRooms',
-        {'serviceType': serviceType, 'timeoutMillis': timeout.inMilliseconds},
-      );
-      final urls = (result ?? const <Object?>[])
-          .whereType<Map<Object?, Object?>>()
-          .map(_urlFromDiscoveryMap)
+      final discoveryMaps = isDesktopPlatform
+          ? await DesktopMdnsService.instance.discover(timeout: timeout)
+          : await _discoverFromNative(timeout: timeout);
+      final urls = discoveryMaps
+          .map((map) => _urlFromDiscoveryMap(map.cast<Object?, Object?>()))
           .whereType<String>()
           .toSet();
       final previews = <JoinRoomPreview>[];
@@ -45,6 +45,18 @@ class NearbyRoomService {
     } on MissingPluginException {
       return const <JoinRoomPreview>[];
     }
+  }
+
+  Future<List<Map<Object?, Object?>>> _discoverFromNative({
+    required Duration timeout,
+  }) async {
+    final result = await _channel.invokeMethod<List<Object?>>(
+      'discoverMdnsRooms',
+      {'serviceType': serviceType, 'timeoutMillis': timeout.inMilliseconds},
+    );
+    return (result ?? const <Object?>[])
+        .whereType<Map<Object?, Object?>>()
+        .toList();
   }
 
   Stream<List<JoinRoomPreview>> watchRooms() {

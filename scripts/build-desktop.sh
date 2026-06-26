@@ -66,6 +66,8 @@ build_one() {
   tag="$(read_version_tag)"
   echo "▸ flutter pub get"
   flutter pub get
+  echo "▸ generate desktop brand assets"
+  python3 scripts/generate-desktop-assets.py
   echo "▸ flutter build ${p} --release"
   flutter build "${p}" --release
   case "${p}" in
