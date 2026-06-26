@@ -28,5 +28,11 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Erebrus Drop uses your local network to host and discover nearby Drop Rooms.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_erebrusdrop._tcp</string>
+	</array>
 </dict>
 </plist>

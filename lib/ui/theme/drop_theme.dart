@@ -19,6 +19,11 @@ class DropTheme {
   /// Monochrome glyph for light surfaces / favicons only. Never on dark.
   static const String logoGlyph = 'assets/images/erebrus-glyph.png';
 
+  /// Transparent-background marks for desktop system tray icons.
+  static const String trayIcon = 'assets/images/erebrus-tray-64.png';
+  static const String trayIconTemplate =
+      'assets/images/erebrus-tray-template-64.png';
+
   /// Back-compat alias; defaults to the primary (glossy) mark.
   static const String logoAsset = logoGlossy;
 

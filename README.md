@@ -93,10 +93,35 @@ flutter build apk --flavor dappstore --release
 
 ### Desktop (macOS / Windows / Linux)
 
+Erebrus Drop ships on macOS, Windows, and Linux as well: system
+tray, responsive layout, mDNS room discovery, folder library, and hide-to-tray
+on close.
+
+**Generate brand assets** (tray icons, Dock/taskbar launcher icons, macOS
+About icon, Linux window icon) before a desktop release build:
+
 ```sh
-flutter run -d macos          # or windows / linux
+python3 scripts/generate-desktop-assets.py
+```
+
+This runs tray icon generation and `dart run flutter_launcher_icons` for
+macOS/Windows/Android/iOS launcher icons from `assets/images/erebrus-glossy.png`.
+
+**Dev:**
+
+```sh
+flutter pub get
+python3 scripts/generate-desktop-assets.py   # first time or after logo changes
+flutter run -d macos                       # or windows / linux
+```
+
+**Release bundles** (writes versioned artifacts under `dist/`):
+
+```sh
 ./scripts/build-desktop.sh macos
-./scripts/build-desktop.sh all
+./scripts/build-desktop.sh windows
+./scripts/build-desktop.sh linux
+./scripts/build-desktop.sh all             # macOS host; skips unavailable targets
 ```
 
 Full desktop setup, packaging, and CI notes: **[docs/BUILD.md](docs/BUILD.md)**.
@@ -127,9 +152,19 @@ flutter test
 GitHub Actions:
 
 - **CI** — `flutter analyze` and `flutter test` on every PR and `main` push
-- **Release** — manual workflow: tags `v{semver}` from `pubspec.yaml`, uploads Android APKs + macOS/Windows/Linux desktop bundles
+- **Release** — manual workflow: tags `v{semver}` from `pubspec.yaml`, uploads
+  Android sideload APKs plus macOS `.zip`, Windows `.zip`, and Linux `.tar.gz`
+  desktop bundles
 
-See `docs/github-release.md` and `docs/BUILD.md`.
+Release checklist:
+
+1. Bump `version:` in `pubspec.yaml` (e.g. `1.0.6+6`).
+2. Run `python3 scripts/generate-desktop-assets.py` if brand images changed.
+3. Commit and push to `main`.
+4. **GitHub → Actions → Release → Run workflow**.
+5. Download artifacts from **GitHub → Releases** when the run finishes.
+
+See [docs/BUILD.md](docs/BUILD.md).
 
 ## Native QR Scanner
 

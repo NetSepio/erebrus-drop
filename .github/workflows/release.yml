@@ -132,6 +132,7 @@ jobs:
           VERSION_NAME="${VERSION_LINE%%+*}"
           echo "tag=v${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
 
+      - run: pip install pillow
       - run: chmod +x scripts/build-desktop.sh
       - run: ./scripts/build-desktop.sh macos
 
@@ -165,6 +166,7 @@ jobs:
           VERSION_NAME="${VERSION_LINE%%+*}"
           echo "tag=v${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
 
+      - run: pip install pillow
       - run: chmod +x scripts/build-desktop.sh
       - run: ./scripts/build-desktop.sh linux
 
@@ -195,6 +197,8 @@ jobs:
           echo "tag=v${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
 
       - run: flutter pub get
+      - run: pip install pillow
+      - run: python3 scripts/generate-desktop-assets.py
       - run: flutter build windows --release
       - name: Package Windows artifact
         shell: bash
