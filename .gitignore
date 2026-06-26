@@ -35,6 +35,9 @@ android/release-keys/
 .flutter-plugins
 .flutter-plugins-dependencies
 
+# Desktop release packages (scripts/build-desktop.sh)
+dist/
+
 # Local IDE/project metadata
 .idea/
 

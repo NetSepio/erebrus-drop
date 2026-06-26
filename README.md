@@ -91,6 +91,16 @@ flutter build appbundle --flavor playstore --release
 flutter build apk --flavor dappstore --release
 ```
 
+### Desktop (macOS / Windows / Linux)
+
+```sh
+flutter run -d macos          # or windows / linux
+./scripts/build-desktop.sh macos
+./scripts/build-desktop.sh all
+```
+
+Full desktop setup, packaging, and CI notes: **[docs/BUILD.md](docs/BUILD.md)**.
+
 ## Development
 
 Install dependencies:
@@ -117,9 +127,9 @@ flutter test
 GitHub Actions:
 
 - **CI** — `flutter analyze` and `flutter test` on every PR and `main` push
-- **Release** — manual workflow: tags `v{semver}` from `pubspec.yaml`, uploads sideload APKs
+- **Release** — manual workflow: tags `v{semver}` from `pubspec.yaml`, uploads Android APKs + macOS/Windows/Linux desktop bundles
 
-See `docs/github-release.md`.
+See `docs/github-release.md` and `docs/BUILD.md`.
 
 ## Native QR Scanner
 
