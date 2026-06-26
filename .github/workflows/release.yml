@@ -97,8 +97,8 @@ jobs:
             "dist/erebrus-drop-playstore-${{ steps.version.outputs.tag }}.apk"
           cp build/app/outputs/flutter-apk/app-dappstore-release.apk \
             "dist/erebrus-drop-dappstore-${{ steps.version.outputs.tag }}.apk"
-          cat > dist/README.txt <<EOF
-          Erebrus Drop sideload builds (${{ steps.version.outputs.version_name }}+${{ steps.version.outputs.version_code }})
+          cat > dist/README-android.txt <<EOF
+          Erebrus Drop Android sideload builds (${{ steps.version.outputs.version_name }}+${{ steps.version.outputs.version_code }})
 
           These APKs are built in CI with an ephemeral signing key for testing only.
           They are not signed for Google Play or the Solana dApp Store.
@@ -113,40 +113,151 @@ jobs:
           if-no-files-found: error
           path: dist/*
 
+  build-macos:
+    needs: verify
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Read version tag
+        id: version
+        run: |
+          VERSION_LINE="$(grep '^version:' pubspec.yaml | awk '{print $2}')"
+          VERSION_NAME="${VERSION_LINE%%+*}"
+          echo "tag=v${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
+
+      - run: chmod +x scripts/build-desktop.sh
+      - run: ./scripts/build-desktop.sh macos
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ steps.version.outputs.tag }}
+          if-no-files-found: error
+          path: dist/*
+
+  build-linux:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+
+      - name: Read version tag
+        id: version
+        run: |
+          VERSION_LINE="$(grep '^version:' pubspec.yaml | awk '{print $2}')"
+          VERSION_NAME="${VERSION_LINE%%+*}"
+          echo "tag=v${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
+
+      - run: chmod +x scripts/build-desktop.sh
+      - run: ./scripts/build-desktop.sh linux
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ steps.version.outputs.tag }}
+          if-no-files-found: error
+          path: dist/*
+
+  build-windows:
+    needs: verify
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Read version tag
+        id: version
+        shell: bash
+        run: |
+          VERSION_LINE="$(grep '^version:' pubspec.yaml | awk '{print $2}')"
+          VERSION_NAME="${VERSION_LINE%%+*}"
+          echo "tag=v${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
+
+      - run: flutter pub get
+      - run: flutter build windows --release
+      - name: Package Windows artifact
+        shell: bash
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          mkdir -p dist
+          powershell -Command "Compress-Archive -Path 'build/windows/x64/runner/Release/*' -DestinationPath 'dist/erebrus-drop-windows-${TAG}.zip'"
+          echo "Packaged dist/erebrus-drop-windows-${TAG}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ steps.version.outputs.tag }}
+          if-no-files-found: error
+          path: dist/*
+
   github-release:
-    needs: build-android
+    needs: [build-android, build-macos, build-linux, build-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Read version
+        id: version
+        run: |
+          VERSION_LINE="$(grep '^version:' pubspec.yaml | awk '{print $2}')"
+          VERSION_NAME="${VERSION_LINE%%+*}"
+          VERSION_CODE="${VERSION_LINE##*+}"
+          echo "version_name=${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "version_code=${VERSION_CODE}" >> "${GITHUB_OUTPUT}"
+          echo "tag=v${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
+
       - name: Create and push tag
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -fa "${{ needs.build-android.outputs.tag }}" -m "Release ${{ needs.build-android.outputs.tag }}"
-          git push origin "${{ needs.build-android.outputs.tag }}" --force
+          git tag -fa "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}" --force
 
       - uses: actions/download-artifact@v4
         with:
-          name: android-sideload-${{ needs.build-android.outputs.tag }}
+          pattern: "*-${{ steps.version.outputs.tag }}"
+          merge-multiple: true
           path: dist
 
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.build-android.outputs.tag }}
-          name: Erebrus Drop ${{ needs.build-android.outputs.version_name }}
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Erebrus Drop ${{ steps.version.outputs.version_name }}
           generate_release_notes: true
           body: |
-            Sideload APKs for testing. Not signed with production store keys.
+            Sideload builds for testing. Android APKs are not signed with production store keys.
 
-            Version: `${{ needs.build-android.outputs.version_name }}+${{ needs.build-android.outputs.version_code }}`
+            Version: `${{ steps.version.outputs.version_name }}+${{ steps.version.outputs.version_code }}`
 
-            | APK | Flavor |
-            |-----|--------|
-            | `erebrus-drop-playstore-*.apk` | General Android |
-            | `erebrus-drop-dappstore-*.apk` | Solana Mobile / dApp Store flavor |
+            | Artifact | Platform |
+            |----------|----------|
+            | `erebrus-drop-playstore-*.apk` | Android (Google Play flavor) |
+            | `erebrus-drop-dappstore-*.apk` | Android (Solana dApp Store) |
+            | `erebrus-drop-macos-*.zip` | macOS `.app` |
+            | `erebrus-drop-windows-*.zip` | Windows |
+            | `erebrus-drop-linux-*.tar.gz` | Linux bundle |
           files: dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

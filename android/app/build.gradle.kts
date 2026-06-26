@@ -94,6 +94,8 @@ android {
 
     signingConfigs {
         create("playstoreRelease") {
+            enableV2Signing = true
+            enableV3Signing = true
             if (hasPlaystoreSigning) {
                 keyAlias = keystoreProperties.getProperty("playstore.keyAlias")
                 keyPassword = keystoreProperties.getProperty("playstore.keyPassword")
@@ -102,6 +104,8 @@ android {
             }
         }
         create("dappstoreRelease") {
+            enableV2Signing = true
+            enableV3Signing = true
             if (hasDappstoreSigning) {
                 keyAlias = keystoreProperties.getProperty("dappstore.keyAlias")
                 keyPassword = keystoreProperties.getProperty("dappstore.keyPassword")
