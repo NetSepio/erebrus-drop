@@ -31,6 +31,8 @@ class SolanaWalletService {
 
   bool get isConnected => authToken != null && publicKey != null;
 
+  SolanaWalletOption? get connectedWallet => _connectedWallet;
+
   String? get walletAddress {
     final key = publicKey;
     if (key == null) {

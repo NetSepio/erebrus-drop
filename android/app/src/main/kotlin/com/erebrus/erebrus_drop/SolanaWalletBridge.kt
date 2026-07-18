@@ -185,6 +185,101 @@ object SolanaWalletBridge {
         }
     }
 
+    fun signMessage(
+        activity: Activity,
+        packageName: String,
+        authToken: String,
+        message: String,
+        result: MethodChannel.Result,
+    ) {
+        if (pendingResult != null) {
+            result.error("BUSY", "Wallet connection already in progress.", null)
+            return
+        }
+        if (packageName.isBlank() || authToken.isBlank() || message.isBlank()) {
+            result.error("INVALID_ARGS", "packageName, authToken and message are required.", null)
+            return
+        }
+
+        pendingResult = result
+        val scenario = LocalAssociationScenario(Scenario.DEFAULT_CLIENT_TIMEOUT_MS)
+        pendingScenario = scenario
+        val packageManager = activity.packageManager
+        val wallet = knownWalletFor(packageName)
+        val associationIntent = if (wallet != null && canHandleMwaAssociation(packageManager, wallet)) {
+            buildAssociationIntent(packageManager, wallet, scenario)
+        } else {
+            null
+        }
+
+        timeoutRunnable = Runnable {
+            failPending("Wallet sign-in timed out after 30 seconds. Try again.")
+        }
+        mainHandler.postDelayed(timeoutRunnable!!, CONNECT_TIMEOUT_MS)
+
+        executor.execute {
+            try {
+                if (associationIntent != null) {
+                    val launchLatch = java.util.concurrent.CountDownLatch(1)
+                    var launchError: Throwable? = null
+                    mainHandler.post {
+                        try {
+                            activity.startActivityForResult(associationIntent, WALLET_REQUEST_CODE)
+                        } catch (error: Throwable) {
+                            launchError = error
+                        } finally {
+                            launchLatch.countDown()
+                        }
+                    }
+                    launchLatch.await()
+                    if (launchError != null) {
+                        throw launchError!!
+                    }
+                }
+
+                val client = scenario.start().get()
+                val authResult = client.reauthorize(
+                    MWA_IDENTITY_URI,
+                    MWA_ICON_RELATIVE_URI,
+                    "Erebrus Drop",
+                    authToken,
+                ).get()
+
+                val messageBytes = message.toByteArray(Charsets.UTF_8)
+                val signed = client.signMessages(
+                    listOf(authResult.publicKey),
+                    listOf(messageBytes),
+                ).get()
+
+                if (signed.signedMessages.isEmpty() || signed.signedMessages[0].signatures.isEmpty()) {
+                    throw IllegalStateException("Wallet did not return a signature.")
+                }
+
+                val signatureBytes = signed.signedMessages[0].signatures[0]
+                val signatureHex = signatureBytes.joinToString("") { "%02x".format(it) }
+
+                clearTimeout()
+                mainHandler.post {
+                    completePending(
+                        mapOf(
+                            "publicKey" to authResult.publicKey,
+                            "authToken" to authResult.authToken,
+                            "signature" to signatureHex,
+                        ),
+                    )
+                    scenario.close()
+                    pendingScenario = null
+                }
+            } catch (error: Throwable) {
+                mainHandler.post {
+                    failPending(error.message ?: "Wallet sign-in failed.")
+                    scenario.close()
+                    pendingScenario = null
+                }
+            }
+        }
+    }
+
     fun deauthorizeWallet(
         activity: Activity,
         packageName: String,

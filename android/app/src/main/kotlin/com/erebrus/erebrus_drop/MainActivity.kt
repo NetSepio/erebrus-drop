@@ -113,6 +113,22 @@ class MainActivity : FlutterActivity() {
                         result = result,
                     )
                 }
+                "signMessage" -> {
+                    val packageName = call.argument<String>("packageName")
+                    val authToken = call.argument<String>("authToken")
+                    val message = call.argument<String>("message")
+                    if (packageName.isNullOrBlank() || authToken.isNullOrBlank() || message.isNullOrBlank()) {
+                        result.error("INVALID_ARGS", "packageName, authToken and message are required.", null)
+                        return@setMethodCallHandler
+                    }
+                    SolanaWalletBridge.signMessage(
+                        activity = this,
+                        packageName = packageName,
+                        authToken = authToken,
+                        message = message,
+                        result = result,
+                    )
+                }
                 else -> result.notImplemented()
             }
         }
