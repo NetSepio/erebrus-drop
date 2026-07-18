@@ -15,6 +15,7 @@ import 'core/platform_network.dart';
 import 'features/gateway/drop_auth_service.dart';
 import 'features/gateway/gateway_models.dart';
 import 'features/gateway/gateway_sheets.dart';
+import 'features/gateway/login_screen.dart';
 import 'features/host/host_folder_service.dart';
 import 'features/host/room_runtime_service.dart';
 import 'features/join/join_room_service.dart';
@@ -214,6 +215,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     unawaited(_refreshNetworkStatus());
     unawaited(_detectSolanaMobileDevice());
     unawaited(_loadGatewaySession());
+    _dropAuthService.selectedOrg.addListener(_onSelectedOrgChanged);
     _shareSubscription = _shareIntakeService.watchIncomingShares().listen(
       (payload) => unawaited(_handleSharedPayload(payload)),
     );
@@ -266,6 +268,12 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     }
   }
 
+  void _onSelectedOrgChanged() {
+    if (!_dropAuthService.isSignedIn || !mounted) return;
+    unawaited(_refreshGatewayNodes());
+    unawaited(_refreshGatewayFiles());
+  }
+
   Future<void> _refreshGatewayNodes() async {
     if (!_dropAuthService.isSignedIn || _gatewayNodesLoading) return;
     if (mounted) setState(() => _gatewayNodesLoading = true);
@@ -310,15 +318,16 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   }
 
   Future<void> _showGatewayLogin() async {
-    try {
-      await _dropAuthService.signInWithWallet(context);
-      if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => GatewayLoginScreen(auth: _dropAuthService),
+      ),
+    );
+    if (!mounted) return;
+    if (_dropAuthService.isSignedIn) {
       _snack('Signed in to Erebrus gateway');
       await _refreshGatewayNodes();
       if (mounted) await _refreshGatewayFiles();
-    } catch (e) {
-      if (!mounted) return;
-      _snack('Gateway sign-in failed: $e');
     }
   }
 
@@ -416,6 +425,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _refreshTimer?.cancel();
+    _dropAuthService.selectedOrg.removeListener(_onSelectedOrgChanged);
     _roomName.dispose();
     _deviceName.dispose();
     _password.dispose();

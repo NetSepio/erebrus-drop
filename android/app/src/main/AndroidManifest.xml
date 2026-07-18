@@ -80,6 +80,12 @@
                 <data android:mimeType="audio/*"/>
                 <data android:mimeType="application/*"/>
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="erebrusdrop" android:host="auth"/>
+            </intent-filter>
         </activity>
         <activity
             android:name=".NativeQrScannerActivity"
@@ -118,5 +124,14 @@
         <intent>
             <action android:name="solana.mobilewalletadapter.action.AUTHORIZE"/>
         </intent>
+        <intent>
+            <action android:name="solana.mobilewalletadapter.action.SIGN_MESSAGE"/>
+        </intent>
+        <package android:name="com.solanamobile.seedvaultimpl"/>
+        <package android:name="app.phantom"/>
+        <package android:name="com.solflare.mobile"/>
+        <package android:name="io.metamask"/>
+        <package android:name="com.wallet.crypto.trustapp"/>
+        <package android:name="me.rainbow"/>
     </queries>
 </manifest>
