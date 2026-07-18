@@ -803,7 +803,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         children: [
           _Head(
             title: 'Library',
-            subtitle: _libraryScopeIndex == 0 ? 'Shared this session' : 'Files pinned to gateway nodes',
+            subtitle: _libraryScopeIndex == 0 ? 'Shared this session' : 'Files pinned to erebrus nodes',
             action: DropIconButton(
               icon: Icons.refresh_rounded,
               busy: _loadingLibraryFiles || _gatewayFilesLoading,
@@ -1052,7 +1052,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
             title: 'Smart Send',
             subtitle: _smartSendScopeIndex == 0
                 ? 'Push text into the room'
-                : 'Upload files to gateway nodes and get the IPFS hash',
+                : 'Upload files to erebrus nodes and get the share link',
             action: _smartSendScopeIndex == 0
                 ? DropIconButton(
                     icon: Icons.content_paste_rounded,
