@@ -76,7 +76,7 @@ String reownOriginNotAllowedMessage(String relayOrigin) =>
     'wait ~15 minutes and restart the app.';
 
 const kErebrusBundleId = 'com.erebrus.drop';
-const kErebrusLinuxApplicationId = 'com.erebrus.erebrus_drop';
+const kErebrusLinuxApplicationId = 'com.erebrus.drop';
 
 /// Whether the current platform is a desktop OS.
 bool get isDesktopPlatform {
