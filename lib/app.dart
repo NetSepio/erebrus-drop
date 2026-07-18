@@ -95,7 +95,7 @@ class _BootScreen extends StatelessWidget {
         child: SizedBox(
           width: 176,
           height: 176,
-          child: Image(image: AssetImage(DropTheme.logoGlossy)),
+          child: Image(image: AssetImage(DropTheme.logoFlat)),
         ),
       ),
     );

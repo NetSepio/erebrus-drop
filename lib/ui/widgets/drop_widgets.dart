@@ -703,8 +703,7 @@ class BrandMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Glossy mark for >= 28px, flat squircle for dense/small placements (§1).
-    final asset = size >= 28 ? DropTheme.logoGlossy : DropTheme.logoFlat;
+    final asset = size >= 28 ? DropTheme.logoFlat : DropTheme.logoFlat;
     return Container(
       width: size,
       height: size,

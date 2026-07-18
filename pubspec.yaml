@@ -66,18 +66,18 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/images/erebrus-glossy.png"
+  image_path: "assets/images/erebrus-drop-logo.png"
   min_sdk_android: 21
   remove_alpha_ios: true
   background_color_ios: "#050505"
   adaptive_icon_background: "#050505"
-  adaptive_icon_foreground: "assets/images/erebrus-glossy.png"
+  adaptive_icon_foreground: "assets/images/erebrus-drop-logo.png"
   macos:
     generate: true
-    image_path: "assets/images/erebrus-glossy.png"
+    image_path: "assets/images/erebrus-drop-logo.png"
   windows:
     generate: true
-    image_path: "assets/images/erebrus-glossy.png"
+    image_path: "assets/images/erebrus-drop-logo.png"
     icon_size: 256
 
 # Native splash screen (run: dart run flutter_native_splash:create).
@@ -86,12 +86,12 @@ flutter_launcher_icons:
 # API (icon masked to a circle over the same background).
 flutter_native_splash:
   color: "#050505"
-  image: assets/images/erebrus-glossy.png
+  image: assets/images/erebrus-drop-logo.png
   fullscreen: true
   android: true
   ios: true
   android_12:
-    image: assets/images/erebrus-glossy.png
+    image: assets/images/erebrus-drop-logo.png
     color: "#050505"
     icon_background_color: "#050505"
 

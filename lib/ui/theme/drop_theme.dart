@@ -9,12 +9,9 @@ class DropTheme {
   DropTheme._();
 
   // --- Brand marks ---------------------------------------------------------
-  /// Glossy 3D mark. App icon, splash, large hero lockups (>= 28px).
-  static const String logoGlossy = 'assets/images/erebrus-glossy.png';
-
   /// Flat orange squircle, white glyph. Inline/system mark for < 28px or busy
   /// rows (status chips, dense headers).
-  static const String logoFlat = 'assets/images/erebrus-flat.png';
+  static const String logoFlat = 'assets/images/erebrus-drop-logo.png';
 
   /// Monochrome glyph for light surfaces / favicons only. Never on dark.
   static const String logoGlyph = 'assets/images/erebrus-glyph.png';
@@ -25,7 +22,7 @@ class DropTheme {
       'assets/images/erebrus-tray-template-64.png';
 
   /// Back-compat alias; defaults to the primary (glossy) mark.
-  static const String logoAsset = logoGlossy;
+  static const String logoAsset = logoFlat;
 
   // --- Type families -------------------------------------------------------
   static const String displayFont = 'Bricolage Grotesque';
