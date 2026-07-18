@@ -12,6 +12,10 @@ import 'core/drop_models.dart';
 import 'core/host_folder_bridge.dart';
 import 'core/platform_capabilities.dart';
 import 'core/platform_network.dart';
+import 'features/gateway/drop_auth_service.dart';
+import 'features/gateway/gateway_models.dart';
+import 'features/gateway/gateway_sheets.dart';
+import 'features/gateway/login_screen.dart';
 import 'features/host/host_folder_service.dart';
 import 'features/host/room_runtime_service.dart';
 import 'features/join/join_room_service.dart';
@@ -123,8 +127,22 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       NativeFilePickerService();
   final HostFolderBridge _hostFolderBridge = HostFolderBridge();
   final SolanaWalletService _solanaWalletService = SolanaWalletService();
+  late final DropAuthService _dropAuthService =
+      DropAuthService(solana: _solanaWalletService);
   bool _isSolanaMobileDevice = false;
   final ValueNotifier<int> _networkUiVersion = ValueNotifier<int>(0);
+
+  // Gateway / org state
+  List<DropNode> _gatewayNodes = const [];
+  List<DropGatewayFile> _gatewayFiles = const [];
+  bool _gatewayNodesLoading = false;
+  bool _gatewayFilesLoading = false;
+  String? _gatewayError;
+  DropNode? _selectedSendNode;
+  bool _gatewayUploading = false;
+  String? _gatewayUploadedCid;
+  int _libraryScopeIndex = 0; // 0 Local, 1 Global
+  int _smartSendScopeIndex = 0; // 0 Local, 1 Global
   final ValueNotifier<int> _joinUiVersion = ValueNotifier<int>(0);
   final TextEditingController _roomName = TextEditingController(
     text: _defaultRoomName(),
@@ -196,6 +214,8 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     unawaited(_loadHostFolderSelection());
     unawaited(_refreshNetworkStatus());
     unawaited(_detectSolanaMobileDevice());
+    unawaited(_loadGatewaySession());
+    _dropAuthService.selectedOrg.addListener(_onSelectedOrgChanged);
     _shareSubscription = _shareIntakeService.watchIncomingShares().listen(
       (payload) => unawaited(_handleSharedPayload(payload)),
     );
@@ -238,6 +258,103 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       return;
     }
     setState(() => _isSolanaMobileDevice = isSolanaDevice);
+  }
+
+  Future<void> _loadGatewaySession() async {
+    await _dropAuthService.loadSession();
+    await _refreshGatewayNodes();
+    if (mounted) {
+      await _refreshGatewayFiles();
+    }
+  }
+
+  void _onSelectedOrgChanged() {
+    if (!_dropAuthService.isSignedIn || !mounted) return;
+    unawaited(_refreshGatewayNodes());
+    unawaited(_refreshGatewayFiles());
+  }
+
+  Future<void> _refreshGatewayNodes() async {
+    if (!_dropAuthService.isSignedIn || _gatewayNodesLoading) return;
+    if (mounted) setState(() => _gatewayNodesLoading = true);
+    _gatewayError = null;
+    try {
+      final public = await _dropAuthService.gatewayClient.fetchDropNodes(
+        scope: 'public',
+      );
+      final org = _dropAuthService.selectedOrg.value;
+      final private = org != null
+          ? await _dropAuthService.gatewayClient.fetchDropNodes(
+              scope: 'private',
+              orgId: org.id,
+            )
+          : const <DropNode>[];
+      final seen = <String>{};
+      final nodes = <DropNode>[
+        ...public,
+        ...private,
+      ].where((n) {
+        if (!n.online) return false;
+        if (seen.contains(n.nodeId)) return false;
+        return seen.add(n.nodeId);
+      }).toList();
+      if (mounted) {
+        setState(() {
+          _gatewayNodes = nodes;
+          if (_selectedSendNode == null && nodes.isNotEmpty) {
+            _selectedSendNode = nodes.firstWhere(
+              (n) => n.acceptingUploads,
+              orElse: () => nodes.first,
+            );
+          }
+          _gatewayError = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _gatewayError = e.toString());
+    } finally {
+      if (mounted) setState(() => _gatewayNodesLoading = false);
+    }
+  }
+
+  Future<void> _showGatewayLogin() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => GatewayLoginScreen(auth: _dropAuthService),
+      ),
+    );
+    if (!mounted) return;
+    if (_dropAuthService.isSignedIn) {
+      _snack('Signed in to Erebrus gateway');
+      await _refreshGatewayNodes();
+      if (mounted) await _refreshGatewayFiles();
+    }
+  }
+
+  Future<void> _refreshGatewayFiles() async {
+    if (!_dropAuthService.isSignedIn || _gatewayFilesLoading) return;
+    if (mounted) setState(() => _gatewayFilesLoading = true);
+    try {
+      final myFiles = await _dropAuthService.gatewayClient.fetchMyFiles();
+      final org = _dropAuthService.selectedOrg.value;
+      final orgFiles = org != null
+          ? await _dropAuthService.gatewayClient.fetchOrgFiles(org.id)
+          : const <DropGatewayFile>[];
+      final seen = <String>{};
+      final files = <DropGatewayFile>[
+        ...myFiles,
+        ...orgFiles,
+      ].where((f) {
+        if (seen.contains(f.id)) return false;
+        return seen.add(f.id);
+      }).toList();
+      files.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      if (mounted) setState(() => _gatewayFiles = files);
+    } catch (e) {
+      if (mounted) setState(() => _gatewayError = e.toString());
+    } finally {
+      if (mounted) setState(() => _gatewayFilesLoading = false);
+    }
   }
 
   Future<void> _loadDeviceName() async {
@@ -308,6 +425,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _refreshTimer?.cancel();
+    _dropAuthService.selectedOrg.removeListener(_onSelectedOrgChanged);
     _roomName.dispose();
     _deviceName.dispose();
     _password.dispose();
@@ -341,6 +459,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       }
       unawaited(_loadLibraryFiles());
       unawaited(_refreshNetworkStatus());
+      unawaited(_refreshGatewayFiles());
       unawaited(
         _shareIntakeService.consumeInitialShare().then((payload) {
           if (payload != null) {
@@ -358,6 +477,12 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     }
     if (index == 2) {
       unawaited(_loadLibraryFiles());
+      if (_libraryScopeIndex == 1) {
+        unawaited(_refreshGatewayFiles());
+      }
+    }
+    if (index == 3 && _smartSendScopeIndex == 1) {
+      unawaited(_refreshGatewayNodes());
     }
   }
 
@@ -678,18 +803,33 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         children: [
           _Head(
             title: 'Library',
-            subtitle: 'Shared this session',
+            subtitle: _libraryScopeIndex == 0 ? 'Shared this session' : 'Files pinned to erebrus nodes',
             action: DropIconButton(
               icon: Icons.refresh_rounded,
-              busy: _loadingLibraryFiles,
+              busy: _loadingLibraryFiles || _gatewayFilesLoading,
               tooltip: 'Refresh',
-              onPressed: hasLibrarySource
-                  ? () => unawaited(_loadLibraryFiles())
-                  : null,
+              onPressed: () {
+                if (_libraryScopeIndex == 0) {
+                  if (hasLibrarySource) unawaited(_loadLibraryFiles());
+                } else {
+                  unawaited(_refreshGatewayFiles());
+                }
+              },
             ),
           ),
+          const SizedBox(height: 12),
+          _scopeToggle(
+            labels: const ['Local', 'Global'],
+            selected: _libraryScopeIndex,
+            onSelected: (i) {
+              setState(() => _libraryScopeIndex = i);
+              if (i == 1) unawaited(_refreshGatewayFiles());
+            },
+          ),
           const SizedBox(height: 16),
-          if (!hasLibrarySource)
+          if (_libraryScopeIndex == 1) ...[
+            _gatewayLibraryPanel(),
+          ] else if (!hasLibrarySource)
             _InfoCard(
               title: 'Choose a Drop folder',
               subtitle:
@@ -723,6 +863,128 @@ class _DropHomeScreenState extends State<DropHomeScreen>
               _libraryFilesCard(),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _scopeToggle({
+    required List<String> labels,
+    required int selected,
+    required ValueChanged<int> onSelected,
+  }) {
+    return ToggleButtons(
+      isSelected: labels.map((_) => false).toList()
+        ..[selected] = true,
+      onPressed: (index) => onSelected(index),
+      borderRadius: BorderRadius.circular(12),
+      borderColor: DropTheme.line,
+      selectedBorderColor: DropTheme.orange,
+      fillColor: DropTheme.orange.withValues(alpha: 0.18),
+      selectedColor: DropTheme.orange,
+      color: DropTheme.muted,
+      constraints: const BoxConstraints(minHeight: 40, minWidth: 80),
+      children: labels
+          .map((label) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(label),
+              ))
+          .toList(),
+    );
+  }
+
+  Widget _gatewayLibraryPanel() {
+    if (!_dropAuthService.isSignedIn) {
+      return _InfoCard(
+        title: 'Sign in to view global files',
+        subtitle: 'Connect your wallet to see files pinned to public and organization nodes.',
+        icon: Icons.cloud_outlined,
+        onTap: () => unawaited(_showGatewayLogin()),
+      );
+    }
+    if (_gatewayFilesLoading && _gatewayFiles.isEmpty) {
+      return const _InfoCard(
+        title: 'Loading gateway files',
+        subtitle: 'Fetching files from public and organization nodes.',
+        icon: Icons.cloud_sync_outlined,
+      );
+    }
+    if (_gatewayFiles.isEmpty) {
+      return _InfoCard(
+        title: 'No global files yet',
+        subtitle: _dropAuthService.selectedOrg.value == null
+            ? 'Switch to a selected organization in Settings to see its pinned files.'
+            : 'Files pinned to public or ${(_dropAuthService.selectedOrg.value?.name ?? 'organization')} nodes appear here.',
+        icon: Icons.cloud_off_outlined,
+        onTap: () => unawaited(_refreshGatewayFiles()),
+      );
+    }
+    return DropCard(
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < _gatewayFiles.length; i++)
+            _gatewayFileTile(_gatewayFiles[i], first: i == 0),
+        ],
+      ),
+    );
+  }
+
+  Widget _gatewayFileTile(DropGatewayFile file, {required bool first}) {
+    final (color, icon) = _fileTypeStyle(DropFileItem(
+      id: file.id,
+      name: file.filename,
+      type: file.contentType ?? 'file',
+      path: file.cid ?? '',
+      sizeBytes: file.sizeBytes,
+      createdAt: file.createdAt,
+      modifiedAt: file.createdAt,
+      mimeType: file.contentType,
+      streamable: false,
+    ));
+    final scope = file.scope;
+    final scopeLabel = file.orgId != null ? '$scope · org' : scope;
+    final meta = '${formatBytes(file.sizeBytes)} · ${_shortWhen(file.createdAt)} · $scopeLabel';
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: first ? null : const Border(top: BorderSide(color: DropTheme.line)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+        child: Row(
+          children: [
+            LeadingTile(icon: icon, accent: color, size: 42),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    file.filename,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    meta,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            if (file.cid?.isNotEmpty == true)
+              IconButton(
+                onPressed: () => _copy(file.cid!, 'IPFS CID copied'),
+                icon: const Icon(Icons.copy_rounded, size: 19),
+                color: DropTheme.faint,
+                tooltip: 'Copy CID',
+                visualDensity: VisualDensity.compact,
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -781,8 +1043,6 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   }
 
   Widget _smartSendTab() {
-    final hosting = _server.isRunning;
-    final canSaveSmartText = hosting || _hostFolderSelection != null;
     return _Screen(
       glowAlignment: Alignment.topLeft,
       child: Column(
@@ -790,69 +1050,224 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         children: [
           _Head(
             title: 'Smart Send',
-            subtitle: 'Push text into the room',
-            action: DropIconButton(
-              icon: Icons.content_paste_rounded,
-              tonal: true,
-              tooltip: 'Paste clipboard',
-              onPressed: _pasteClipboard,
-            ),
+            subtitle: _smartSendScopeIndex == 0
+                ? 'Push text into the room'
+                : 'Upload files to erebrus nodes and get the share link',
+            action: _smartSendScopeIndex == 0
+                ? DropIconButton(
+                    icon: Icons.content_paste_rounded,
+                    tonal: true,
+                    tooltip: 'Paste clipboard',
+                    onPressed: _pasteClipboard,
+                  )
+                : null,
+          ),
+          const SizedBox(height: 12),
+          _scopeToggle(
+            labels: const ['Local', 'Global'],
+            selected: _smartSendScopeIndex,
+            onSelected: (i) {
+              setState(() => _smartSendScopeIndex = i);
+              if (i == 1) unawaited(_refreshGatewayNodes());
+            },
           ),
           const SizedBox(height: 16),
-          _smartDestinationCard(),
-          const SizedBox(height: 12),
-          DropCard(
-            child: Column(
-              children: [
-                TextField(
-                  controller: _smartTitle,
-                  decoration: const InputDecoration(labelText: 'Title'),
+          if (_smartSendScopeIndex == 1)
+            _gatewaySendPanel()
+          else
+            _localSmartSendBody(),
+        ],
+      ),
+    );
+  }
+
+  Widget _localSmartSendBody() {
+    final hosting = _server.isRunning;
+    final canSaveSmartText = hosting || _hostFolderSelection != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _smartDestinationCard(),
+        const SizedBox(height: 12),
+        DropCard(
+          child: Column(
+            children: [
+              TextField(
+                controller: _smartTitle,
+                decoration: const InputDecoration(labelText: 'Title'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _smartText,
+                minLines: 7,
+                maxLines: 13,
+                decoration: const InputDecoration(
+                  labelText: 'Text, link, SMS copy, or note',
+                  alignLabelWithHint: true,
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _smartText,
-                  minLines: 7,
-                  maxLines: 13,
-                  decoration: const InputDecoration(
-                    labelText: 'Text, link, SMS copy, or note',
-                    alignLabelWithHint: true,
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: PrimaryButton(
+                      label: hosting ? 'Send to Room' : 'Save to Folder',
+                      icon: Icons.send_rounded,
+                      onPressed: canSaveSmartText ? _saveSmartText : null,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
+                  const SizedBox(width: 10),
+                  DropIconButton(
+                    icon: Icons.clear_rounded,
+                    tooltip: 'Clear',
+                    onPressed: () {
+                      _smartText.clear();
+                      _smartTitle.text = 'Quick text';
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        const _FeatureGrid(
+          items: [
+            ('Share Sheet', Icons.ios_share_rounded, 'From any app'),
+            ('Files', Icons.attach_file_rounded, 'Native picker'),
+            ('Links', Icons.link_rounded, 'Send as text'),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _gatewaySendPanel() {
+    if (!_dropAuthService.isSignedIn) {
+      return _InfoCard(
+        title: 'Sign in to send to gateway nodes',
+        subtitle: 'Connect your wallet to access public and organization Drop nodes.',
+        icon: Icons.cloud_outlined,
+        onTap: () => unawaited(_showGatewayLogin()),
+      );
+    }
+    if (_gatewayNodes.isEmpty && !_gatewayNodesLoading) {
+      return _InfoCard(
+        title: 'No gateway nodes available',
+        subtitle: _gatewayError ?? 'No public or organization nodes are online right now.',
+        icon: Icons.cloud_off_outlined,
+        onTap: () => unawaited(_refreshGatewayNodes()),
+      );
+    }
+
+    final selected = _selectedSendNode;
+    final nodes = _gatewayNodes;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        DropCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Target node',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 10),
+              DropdownButton<DropNode>(
+                isExpanded: true,
+                value: selected != null && nodes.any((n) => n.nodeId == selected.nodeId)
+                    ? selected
+                    : null,
+                hint: const Text('Select a node'),
+                items: nodes
+                    .map((node) => DropdownMenuItem(
+                          value: node,
+                          child: Text(
+                            '${node.name} · ${node.region.isEmpty ? 'global' : node.region}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ))
+                    .toList(),
+                onChanged: (node) => setState(() => _selectedSendNode = node),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (_gatewayUploadedCid?.isNotEmpty == true)
+          DropCard.tinted(
+            accent: DropTheme.success,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Eyebrow('IPFS CID', color: DropTheme.success),
+                const SizedBox(height: 8),
                 Row(
                   children: [
                     Expanded(
-                      child: PrimaryButton(
-                        label: hosting ? 'Send to Room' : 'Save to Folder',
-                        icon: Icons.send_rounded,
-                        onPressed: canSaveSmartText ? _saveSmartText : null,
+                      child: MonoText(
+                        _gatewayUploadedCid!,
+                        size: 13,
+                        color: DropTheme.white,
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    DropIconButton(
-                      icon: Icons.clear_rounded,
-                      tooltip: 'Clear',
-                      onPressed: () {
-                        _smartText.clear();
-                        _smartTitle.text = 'Quick text';
-                      },
+                    IconButton(
+                      onPressed: () => _copy(_gatewayUploadedCid!, 'CID copied'),
+                      icon: const Icon(Icons.copy_rounded, size: 20),
+                      color: DropTheme.success,
                     ),
                   ],
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 12),
-          const _FeatureGrid(
-            items: [
-              ('Share Sheet', Icons.ios_share_rounded, 'From any app'),
-              ('Files', Icons.attach_file_rounded, 'Native picker'),
-              ('Links', Icons.link_rounded, 'Send as text'),
-            ],
-          ),
-        ],
-      ),
+        if (_gatewayUploadedCid?.isNotEmpty == true) const SizedBox(height: 12),
+        PrimaryButton(
+          label: _gatewayUploading ? 'Uploading…' : 'Choose file & upload',
+          icon: Icons.cloud_upload_rounded,
+          busy: _gatewayUploading,
+          onPressed: selected != null && !_gatewayUploading
+              ? () => unawaited(_uploadToGatewayNode())
+              : null,
+        ),
+      ],
     );
+  }
+
+  Future<void> _uploadToGatewayNode() async {
+    final node = _selectedSendNode;
+    final org = _dropAuthService.selectedOrg.value;
+    if (node == null) return;
+    final picked = await _nativeFilePickerService.pickFileForUpload();
+    if (picked == null || picked.path.isEmpty) return;
+    if (!mounted) return;
+    setState(() {
+      _gatewayUploading = true;
+      _gatewayUploadedCid = null;
+    });
+    try {
+      final file = File(picked.path);
+      final isOrgNode = org != null && node.orgId == org.id;
+      final orgId = isOrgNode ? org.id : null;
+      final uploaded = await _dropAuthService.gatewayClient.uploadFile(
+        nodeId: node.nodeId,
+        file: file,
+        filename: picked.name,
+        visibility: 'public',
+        scope: isOrgNode ? 'private' : 'public',
+        orgId: orgId,
+      );
+      if (!mounted) return;
+      setState(() => _gatewayUploadedCid = uploaded.cid);
+      _snack('File pinned to gateway node');
+      unawaited(_refreshGatewayFiles());
+    } catch (e) {
+      if (!mounted) return;
+      _snack('Gateway upload failed: $e');
+    } finally {
+      if (mounted) setState(() => _gatewayUploading = false);
+    }
   }
 
   Widget _smartDestinationCard() {
@@ -935,6 +1350,8 @@ class _DropHomeScreenState extends State<DropHomeScreen>
             SolanaWalletCard(walletService: _solanaWalletService),
           ],
           const SizedBox(height: 16),
+          _gatewayAccountCard(),
+          const SizedBox(height: 12),
           DropCard(
             padding: EdgeInsets.zero,
             child: Column(
@@ -1012,6 +1429,63 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         ),
       ),
     );
+  }
+
+  Widget _gatewayAccountCard() {
+    final signedIn = _dropAuthService.isSignedIn;
+    final org = _dropAuthService.selectedOrg.value;
+    final wallet = _dropAuthService.walletAddress;
+    final label = signedIn
+        ? (org?.name ?? 'Personal')
+        : 'Gateway account';
+    final sub = signedIn
+        ? '${wallet != null && wallet.length > 12 ? '${wallet.substring(0, 6)}…${wallet.substring(wallet.length - 4)}' : 'Unknown wallet'} · ${org?.plan ?? 'Free'}'
+        : 'Sign in to access public and organization Drop nodes.';
+    return DropCard(
+      child: Row(
+        children: [
+          LeadingTile(
+            icon: signedIn ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
+            accent: signedIn ? DropTheme.success : DropTheme.muted,
+            size: 42,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 2),
+                Text(sub, style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (signedIn && org != null)
+            TonalButton(
+              label: 'Switch',
+              onPressed: () => unawaited(_showOrgSwitcher()),
+            )
+          else if (!signedIn)
+            TonalButton(
+              label: 'Sign in',
+              onPressed: () => unawaited(_showGatewayLogin()),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showOrgSwitcher() async {
+    final result = await showGatewayOrgSheet(
+      context: context,
+      authService: _dropAuthService,
+    );
+    if (result == GatewayOrgSheetResult.changed && mounted) {
+      _snack('Organization updated');
+      unawaited(_refreshGatewayNodes());
+      unawaited(_refreshGatewayFiles());
+    }
   }
 
   Widget _hostFolderSettingsCard() {
