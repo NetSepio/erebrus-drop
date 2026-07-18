@@ -34,5 +34,16 @@
 	<array>
 		<string>_erebrusdrop._tcp</string>
 	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.erebrus.drop.auth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>erebrusdrop</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
