@@ -92,4 +92,26 @@ class PlatformWallet {
       },
     );
   }
+
+  static Future<String> signMessage({
+    required SolanaWalletOption wallet,
+    required String authToken,
+    required String message,
+  }) async {
+    final result = await _channel.invokeMapMethod<String, dynamic>(
+      'signMessage',
+      {
+        'packageName': wallet.packageName,
+        'authToken': authToken,
+        'message': message,
+      },
+    );
+    if (result == null || result['signature'] is! String) {
+      throw PlatformException(
+        code: 'SIGN_MESSAGE_FAILED',
+        message: 'Wallet did not return a signature.',
+      );
+    }
+    return result['signature'] as String;
+  }
 }
