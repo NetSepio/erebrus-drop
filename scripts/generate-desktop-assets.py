@@ -12,7 +12,7 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 GLYPH = ROOT / 'assets/images/erebrus-glyph.png'
-GLOSSY = ROOT / 'assets/images/erebrus-glossy.png'
+GLOSSY = ROOT / 'assets/images/erebrus-drop-logo.png'
 ASSET_DIR = ROOT / 'assets/images'
 LINUX_ICON = ROOT / 'linux/runner/resources/app_icon.png'
 ABOUT_ICON_DIR = ROOT / 'macos/Runner/Assets.xcassets/AboutIcon.imageset'
