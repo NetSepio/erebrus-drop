@@ -11,8 +11,10 @@ import 'core/desktop_shell.dart';
 import 'core/drop_models.dart';
 import 'core/host_folder_bridge.dart';
 import 'core/platform_capabilities.dart';
+import 'core/platform_downloads.dart';
 import 'core/platform_network.dart';
 import 'features/gateway/drop_auth_service.dart';
+import 'features/gateway/gateway_http.dart';
 import 'features/gateway/gateway_models.dart';
 import 'features/gateway/gateway_sheets.dart';
 import 'features/gateway/login_screen.dart';
@@ -322,6 +324,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     if (!mounted) return;
     if (_dropAuthService.isSignedIn) {
       _snack('Signed in to Erebrus');
+      setState(() => _tab = 2);
       await _refreshGatewayNodes();
       if (mounted) await _refreshGatewayFiles();
     }
@@ -978,6 +981,13 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                 tooltip: 'Copy CID',
                 visualDensity: VisualDensity.compact,
               ),
+            IconButton(
+              onPressed: () => unawaited(_downloadGatewayFile(file)),
+              icon: const Icon(Icons.download_rounded, size: 19),
+              color: DropTheme.faint,
+              tooltip: file.encrypted ? 'Download (encrypted)' : 'Download',
+              visualDensity: VisualDensity.compact,
+            ),
           ],
         ),
       ),
@@ -1171,27 +1181,116 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                 'Target node',
                 style: Theme.of(context).textTheme.titleSmall,
               ),
-              const SizedBox(height: 10),
-              DropdownButton<DropNode>(
-                isExpanded: true,
-                value:
-                    selected != null &&
-                        nodes.any((n) => n.nodeId == selected.nodeId)
-                    ? selected
-                    : null,
-                hint: const Text('Select a node'),
-                items: nodes
-                    .map(
-                      (node) => DropdownMenuItem(
-                        value: node,
-                        child: Text(
-                          '${node.name} · ${node.region.isEmpty ? 'global' : node.region}',
-                          overflow: TextOverflow.ellipsis,
-                        ),
+              const SizedBox(height: 12),
+              if (selected != null) ...[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    LeadingTile(
+                      icon: Icons.hub_rounded,
+                      accent: selected.online
+                          ? DropTheme.success
+                          : DropTheme.danger,
+                      size: 42,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            selected.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '${selected.region.isEmpty ? 'Global' : selected.region} · ${selected.capacity.isEmpty ? 'Unknown capacity' : selected.capacity.capitalize()}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
                       ),
-                    )
-                    .toList(),
-                onChanged: (node) => setState(() => _selectedSendNode = node),
+                    ),
+                    _NodeStatusChip(online: selected.online),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _NodeDetailChip(
+                      icon: selected.isPublic
+                          ? Icons.public_rounded
+                          : Icons.lock_rounded,
+                      label: selected.isPublic ? 'Public' : 'Private',
+                      color: selected.isPublic
+                          ? DropTheme.success
+                          : DropTheme.orange,
+                    ),
+                    _NodeDetailChip(
+                      icon: selected.acceptingUploads
+                          ? Icons.cloud_upload_rounded
+                          : Icons.block_rounded,
+                      label: selected.acceptingUploads
+                          ? 'Accepting uploads'
+                          : 'Uploads paused',
+                      color: selected.acceptingUploads
+                          ? DropTheme.success
+                          : DropTheme.danger,
+                    ),
+                    if (selected.acceptsPublicUploads)
+                      const _NodeDetailChip(
+                        icon: Icons.people_rounded,
+                        label: 'Public uploads',
+                        color: DropTheme.success,
+                      ),
+                    _NodeDetailChip(
+                      icon: Icons.layers_rounded,
+                      label: selected.deploymentProfile.capitalize(),
+                      color: DropTheme.faint,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ] else
+                Text(
+                  'Select a node to upload to',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: DropTheme.muted,
+                  ),
+                ),
+              const SizedBox(height: 10),
+              // Deduplicate by nodeId and use String IDs as dropdown values
+              // to avoid object-identity collisions from duplicate instances.
+              Builder(
+                builder: (context) {
+                  final uniqueNodes = <String, DropNode>{};
+                  for (final node in nodes) {
+                    uniqueNodes.putIfAbsent(node.nodeId, () => node);
+                  }
+                  final selectedId =
+                      selected != null && uniqueNodes.containsKey(selected.nodeId)
+                          ? selected.nodeId
+                          : null;
+                  return DropdownButton<String>(
+                    isExpanded: true,
+                    value: selectedId,
+                    hint: const Text('Select a node'),
+                    items: uniqueNodes.values
+                        .map(
+                          (node) => DropdownMenuItem(
+                            value: node.nodeId,
+                            child: _NodeDropdownItem(node: node),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (nodeId) => setState(
+                      () => _selectedSendNode = uniqueNodes[nodeId],
+                    ),
+                  );
+                },
               ),
             ],
           ),
@@ -1271,6 +1370,100 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     } finally {
       if (mounted) setState(() => _gatewayUploading = false);
     }
+  }
+
+  Future<void> _downloadGatewayFile(DropGatewayFile file) async {
+    String? encryptionKey;
+    if (file.encrypted) {
+      encryptionKey = await _promptEncryptionKey(file.filename);
+      if (encryptionKey == null || encryptionKey.isEmpty) return;
+    }
+    if (!mounted) return;
+    _snack('Downloading ${file.filename}…');
+    try {
+      final temp = await _dropAuthService.gatewayClient.downloadFile(
+        file,
+        encryptionKey: encryptionKey,
+      );
+      final saved = await PlatformDownloads.saveFileToDownloads(
+        source: temp,
+        name: file.filename,
+        mimeType: file.contentType,
+      );
+      if (!mounted) return;
+      _snack('Saved to ${saved.location}');
+    } on GatewayException catch (e) {
+      if (!mounted) return;
+      _snack('Download failed: ${e.message}');
+    } catch (e) {
+      if (!mounted) return;
+      _snack('Download failed: $e');
+    }
+  }
+
+  /// Shows a dialog for entering or loading an encryption key.
+  /// Returns the key text, or null if cancelled.
+  Future<String?> _promptEncryptionKey(String filename) async {
+    final ctrl = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: DropTheme.black,
+        title: Text('Decryption key for $filename'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Enter the key used to encrypt this file, or load it from a text/key file.',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              obscureText: true,
+              decoration: const InputDecoration(
+                hintText: 'Passphrase or base64/hex key',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              ctrl.clear();
+              Navigator.of(ctx).pop();
+            },
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final picked =
+                  await _nativeFilePickerService.pickFileForUpload();
+              if (picked == null || picked.path.isEmpty) return;
+              try {
+                final text = await File(picked.path).readAsString();
+                ctrl.text = text.trim();
+              } catch (e) {
+                if (ctx.mounted) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    SnackBar(content: Text('Could not read key file: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('Load key file'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Download'),
+          ),
+        ],
+      ),
+    );
+    final result = ctrl.text.trim();
+    ctrl.dispose();
+    return result.isEmpty ? null : result;
   }
 
   Widget _smartDestinationCard() {
@@ -1390,7 +1583,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
             child: _settingsRow(
               icon: Icons.info_outline_rounded,
               title: 'About',
-              subtitle: 'Erebrus Drop, version, and legal',
+              subtitle: 'Version, privacy, and terms',
               onTap: () => _openInfoScreen(const AboutScreen()),
               trailing: const Icon(
                 Icons.chevron_right_rounded,
@@ -1400,8 +1593,10 @@ class _DropHomeScreenState extends State<DropHomeScreen>
               last: true,
             ),
           ),
-          const SizedBox(height: 22),
-          _settingsSignInOutButton(),
+          if (_dropAuthService.isSignedIn) ...[
+            const SizedBox(height: 22),
+            _settingsSignInOutButton(),
+          ],
           const SizedBox(height: 24),
           _settingsFooter(),
         ],
@@ -1519,42 +1714,92 @@ class _DropHomeScreenState extends State<DropHomeScreen>
 
   Widget _gatewayAccountCard() {
     final signedIn = _dropAuthService.isSignedIn;
-    final org = _dropAuthService.selectedOrg.value;
-    final wallet = _dropAuthService.walletAddress;
-    final label = signedIn ? (org?.name ?? 'Personal') : 'Erebrus account';
-    final sub = signedIn
-        ? '${wallet != null && wallet.length > 12 ? '${wallet.substring(0, 6)}…${wallet.substring(wallet.length - 4)}' : 'Unknown wallet'} · ${org?.plan ?? 'Free'}'
-        : 'Sign in to access public and organization Drop nodes.';
-    return DropCard(
-      child: Row(
+    if (signedIn) {
+      final org = _dropAuthService.selectedOrg.value;
+      final wallet = _dropAuthService.walletAddress;
+      final label = org?.name ?? 'Personal';
+      final sub = wallet != null && wallet.length > 12
+          ? '${wallet.substring(0, 6)}…${wallet.substring(wallet.length - 4)} · ${org?.plan ?? 'Free'}'
+          : 'Unknown wallet · ${org?.plan ?? 'Free'}';
+      return DropCard(
+        child: Row(
+          children: [
+            LeadingTile(
+              icon: Icons.cloud_done_rounded,
+              accent: DropTheme.success,
+              size: 42,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: Theme.of(context).textTheme.titleSmall),
+                  const SizedBox(height: 2),
+                  Text(sub, style: Theme.of(context).textTheme.bodySmall),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            if (org != null)
+              TonalButton(
+                label: 'Switch',
+                onPressed: () => unawaited(_showOrgSwitcher()),
+              ),
+          ],
+        ),
+      );
+    }
+
+    // Guest CTA at the top of Settings (mirrors the VPN app).
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            DropTheme.orange.withValues(alpha: 0.14),
+            DropTheme.orange.withValues(alpha: 0.04),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(DropTheme.radiusCard),
+        border: Border.all(color: DropTheme.orange.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          LeadingTile(
-            icon: signedIn ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
-            accent: signedIn ? DropTheme.success : DropTheme.muted,
-            size: 42,
+          Text('Unlock public Drop nodes',
+              style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 6),
+          Text(
+            'Sign in or register to send files through Erebrus nodes and manage your account.',
+            style: Theme.of(context).textTheme.bodySmall,
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: 2),
-                Text(sub, style: Theme.of(context).textTheme.bodySmall),
-              ],
+          const SizedBox(height: 14),
+          GestureDetector(
+            onTap: () => unawaited(_showGatewayLogin()),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: DropTheme.orange,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                'SIGN IN / REGISTER',
+                style: TextStyle(
+                  fontFamily: DropTheme.monoFont,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: DropTheme.onAccent,
+                  letterSpacing: 13 * 0.05,
+                ),
+              ),
             ),
           ),
-          const SizedBox(width: 8),
-          if (signedIn && org != null)
-            TonalButton(
-              label: 'Switch',
-              onPressed: () => unawaited(_showOrgSwitcher()),
-            )
-          else if (!signedIn)
-            TonalButton(
-              label: 'Sign in',
-              onPressed: () => unawaited(_showGatewayLogin()),
-            ),
         ],
       ),
     );
@@ -1676,17 +1921,13 @@ class _DropHomeScreenState extends State<DropHomeScreen>
 
   Widget _settingsFooter() {
     final shortVersion = _appVersion.split('+').first;
-    return Column(
-      children: [
-        const BrandLockup(markSize: 34, wordmarkSize: 18),
-        const SizedBox(height: 10),
-        MonoText(
-          'v$shortVersion · NetSepio',
-          size: 12,
-          color: DropTheme.faint,
-          weight: FontWeight.w500,
-        ),
-      ],
+    return Center(
+      child: MonoText(
+        'v$shortVersion · NetSepio',
+        size: 12,
+        color: DropTheme.faint,
+        weight: FontWeight.w500,
+      ),
     );
   }
 
@@ -4632,6 +4873,14 @@ class _UptimeStatState extends State<_UptimeStat> {
   }
 }
 
+/// Capitalizes the first character of a string.
+extension _StringCapitalize on String {
+  String capitalize() {
+    if (isEmpty) return this;
+    return '${this[0].toUpperCase()}${substring(1)}';
+  }
+}
+
 /// A "Private by design" assurance chip: success check + label.
 class _PrivacyChip extends StatelessWidget {
   const _PrivacyChip(this.label);
@@ -4668,6 +4917,134 @@ class _PrivacyChip extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Status pill showing whether a gateway node is online or offline.
+class _NodeStatusChip extends StatelessWidget {
+  const _NodeStatusChip({required this.online});
+
+  final bool online;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = online ? DropTheme.success : DropTheme.danger;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            online ? 'Online' : 'Offline',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              color: DropTheme.white,
+              letterSpacing: 0,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Small attribute chip used to display node capabilities.
+class _NodeDetailChip extends StatelessWidget {
+  const _NodeDetailChip({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 13),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              color: DropTheme.white,
+              letterSpacing: 0,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A richer dropdown row for selecting a gateway node.
+class _NodeDropdownItem extends StatelessWidget {
+  const _NodeDropdownItem({required this.node});
+
+  final DropNode node;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: node.online ? DropTheme.success : DropTheme.danger,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                node.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              Text(
+                '${node.region.isEmpty ? 'Global' : node.region} · ${node.capacity.isEmpty ? 'Unknown' : node.capacity.capitalize()}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

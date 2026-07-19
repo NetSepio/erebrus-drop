@@ -141,6 +141,9 @@ class DropGatewayFile {
     required this.encrypted,
     required this.status,
     this.cid,
+    this.downloadUrl,
+    this.gatewayUrl,
+    this.encryptionMetadata,
     required this.createdAt,
   });
 
@@ -156,6 +159,9 @@ class DropGatewayFile {
   final bool encrypted;
   final String status;
   final String? cid;
+  final String? downloadUrl;
+  final String? gatewayUrl;
+  final Map<String, dynamic>? encryptionMetadata;
   final DateTime createdAt;
 
   bool get isPublic => visibility.toLowerCase() == 'public';
@@ -179,7 +185,26 @@ class DropGatewayFile {
       encrypted: json['encrypted'] == true,
       status: (json['status'] ?? 'available').toString(),
       cid: json['cid']?.toString(),
+      downloadUrl: _pickUrl(json, const [
+        'download_url',
+        'public_url',
+        'url',
+      ]),
+      gatewayUrl: _pickUrl(json, const ['gateway_url', 'ipfs_url']),
+      encryptionMetadata: json['encryption_metadata'] is Map
+          ? Map<String, dynamic>.from(json['encryption_metadata'] as Map)
+          : null,
       createdAt: created ?? DateTime.now(),
     );
   }
+}
+
+String? _pickUrl(Map<String, dynamic> json, List<String> keys) {
+  for (final key in keys) {
+    final value = json[key];
+    if (value is String && value.trim().isNotEmpty) {
+      return value.trim();
+    }
+  }
+  return null;
 }

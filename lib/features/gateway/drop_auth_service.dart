@@ -204,6 +204,18 @@ class DropAuthService {
     await _appKitModal!.openModalView();
   }
 
+  /// Cancels an in-flight sign-in attempt and dismisses any open wallet modal.
+  void cancelAuthentication() {
+    isAuthenticating.value = false;
+    awaitingWebCallback.value = false;
+    try {
+      if (_appKitModal?.isOpen == true) {
+        _appKitModal?.closeModal();
+      }
+    } catch (_) {}
+    error.value = 'Sign-in cancelled';
+  }
+
   /// Opens the browser-based Erebrus sign-in (desktop fallback / mobile generic).
   Future<void> openWebSignIn() async {
     if (isAuthenticating.value || awaitingWebCallback.value) return;
@@ -620,6 +632,9 @@ class DropAuthService {
         method: 'solana_signMessage',
         params: {'pubkey': address, 'message': messageBase58},
       ),
+    ).timeout(
+      const Duration(minutes: 2),
+      onTimeout: () => throw const AuthException('Wallet signature timed out'),
     );
 
     return _signatureToTransmittable(response);

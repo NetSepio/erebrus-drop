@@ -33,6 +33,7 @@ dependencies:
 
   crypto: ^3.0.6
   cupertino_icons: ^1.0.8
+  pointycastle: ^3.9.1
   path_provider: ^2.1.5
   qr_flutter: ^4.1.0
   # Runtime API (preserve/remove) is used from main.dart, so this is a
@@ -72,18 +73,18 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/images/erebrus-drop-logo.png"
+  image_path: "assets/images/erebrus-drop-logo-circular.png"
   min_sdk_android: 21
   remove_alpha_ios: true
   background_color_ios: "#050505"
   adaptive_icon_background: "#050505"
-  adaptive_icon_foreground: "assets/images/erebrus-drop-logo.png"
+  adaptive_icon_foreground: "assets/images/erebrus-drop-logo-circular.png"
   macos:
     generate: true
-    image_path: "assets/images/erebrus-drop-logo.png"
+    image_path: "assets/images/erebrus-drop-logo-circular.png"
   windows:
     generate: true
-    image_path: "assets/images/erebrus-drop-logo.png"
+    image_path: "assets/images/erebrus-drop-logo-circular.png"
     icon_size: 256
 
 # Native splash screen (run: dart run flutter_native_splash:create).
