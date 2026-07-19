@@ -83,6 +83,7 @@ class DropTheme {
   static const double radiusInput = 14;
   static const double radiusButton = 14;
   static const double radiusIconButton = 13;
+  static const double radiusPill = 6;
 
   static const TextTheme _textTheme = TextTheme(
     // Marketing caption (38-42 / 700, -0.03em, line 1.04)
@@ -343,6 +344,36 @@ class DropTheme {
             color: selected ? white : faint,
           );
         }),
+      ),
+      navigationRailTheme: NavigationRailThemeData(
+        backgroundColor: black,
+        indicatorColor: orange.withValues(alpha: 0.18),
+        selectedIconTheme: const IconThemeData(color: orange),
+        unselectedIconTheme: const IconThemeData(color: faint),
+        selectedLabelTextStyle: const TextStyle(
+          fontFamily: bodyFont,
+          fontSize: 11.5,
+          fontWeight: FontWeight.w800,
+          color: white,
+        ),
+        unselectedLabelTextStyle: const TextStyle(
+          fontFamily: bodyFont,
+          fontSize: 11.5,
+          fontWeight: FontWeight.w600,
+          color: muted,
+        ),
+      ),
+      dropdownMenuTheme: DropdownMenuThemeData(
+        menuStyle: MenuStyle(
+          backgroundColor: WidgetStateProperty.all(surfaceHigh),
+          surfaceTintColor: WidgetStateProperty.all(Colors.transparent),
+          shape: WidgetStateProperty.all(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(radiusInput),
+              side: const BorderSide(color: line),
+            ),
+          ),
+        ),
       ),
       progressIndicatorTheme: const ProgressIndicatorThemeData(
         color: orange,

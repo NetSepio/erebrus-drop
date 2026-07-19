@@ -293,7 +293,7 @@ class _PageDots extends StatelessWidget {
             borderRadius: BorderRadius.circular(999),
             color: index == page
                 ? Theme.of(context).colorScheme.primary
-                : Colors.white24,
+                : DropTheme.faint,
           ),
         ),
       ),

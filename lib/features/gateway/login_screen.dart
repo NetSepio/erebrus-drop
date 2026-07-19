@@ -8,7 +8,7 @@ import 'drop_auth_service.dart';
 
 /// Multi-provider sign-in screen for Erebrus Drop.
 ///
-/// Mobile: Reown AppKit (wallet + social/email), native Google/Apple, gateway
+/// Mobile: Reown AppKit (wallet + social/email), native Google/Apple, Erebrus
 /// email OTP, and Solana Mobile Wallet Adapter on Seeker/Saga.
 /// Desktop: Browser sign-in with erebrusdrop:// callback + paste fallback.
 class GatewayLoginScreen extends StatefulWidget {
@@ -54,7 +54,8 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
           builder: (context, child) => Stack(
             children: [
               _body(context),
-              if (widget.auth.isAuthenticating.value || widget.auth.awaitingWebCallback.value)
+              if (widget.auth.isAuthenticating.value ||
+                  widget.auth.awaitingWebCallback.value)
                 _loadingOverlay(),
             ],
           ),
@@ -73,22 +74,38 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const SizedBox(height: 36),
+          const SizedBox(height: 24),
+          Center(
+            child: Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                gradient: DropTheme.accentGradient,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: const Image(
+                image: AssetImage(DropTheme.logoFlat),
+                fit: BoxFit.cover,
+              ),
+            ),
+          ),
+          const SizedBox(height: 22),
           Text(
             'Welcome to Erebrus Drop',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  color: DropTheme.white,
-                  fontWeight: FontWeight.w600,
-                ),
+              color: DropTheme.white,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 10),
           Text(
             'Sign in to send files through Erebrus nodes.',
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: DropTheme.muted,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: DropTheme.muted),
           ),
           const SizedBox(height: 36),
           if (isDesktop) ...[
@@ -108,9 +125,9 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
               'Opens $kErebrusWebOrigin/auth in your browser.\n'
               'After you sign in, you\'ll return here automatically.',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: DropTheme.faint,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: DropTheme.faint),
             ),
           ] else if (solanaOnly) ...[
             _PrimaryButton(
@@ -122,16 +139,16 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
             Text(
               'Your Seed Vault wallet signs you in — no passwords.',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: DropTheme.faint,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: DropTheme.faint),
             ),
           ] else ...[
-            if (reownReady) ...[
-              _PrimaryButton(
-                label: 'Continue with Wallet / Social',
-                icon: Icons.wallet,
-                onPressed: () => widget.auth.openReownModal(),
+            if (widget.auth.emailLoginAvailable) ...[
+              _OutlinedButton(
+                label: 'Continue with Email',
+                icon: Icons.mail_outline,
+                onPressed: () => _showEmailSheet(context),
               ),
               const SizedBox(height: 12),
             ],
@@ -151,14 +168,6 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
               ),
               const SizedBox(height: 12),
             ],
-            if (widget.auth.emailLoginAvailable) ...[
-              _OutlinedButton(
-                label: 'Continue with Email',
-                icon: Icons.mail_outline,
-                onPressed: () => _showEmailSheet(context),
-              ),
-              const SizedBox(height: 12),
-            ],
             if (!reownReady &&
                 !widget.auth.googleLoginAvailable &&
                 !widget.auth.appleLoginAvailable &&
@@ -167,12 +176,17 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
                 label: 'Sign in with browser',
                 icon: Icons.open_in_browser,
                 onPressed: () => widget.auth.openWebSignIn(),
+              )
+            else ...[
+              const SizedBox(height: 8),
+              const _DividerLabel(label: 'CONNECT A WALLET'),
+              const SizedBox(height: 8),
+              _PrimaryButton(
+                label: 'Connect Wallet',
+                icon: Icons.account_balance_wallet,
+                onPressed: () => widget.auth.openReownModal(),
               ),
-            const SizedBox(height: 20),
-            _TextButton(
-              label: 'Solana Mobile wallet',
-              onPressed: () => widget.auth.signInWithSolanaMobile(context),
-            ),
+            ],
           ],
           const SizedBox(height: 20),
           ValueListenableBuilder<String?>(
@@ -182,9 +196,9 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
               return Text(
                 err,
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: DropTheme.danger,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: DropTheme.danger),
               );
             },
           ),
@@ -192,10 +206,9 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
           Text(
             'By continuing you agree to Erebrus terms.',
             textAlign: TextAlign.center,
-            style: Theme.of(context)
-                .textTheme
-                .bodySmall
-                ?.copyWith(color: DropTheme.faint),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: DropTheme.faint),
           ),
         ],
       ),
@@ -213,7 +226,9 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
           const SizedBox(height: 16),
           Text(
             'Connecting to Erebrus…',
-            style: TextStyle(color: DropTheme.white, fontSize: 14),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: DropTheme.white),
           ),
         ],
       ),
@@ -225,10 +240,6 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: DropTheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
       builder: (ctx) => Padding(
         padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
         child: _EmailLoginSheet(auth: widget.auth),
@@ -241,10 +252,6 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: DropTheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
       builder: (ctx) => Padding(
         padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
         child: _PasteTokenSheet(auth: widget.auth),
@@ -254,7 +261,11 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
 }
 
 class _PrimaryButton extends StatelessWidget {
-  const _PrimaryButton({required this.label, required this.icon, required this.onPressed});
+  const _PrimaryButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
   final String label;
   final IconData icon;
   final VoidCallback onPressed;
@@ -278,7 +289,11 @@ class _PrimaryButton extends StatelessWidget {
 }
 
 class _OutlinedButton extends StatelessWidget {
-  const _OutlinedButton({required this.label, required this.icon, required this.onPressed});
+  const _OutlinedButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
   final String label;
   final IconData icon;
   final VoidCallback onPressed;
@@ -301,16 +316,34 @@ class _OutlinedButton extends StatelessWidget {
   }
 }
 
-class _TextButton extends StatelessWidget {
-  const _TextButton({required this.label, required this.onPressed});
+class _DividerLabel extends StatelessWidget {
+  const _DividerLabel({required this.label});
   final String label;
-  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return TextButton(
-      onPressed: onPressed,
-      child: Text(label),
+    final line = Expanded(
+      child: Container(height: 1, color: DropTheme.line),
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        children: [
+          line,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: DropTheme.muted,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1.2,
+              ),
+            ),
+          ),
+          line,
+        ],
+      ),
     );
   }
 }
@@ -346,14 +379,18 @@ class _EmailLoginSheetState extends State<_EmailLoginSheet> {
         children: [
           Text(
             _codeSent ? 'Enter your code' : 'Sign in with email',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(color: DropTheme.white),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(color: DropTheme.white),
           ),
           const SizedBox(height: 8),
           Text(
             _codeSent
                 ? 'We sent a 6-digit code to ${_emailCtrl.text.trim()}'
                 : "We'll email you a one-time code.",
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: DropTheme.muted),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: DropTheme.muted),
           ),
           const SizedBox(height: 18),
           if (!_codeSent) ...[
@@ -374,12 +411,26 @@ class _EmailLoginSheetState extends State<_EmailLoginSheet> {
           const SizedBox(height: 16),
           FilledButton(
             onPressed: _busy ? null : (_codeSent ? _verify : _send),
-            child: _busy ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: DropTheme.onAccent)) : Text(_codeSent ? 'Verify' : 'Send code'),
+            child: _busy
+                ? const SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: DropTheme.onAccent,
+                    ),
+                  )
+                : Text(_codeSent ? 'Verify' : 'Send code'),
           ),
           if (_codeSent) ...[
             const SizedBox(height: 10),
             TextButton(
-              onPressed: _busy ? null : () => setState(() { _codeSent = false; _codeCtrl.clear(); }),
+              onPressed: _busy
+                  ? null
+                  : () => setState(() {
+                      _codeSent = false;
+                      _codeCtrl.clear();
+                    }),
               child: const Text('Use a different email'),
             ),
           ],
@@ -391,7 +442,9 @@ class _EmailLoginSheetState extends State<_EmailLoginSheet> {
               return Text(
                 err,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: DropTheme.danger, fontSize: 13),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: DropTheme.danger),
               );
             },
           ),
@@ -406,7 +459,10 @@ class _EmailLoginSheetState extends State<_EmailLoginSheet> {
     setState(() => _busy = true);
     final ok = await widget.auth.requestEmailLoginCode(email);
     if (!mounted) return;
-    setState(() { _busy = false; if (ok) _codeSent = true; });
+    setState(() {
+      _busy = false;
+      if (ok) _codeSent = true;
+    });
   }
 
   Future<void> _verify() async {
@@ -449,12 +505,16 @@ class _PasteTokenSheetState extends State<_PasteTokenSheet> {
         children: [
           Text(
             'Paste sign-in token',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(color: DropTheme.white),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(color: DropTheme.white),
           ),
           const SizedBox(height: 8),
           Text(
             'Paste the full callback URL or PASETO token from the browser.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: DropTheme.muted),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: DropTheme.muted),
           ),
           const SizedBox(height: 18),
           _InputField(
@@ -465,7 +525,16 @@ class _PasteTokenSheetState extends State<_PasteTokenSheet> {
           const SizedBox(height: 16),
           FilledButton(
             onPressed: _busy ? null : _submit,
-            child: _busy ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: DropTheme.onAccent)) : const Text('Sign in'),
+            child: _busy
+                ? const SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: DropTheme.onAccent,
+                    ),
+                  )
+                : const Text('Sign in'),
           ),
           const SizedBox(height: 12),
           TextButton(
@@ -479,7 +548,9 @@ class _PasteTokenSheetState extends State<_PasteTokenSheet> {
               return Text(
                 err,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: DropTheme.danger, fontSize: 13),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: DropTheme.danger),
               );
             },
           ),
@@ -523,18 +594,7 @@ class _InputField extends StatelessWidget {
       controller: controller,
       keyboardType: keyboardType,
       autofocus: autofocus,
-      style: const TextStyle(color: DropTheme.white),
-      decoration: InputDecoration(
-        hintText: hint,
-        hintStyle: const TextStyle(color: DropTheme.faint),
-        filled: true,
-        fillColor: DropTheme.surfaceHigh,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(DropTheme.radiusInput),
-          borderSide: BorderSide.none,
-        ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-      ),
+      decoration: InputDecoration(hintText: hint),
     );
   }
 }

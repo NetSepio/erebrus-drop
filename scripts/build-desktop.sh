@@ -69,7 +69,7 @@ build_one() {
   echo "▸ generate desktop brand assets"
   python3 scripts/generate-desktop-assets.py
   echo "▸ flutter build ${p} --release"
-  flutter build "${p}" --release
+  scripts/build.sh "build-${p}" --release
   case "${p}" in
     macos) package_macos "${tag}" ;;
     linux) package_linux "${tag}" ;;

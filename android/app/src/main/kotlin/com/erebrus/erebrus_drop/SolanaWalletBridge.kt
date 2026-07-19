@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
+import com.solana.mobilewalletadapter.clientlib.protocol.MobileWalletAdapterClient
 import com.solana.mobilewalletadapter.clientlib.scenario.LocalAssociationIntentCreator
 import com.solana.mobilewalletadapter.clientlib.scenario.LocalAssociationScenario
 import com.solana.mobilewalletadapter.clientlib.scenario.Scenario
@@ -246,16 +247,16 @@ object SolanaWalletBridge {
                 ).get()
 
                 val messageBytes = message.toByteArray(Charsets.UTF_8)
-                val signed = client.signMessages(
-                    listOf(authResult.publicKey),
-                    listOf(messageBytes),
+                val signed: MobileWalletAdapterClient.SignMessagesResult = client.signMessagesDetached(
+                    arrayOf(authResult.publicKey),
+                    arrayOf(messageBytes),
                 ).get()
 
-                if (signed.signedMessages.isEmpty() || signed.signedMessages[0].signatures.isEmpty()) {
+                if (signed.messages.isEmpty() || signed.messages[0].signatures.isEmpty()) {
                     throw IllegalStateException("Wallet did not return a signature.")
                 }
 
-                val signatureBytes = signed.signedMessages[0].signatures[0]
+                val signatureBytes = signed.messages[0].signatures[0]
                 val signatureHex = signatureBytes.joinToString("") { "%02x".format(it) }
 
                 clearTimeout()

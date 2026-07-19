@@ -162,9 +162,9 @@ class _SolanaWalletCardState extends State<SolanaWalletCard> {
             ),
             Text(
               'Cancel',
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                color: DropTheme.muted,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.labelLarge?.copyWith(color: DropTheme.muted),
             ),
           ],
         ),
@@ -188,11 +188,11 @@ class _SolanaWalletCardState extends State<SolanaWalletCard> {
                         children: [
                           TextSpan(
                             text: truncateWalletAddress(address),
-                            style: TextStyle(
-                              fontFamily: DropTheme.monoFont,
-                              fontWeight: FontWeight.w600,
-                              color: DropTheme.white,
-                            ),
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                  fontFamily: DropTheme.monoFont,
+                                  color: DropTheme.white,
+                                ),
                           ),
                           TextSpan(
                             text: ' connected',

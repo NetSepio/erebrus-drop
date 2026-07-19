@@ -2,12 +2,35 @@
 
 ## Mobile (Android / iOS)
 
+The project uses `String.fromEnvironment` for build-time configuration, so
+values in `.env` must be passed as `--dart-define` flags. Copy the example file
+and fill in any missing values, then use the provided wrapper so `.env` is
+injected automatically:
+
 ```bash
+cp .env.example .env
 flutter pub get
-flutter run                    # Android debug (playstore flavor default)
-flutter build appbundle --flavor playstore --release   # Google Play
-flutter build apk --flavor dappstore --release         # Solana dApp Store
+scripts/build.sh run                              # Android debug (playstore flavor default)
+scripts/build.sh build-appbundle --release        # Google Play (playstore flavor default)
+scripts/build.sh build-apk --flavor dappstore --release         # Solana dApp Store
 ```
+
+`scripts/build.sh build-apk` and `build-appbundle` default to the `playstore`
+flavor when no `--flavor` is given.
+
+If you prefer to run `flutter` directly, pass the whole file and an explicit
+flavor for APK / AppBundle builds:
+
+```bash
+flutter run --dart-define-from-file=.env
+flutter build apk --dart-define-from-file=.env --flavor playstore --release
+flutter build apk --dart-define-from-file=.env --flavor dappstore --release
+```
+
+**Android Studio / IntelliJ:** add `--dart-define-from-file=.env` to the run
+configuration’s **Additional run args**. For the **Build APK** action also
+include a flavor, e.g. `--dart-define-from-file=.env --flavor playstore` or
+`--flavor dappstore`.
 
 Signing: copy `android/key.properties.example` → `android/key.properties`.  
 See [solana-dapp-store-release.md](solana-dapp-store-release.md).
@@ -57,15 +80,7 @@ Re-run after any change to `erebrus-glossy.png` or `erebrus-glyph.png`.
 ```bash
 flutter pub get
 python3 scripts/generate-desktop-assets.py   # first time or after logo changes
-flutter run -d macos      # or windows / linux
-```
-
-Shortcut on macOS:
-
-```bash
-./scripts/setup-macos-dev.sh
-python3 scripts/generate-desktop-assets.py
-flutter run -d macos
+scripts/build.sh run -d macos      # or windows / linux
 ```
 
 ### Release

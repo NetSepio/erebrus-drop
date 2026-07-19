@@ -70,15 +70,15 @@ abstract final class GatewayHttp {
       }
     } catch (_) {}
     return switch (status) {
-      404 => 'Gateway resource not found (404)',
-      401 => 'Gateway authentication failed (401)',
-      403 => 'Gateway access denied (403)',
+      404 => 'Resource not found (404)',
+      401 => 'Authentication failed (401)',
+      403 => 'Access denied (403)',
       409 => 'Conflict (409)',
       413 => 'Request too large (413)',
       429 => 'Rate limit exceeded — slow down (429)',
-      503 => 'Gateway service unavailable (503)',
+      503 => 'Erebrus service unavailable (503)',
       507 => 'Storage capacity exhausted (507)',
-      _ => 'Gateway error ($status)',
+      _ => 'Erebrus error ($status)',
     };
   }
 
@@ -95,9 +95,9 @@ abstract final class GatewayHttp {
       if (text.isEmpty) return null;
       return jsonDecode(text);
     } on SocketException catch (e) {
-      throw GatewayException('Cannot reach gateway: ${e.message}');
+      throw GatewayException('Cannot reach Erebrus: ${e.message}');
     } on TimeoutException {
-      throw GatewayException('Gateway request timed out');
+      throw GatewayException('Erebrus request timed out');
     } finally {
       client.close(force: true);
     }
@@ -167,9 +167,9 @@ abstract final class GatewayHttp {
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
       return const {};
     } on SocketException catch (e) {
-      throw GatewayException('Cannot reach gateway: ${e.message}');
+      throw GatewayException('Cannot reach Erebrus: ${e.message}');
     } on TimeoutException {
-      throw GatewayException('Gateway request timed out');
+      throw GatewayException('Erebrus request timed out');
     } finally {
       client.close(force: true);
     }
@@ -198,9 +198,9 @@ abstract final class GatewayHttp {
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
       return const {};
     } on SocketException catch (e) {
-      throw GatewayException('Cannot reach gateway: ${e.message}');
+      throw GatewayException('Cannot reach Erebrus: ${e.message}');
     } on TimeoutException {
-      throw GatewayException('Gateway request timed out');
+      throw GatewayException('Erebrus request timed out');
     } finally {
       client.close(force: true);
     }

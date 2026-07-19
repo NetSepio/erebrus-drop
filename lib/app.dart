@@ -24,6 +24,7 @@ import 'features/join/qr_scan_screen.dart';
 import 'features/nearby/nearby_room_service.dart';
 import 'features/onboarding/onboarding_screen.dart';
 import 'features/onboarding/onboarding_store.dart';
+import 'features/settings/about_screen.dart';
 import 'features/smart_send/share_intake_service.dart';
 import 'features/wallet/solana_device_detector.dart';
 import 'features/wallet/solana_wallet_card.dart';
@@ -34,9 +35,6 @@ import 'ui/theme/drop_theme.dart';
 import 'ui/widgets/drop_widgets.dart';
 
 const String _appVersion = '1.0.5+5';
-const String _copyrightNotice =
-    'Erebrus © 2026 NetSepio LLC. All rights reserved.';
-const String _supportEmail = 'support@netsepio.com';
 
 class ErebrusDropApp extends StatefulWidget {
   const ErebrusDropApp({this.skipOnboarding = false, super.key});
@@ -127,8 +125,9 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       NativeFilePickerService();
   final HostFolderBridge _hostFolderBridge = HostFolderBridge();
   final SolanaWalletService _solanaWalletService = SolanaWalletService();
-  late final DropAuthService _dropAuthService =
-      DropAuthService(solana: _solanaWalletService);
+  late final DropAuthService _dropAuthService = DropAuthService(
+    solana: _solanaWalletService,
+  );
   bool _isSolanaMobileDevice = false;
   final ValueNotifier<int> _networkUiVersion = ValueNotifier<int>(0);
 
@@ -290,10 +289,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
             )
           : const <DropNode>[];
       final seen = <String>{};
-      final nodes = <DropNode>[
-        ...public,
-        ...private,
-      ].where((n) {
+      final nodes = <DropNode>[...public, ...private].where((n) {
         if (!n.online) return false;
         if (seen.contains(n.nodeId)) return false;
         return seen.add(n.nodeId);
@@ -325,7 +321,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     );
     if (!mounted) return;
     if (_dropAuthService.isSignedIn) {
-      _snack('Signed in to Erebrus gateway');
+      _snack('Signed in to Erebrus');
       await _refreshGatewayNodes();
       if (mounted) await _refreshGatewayFiles();
     }
@@ -341,10 +337,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           ? await _dropAuthService.gatewayClient.fetchOrgFiles(org.id)
           : const <DropGatewayFile>[];
       final seen = <String>{};
-      final files = <DropGatewayFile>[
-        ...myFiles,
-        ...orgFiles,
-      ].where((f) {
+      final files = <DropGatewayFile>[...myFiles, ...orgFiles].where((f) {
         if (seen.contains(f.id)) return false;
         return seen.add(f.id);
       }).toList();
@@ -527,9 +520,11 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                 child: BackdropFilter(
                   filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
                   child: DecoratedBox(
-                    decoration: const BoxDecoration(
-                      color: Color(0xDB080809),
-                      border: Border(top: BorderSide(color: DropTheme.line)),
+                    decoration: BoxDecoration(
+                      color: DropTheme.black.withValues(alpha: 0.86),
+                      border: const Border(
+                        top: BorderSide(color: DropTheme.line),
+                      ),
                     ),
                     child: NavigationBar(
                       selectedIndex: _tab,
@@ -574,15 +569,6 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       selectedIndex: _tab,
       onDestinationSelected: _selectTab,
       labelType: NavigationRailLabelType.all,
-      backgroundColor: DropTheme.black,
-      indicatorColor: DropTheme.orange.withValues(alpha: 0.18),
-      selectedIconTheme: const IconThemeData(color: DropTheme.orange),
-      selectedLabelTextStyle: const TextStyle(
-        color: DropTheme.orange,
-        fontWeight: FontWeight.w700,
-      ),
-      unselectedIconTheme: const IconThemeData(color: DropTheme.faint),
-      unselectedLabelTextStyle: const TextStyle(color: DropTheme.muted),
       destinations: const [
         NavigationRailDestination(
           icon: Icon(Icons.home_outlined),
@@ -803,7 +789,9 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         children: [
           _Head(
             title: 'Library',
-            subtitle: _libraryScopeIndex == 0 ? 'Shared this session' : 'Files pinned to erebrus nodes',
+            subtitle: _libraryScopeIndex == 0
+                ? 'Shared this session'
+                : 'Files pinned to erebrus nodes',
             action: DropIconButton(
               icon: Icons.refresh_rounded,
               busy: _loadingLibraryFiles || _gatewayFilesLoading,
@@ -873,10 +861,9 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     required ValueChanged<int> onSelected,
   }) {
     return ToggleButtons(
-      isSelected: labels.map((_) => false).toList()
-        ..[selected] = true,
+      isSelected: labels.map((_) => false).toList()..[selected] = true,
       onPressed: (index) => onSelected(index),
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(DropTheme.radiusTile),
       borderColor: DropTheme.line,
       selectedBorderColor: DropTheme.orange,
       fillColor: DropTheme.orange.withValues(alpha: 0.18),
@@ -884,10 +871,12 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       color: DropTheme.muted,
       constraints: const BoxConstraints(minHeight: 40, minWidth: 80),
       children: labels
-          .map((label) => Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(label),
-              ))
+          .map(
+            (label) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text(label),
+            ),
+          )
           .toList(),
     );
   }
@@ -896,14 +885,15 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     if (!_dropAuthService.isSignedIn) {
       return _InfoCard(
         title: 'Sign in to view global files',
-        subtitle: 'Connect your wallet to see files pinned to public and organization nodes.',
+        subtitle:
+            'Connect your wallet to see files pinned to public and organization nodes.',
         icon: Icons.cloud_outlined,
         onTap: () => unawaited(_showGatewayLogin()),
       );
     }
     if (_gatewayFilesLoading && _gatewayFiles.isEmpty) {
       return const _InfoCard(
-        title: 'Loading gateway files',
+        title: 'Loading global files',
         subtitle: 'Fetching files from public and organization nodes.',
         icon: Icons.cloud_sync_outlined,
       );
@@ -931,23 +921,28 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   }
 
   Widget _gatewayFileTile(DropGatewayFile file, {required bool first}) {
-    final (color, icon) = _fileTypeStyle(DropFileItem(
-      id: file.id,
-      name: file.filename,
-      type: file.contentType ?? 'file',
-      path: file.cid ?? '',
-      sizeBytes: file.sizeBytes,
-      createdAt: file.createdAt,
-      modifiedAt: file.createdAt,
-      mimeType: file.contentType,
-      streamable: false,
-    ));
+    final (color, icon) = _fileTypeStyle(
+      DropFileItem(
+        id: file.id,
+        name: file.filename,
+        type: file.contentType ?? 'file',
+        path: file.cid ?? '',
+        sizeBytes: file.sizeBytes,
+        createdAt: file.createdAt,
+        modifiedAt: file.createdAt,
+        mimeType: file.contentType,
+        streamable: false,
+      ),
+    );
     final scope = file.scope;
     final scopeLabel = file.orgId != null ? '$scope · org' : scope;
-    final meta = '${formatBytes(file.sizeBytes)} · ${_shortWhen(file.createdAt)} · $scopeLabel';
+    final meta =
+        '${formatBytes(file.sizeBytes)} · ${_shortWhen(file.createdAt)} · $scopeLabel';
     return DecoratedBox(
       decoration: BoxDecoration(
-        border: first ? null : const Border(top: BorderSide(color: DropTheme.line)),
+        border: first
+            ? null
+            : const Border(top: BorderSide(color: DropTheme.line)),
       ),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
@@ -1145,16 +1140,19 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   Widget _gatewaySendPanel() {
     if (!_dropAuthService.isSignedIn) {
       return _InfoCard(
-        title: 'Sign in to send to gateway nodes',
-        subtitle: 'Connect your wallet to access public and organization Drop nodes.',
+        title: 'Sign in to send to global nodes',
+        subtitle:
+            'Connect your wallet to access public and organization Drop nodes.',
         icon: Icons.cloud_outlined,
         onTap: () => unawaited(_showGatewayLogin()),
       );
     }
     if (_gatewayNodes.isEmpty && !_gatewayNodesLoading) {
       return _InfoCard(
-        title: 'No gateway nodes available',
-        subtitle: _gatewayError ?? 'No public or organization nodes are online right now.',
+        title: 'No global nodes available',
+        subtitle:
+            _gatewayError ??
+            'No public or organization nodes are online right now.',
         icon: Icons.cloud_off_outlined,
         onTap: () => unawaited(_refreshGatewayNodes()),
       );
@@ -1176,18 +1174,22 @@ class _DropHomeScreenState extends State<DropHomeScreen>
               const SizedBox(height: 10),
               DropdownButton<DropNode>(
                 isExpanded: true,
-                value: selected != null && nodes.any((n) => n.nodeId == selected.nodeId)
+                value:
+                    selected != null &&
+                        nodes.any((n) => n.nodeId == selected.nodeId)
                     ? selected
                     : null,
                 hint: const Text('Select a node'),
                 items: nodes
-                    .map((node) => DropdownMenuItem(
-                          value: node,
-                          child: Text(
-                            '${node.name} · ${node.region.isEmpty ? 'global' : node.region}',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ))
+                    .map(
+                      (node) => DropdownMenuItem(
+                        value: node,
+                        child: Text(
+                          '${node.name} · ${node.region.isEmpty ? 'global' : node.region}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    )
                     .toList(),
                 onChanged: (node) => setState(() => _selectedSendNode = node),
               ),
@@ -1213,7 +1215,8 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                       ),
                     ),
                     IconButton(
-                      onPressed: () => _copy(_gatewayUploadedCid!, 'CID copied'),
+                      onPressed: () =>
+                          _copy(_gatewayUploadedCid!, 'CID copied'),
                       icon: const Icon(Icons.copy_rounded, size: 20),
                       color: DropTheme.success,
                     ),
@@ -1260,11 +1263,11 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       );
       if (!mounted) return;
       setState(() => _gatewayUploadedCid = uploaded.cid);
-      _snack('File pinned to gateway node');
+      _snack('File pinned to global node');
       unawaited(_refreshGatewayFiles());
     } catch (e) {
       if (!mounted) return;
-      _snack('Gateway upload failed: $e');
+      _snack('Upload failed: $e');
     } finally {
       if (mounted) setState(() => _gatewayUploading = false);
     }
@@ -1379,6 +1382,26 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           _hostFolderSettingsCard(),
           const SizedBox(height: 12),
           _privateByDesignCard(),
+          const SizedBox(height: 22),
+          const Eyebrow('ABOUT'),
+          const SizedBox(height: 10),
+          DropCard(
+            padding: EdgeInsets.zero,
+            child: _settingsRow(
+              icon: Icons.info_outline_rounded,
+              title: 'About',
+              subtitle: 'Erebrus Drop, version, and legal',
+              onTap: () => _openInfoScreen(const AboutScreen()),
+              trailing: const Icon(
+                Icons.chevron_right_rounded,
+                color: DropTheme.faint,
+              ),
+              first: true,
+              last: true,
+            ),
+          ),
+          const SizedBox(height: 22),
+          _settingsSignInOutButton(),
           const SizedBox(height: 24),
           _settingsFooter(),
         ],
@@ -1394,38 +1417,101 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     required ValueChanged<bool> onChanged,
     required bool first,
   }) {
+    return _settingsRow(
+      icon: icon,
+      title: title,
+      subtitle: description,
+      first: first,
+      last: true,
+      trailing: Switch(value: value, onChanged: onChanged),
+    );
+  }
+
+  Widget _settingsRow({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool first,
+    required bool last,
+    Widget? trailing,
+    VoidCallback? onTap,
+  }) {
     return DecoratedBox(
       decoration: BoxDecoration(
         border: first
             ? null
             : const Border(top: BorderSide(color: DropTheme.line)),
       ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
-        child: Row(
-          children: [
-            LeadingTile(
-              icon: icon,
-              accent: value ? DropTheme.orange : null,
-              size: 42,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: Theme.of(context).textTheme.titleSmall),
-                  const SizedBox(height: 2),
-                  Text(
-                    description,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.vertical(
+          top: first ? const Radius.circular(DropTheme.radiusCard) : Radius.zero,
+          bottom: last ? const Radius.circular(DropTheme.radiusCard) : Radius.zero,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+          child: Row(
+            children: [
+              LeadingTile(
+                icon: icon,
+                accent: DropTheme.orange,
+                size: 42,
               ),
-            ),
-            const SizedBox(width: 8),
-            Switch(value: value, onChanged: onChanged),
-          ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              if (trailing != null) ...[
+                const SizedBox(width: 8),
+                trailing,
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _settingsSignInOutButton() {
+    final signedIn = _dropAuthService.isSignedIn;
+    return GestureDetector(
+      onTap: signedIn
+          ? () async {
+              await _dropAuthService.signOut();
+              if (mounted) {
+                _snack('Signed out');
+                setState(() {});
+              }
+            }
+          : () => unawaited(_showGatewayLogin()),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: signedIn
+              ? DropTheme.danger.withValues(alpha: 0.08)
+              : DropTheme.orange,
+          borderRadius: BorderRadius.circular(DropTheme.radiusTile),
+          border: signedIn
+              ? Border.all(color: DropTheme.danger.withValues(alpha: 0.3))
+              : null,
+        ),
+        child: Text(
+          signedIn ? 'Sign out' : 'Sign in',
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+            color: signedIn ? DropTheme.danger : DropTheme.onAccent,
+          ),
         ),
       ),
     );
@@ -1435,9 +1521,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     final signedIn = _dropAuthService.isSignedIn;
     final org = _dropAuthService.selectedOrg.value;
     final wallet = _dropAuthService.walletAddress;
-    final label = signedIn
-        ? (org?.name ?? 'Personal')
-        : 'Gateway account';
+    final label = signedIn ? (org?.name ?? 'Personal') : 'Erebrus account';
     final sub = signedIn
         ? '${wallet != null && wallet.length > 12 ? '${wallet.substring(0, 6)}…${wallet.substring(wallet.length - 4)}' : 'Unknown wallet'} · ${org?.plan ?? 'Free'}'
         : 'Sign in to access public and organization Drop nodes.';
@@ -1512,11 +1596,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
                 const SizedBox(height: 2),
-                MonoText(
-                  pathLabel,
-                  size: 12,
-                  color: DropTheme.muted,
-                ),
+                MonoText(pathLabel, size: 12, color: DropTheme.muted),
               ],
             ),
           ),
@@ -1598,49 +1678,13 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     final shortVersion = _appVersion.split('+').first;
     return Column(
       children: [
-        Center(
-          child: PressableScale(
-            onTap: () => _openInfoScreen(
-              _AboutScreen(
-                networkLoading: _networkLoading,
-                networkStatus: _networkStatus,
-              ),
-            ),
-            child: const BrandLockup(markSize: 34, wordmarkSize: 18),
-          ),
-        ),
+        const BrandLockup(markSize: 34, wordmarkSize: 18),
         const SizedBox(height: 10),
         MonoText(
           'v$shortVersion · NetSepio',
           size: 12,
           color: DropTheme.faint,
           weight: FontWeight.w500,
-        ),
-        const SizedBox(height: 4),
-        Wrap(
-          alignment: WrapAlignment.center,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            TextButton(
-              onPressed: () => _openInfoScreen(
-                _AboutScreen(
-                  networkLoading: _networkLoading,
-                  networkStatus: _networkStatus,
-                ),
-              ),
-              child: const Text('About'),
-            ),
-            const Text('·', style: TextStyle(color: DropTheme.faint)),
-            TextButton(
-              onPressed: () => _openInfoScreen(const _PrivacyScreen()),
-              child: const Text('Privacy'),
-            ),
-            const Text('·', style: TextStyle(color: DropTheme.faint)),
-            TextButton(
-              onPressed: () => _openInfoScreen(const _TermsScreen()),
-              child: const Text('Terms'),
-            ),
-          ],
         ),
       ],
     );
@@ -1733,18 +1777,16 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: DropTheme.success.withValues(alpha: 0.30)),
       ),
-      child: const Row(
+      child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          PulsingDot(color: DropTheme.success, size: 7),
-          SizedBox(width: 7),
+          const PulsingDot(color: DropTheme.success, size: 7),
+          const SizedBox(width: 7),
           Text(
             'LIVE',
-            style: TextStyle(
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
               color: DropTheme.success,
-              fontFamily: DropTheme.bodyFont,
               fontWeight: FontWeight.w800,
-              fontSize: 12,
               letterSpacing: 0.5,
             ),
           ),
@@ -1758,7 +1800,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(DropTheme.radiusTile),
       ),
       child: QrImageView(
         data: data,
@@ -1919,42 +1961,40 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
         color: DropTheme.orange.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(DropTheme.radiusPill),
         border: Border.all(color: DropTheme.orange.withValues(alpha: 0.30)),
       ),
       child: Text(
         text,
-        style: const TextStyle(
-          fontFamily: DropTheme.bodyFont,
-          fontSize: 9.5,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 1.2,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
           color: DropTheme.orange,
+          fontSize: 9.5,
+          letterSpacing: 1.2,
         ),
       ),
     );
   }
 
   Widget _endpointInset(String display, String copyValue) {
-    return Container(
+    return SizedBox(
       height: 48,
-      padding: const EdgeInsets.only(left: 14, right: 6),
-      decoration: BoxDecoration(
+      child: DropInset(
         color: DropTheme.black,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: DropTheme.line),
-      ),
-      child: Row(
-        children: [
-          Expanded(child: MonoText(display, size: 13, color: DropTheme.white)),
-          IconButton(
-            onPressed: () => _copy(copyValue, 'WebDAV URL copied'),
-            icon: const Icon(Icons.copy_rounded, size: 18),
-            color: DropTheme.orange,
-            tooltip: 'Copy WebDAV URL',
-            visualDensity: VisualDensity.compact,
-          ),
-        ],
+        padding: const EdgeInsets.only(left: 14, right: 6),
+        child: Row(
+          children: [
+            Expanded(
+              child: MonoText(display, size: 13, color: DropTheme.white),
+            ),
+            IconButton(
+              onPressed: () => _copy(copyValue, 'WebDAV URL copied'),
+              icon: const Icon(Icons.copy_rounded, size: 18),
+              color: DropTheme.orange,
+              tooltip: 'Copy WebDAV URL',
+              visualDensity: VisualDensity.compact,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2113,16 +2153,16 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(DropTheme.radiusPill),
         border: Border.all(color: color.withValues(alpha: 0.26)),
       ),
       child: Text(
         text,
-        style: TextStyle(
-          fontFamily: DropTheme.bodyFont,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
           fontSize: 10.5,
           fontWeight: FontWeight.w700,
           color: color,
+          letterSpacing: 0,
         ),
       ),
     );
@@ -2183,11 +2223,9 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           TextField(
             controller: _joinUrl,
             keyboardType: TextInputType.url,
-            style: const TextStyle(
-              fontFamily: DropTheme.monoFont,
-              fontSize: 13.5,
-              fontWeight: FontWeight.w600,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(fontFamily: DropTheme.monoFont),
             decoration: const InputDecoration(
               hintText: 'http://192.168.1.23:8787',
             ),
@@ -2556,63 +2594,51 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     final total = transfer.totalBytes <= 0
         ? formatBytes(transfer.sentBytes)
         : '${formatBytes(transfer.sentBytes)} / ${formatBytes(transfer.totalBytes)}';
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: DropTheme.surfaceHigh,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: DropTheme.line),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  transfer.direction == TransferDirection.upload
-                      ? Icons.upload_rounded
-                      : Icons.download_rounded,
-                  color: DropTheme.orange,
-                  size: 18,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    transfer.title,
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                ),
-                if (progress != null)
-                  Text(
-                    '${(progress * 100).clamp(0, 100).round()}%',
-                    style: const TextStyle(
-                      fontFamily: DropTheme.monoFont,
-                      fontWeight: FontWeight.w600,
-                      color: DropTheme.orange,
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(999),
-              child: LinearProgressIndicator(value: progress, minHeight: 6),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '$total · $speed · $eta',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            if (transfer.detail.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(
-                transfer.detail,
-                style: Theme.of(context).textTheme.bodySmall,
+    return DropInset(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                transfer.direction == TransferDirection.upload
+                    ? Icons.upload_rounded
+                    : Icons.download_rounded,
+                color: DropTheme.orange,
+                size: 18,
               ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  transfer.title,
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ),
+              if (progress != null)
+                Text(
+                  '${(progress * 100).clamp(0, 100).round()}%',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontFamily: DropTheme.monoFont,
+                    color: DropTheme.orange,
+                  ),
+                ),
             ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(value: progress, minHeight: 6),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '$total · $speed · $eta',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          if (transfer.detail.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(transfer.detail, style: Theme.of(context).textTheme.bodySmall),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -4433,83 +4459,76 @@ class _JoinedFileTile extends StatelessWidget {
         : '${formatBytes(item.sizeBytes)} · ${item.mimeType ?? 'file'}';
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: DropTheme.surfaceHigh,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: DropTheme.line),
-        ),
+      child: DropInset(
+        padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
         child: PressableScale(
           onTap: isFolder ? () => onFolderTap(item) : () => onDownload(item),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
-            child: Row(
-              children: [
-                LeadingTile(icon: icon, accent: color, size: 40),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        meta,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
+          child: Row(
+            children: [
+              LeadingTile(icon: icon, accent: color, size: 40),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      meta,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
                 ),
-                if (isFolder)
-                  const Padding(
-                    padding: EdgeInsets.only(right: 6),
-                    child: Icon(
-                      Icons.chevron_right_rounded,
-                      color: DropTheme.faint,
+              ),
+              if (isFolder)
+                const Padding(
+                  padding: EdgeInsets.only(right: 6),
+                  child: Icon(
+                    Icons.chevron_right_rounded,
+                    color: DropTheme.faint,
+                  ),
+                )
+              else
+                PopupMenuButton<_JoinedFileAction>(
+                  tooltip: 'File actions',
+                  icon: const Icon(
+                    Icons.more_vert_rounded,
+                    color: DropTheme.faint,
+                  ),
+                  onSelected: (action) {
+                    switch (action) {
+                      case _JoinedFileAction.download:
+                        onDownload(item);
+                      case _JoinedFileAction.pullToHost:
+                        onPullToHost?.call(item);
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: _JoinedFileAction.download,
+                      child: ListTile(
+                        leading: Icon(Icons.download_outlined),
+                        title: Text('Download'),
+                      ),
                     ),
-                  )
-                else
-                  PopupMenuButton<_JoinedFileAction>(
-                    tooltip: 'File actions',
-                    icon: const Icon(
-                      Icons.more_vert_rounded,
-                      color: DropTheme.faint,
-                    ),
-                    onSelected: (action) {
-                      switch (action) {
-                        case _JoinedFileAction.download:
-                          onDownload(item);
-                        case _JoinedFileAction.pullToHost:
-                          onPullToHost?.call(item);
-                      }
-                    },
-                    itemBuilder: (context) => [
+                    if (onPullToHost != null)
                       const PopupMenuItem(
-                        value: _JoinedFileAction.download,
+                        value: _JoinedFileAction.pullToHost,
                         child: ListTile(
-                          leading: Icon(Icons.download_outlined),
-                          title: Text('Download'),
+                          leading: Icon(Icons.sync_alt_outlined),
+                          title: Text('Pull to my room'),
                         ),
                       ),
-                      if (onPullToHost != null)
-                        const PopupMenuItem(
-                          value: _JoinedFileAction.pullToHost,
-                          child: ListTile(
-                            leading: Icon(Icons.sync_alt_outlined),
-                            title: Text('Pull to my room'),
-                          ),
-                        ),
-                    ],
-                  ),
-              ],
-            ),
+                  ],
+                ),
+            ],
           ),
         ),
       ),
@@ -4522,14 +4541,8 @@ class _EmptyFolderState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
+    return DropInset(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 28),
-      decoration: BoxDecoration(
-        color: DropTheme.surfaceHigh,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: DropTheme.line),
-      ),
       child: Column(
         children: [
           const Icon(
@@ -4556,32 +4569,21 @@ class _InlineActivity extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isError = message.startsWith('Could not');
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: DropTheme.surfaceHigh,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: DropTheme.line),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            if (isError)
-              const Icon(Icons.error_outline, size: 18, color: DropTheme.danger)
-            else
-              const SizedBox.square(
-                dimension: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                message,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
+    return DropInset(
+      child: Row(
+        children: [
+          if (isError)
+            const Icon(Icons.error_outline, size: 18, color: DropTheme.danger)
+          else
+            const SizedBox.square(
+              dimension: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
             ),
-          ],
-        ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(message, style: Theme.of(context).textTheme.bodySmall),
+          ),
+        ],
       ),
     );
   }
@@ -4656,11 +4658,11 @@ class _PrivacyChip extends StatelessWidget {
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontFamily: DropTheme.bodyFont,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 fontSize: 10.5,
                 fontWeight: FontWeight.w700,
                 color: DropTheme.white,
+                letterSpacing: 0,
               ),
             ),
           ),
@@ -4684,15 +4686,7 @@ class _WebDavClient extends StatelessWidget {
       children: [
         Icon(icon, size: 16, color: DropTheme.muted),
         const SizedBox(width: 7),
-        Text(
-          label,
-          style: const TextStyle(
-            fontFamily: DropTheme.bodyFont,
-            fontSize: 12.5,
-            fontWeight: FontWeight.w600,
-            color: DropTheme.muted,
-          ),
-        ),
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
       ],
     );
   }
@@ -4770,70 +4764,6 @@ class _Head extends StatelessWidget {
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title});
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(title, style: Theme.of(context).textTheme.titleLarge);
-  }
-}
-
-class _CapabilityCard extends StatelessWidget {
-  const _CapabilityCard({
-    required this.icon,
-    required this.title,
-    required this.status,
-    required this.detail,
-    required this.color,
-  });
-
-  final IconData icon;
-  final String title;
-  final String status;
-  final String detail;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: DropCard(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            LeadingTile(icon: icon, accent: color, size: 42),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      Text(
-                        title,
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      DropPill(label: status, color: color, dot: true),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(detail, style: Theme.of(context).textTheme.bodySmall),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class DropCodeDialog extends StatelessWidget {
   const DropCodeDialog({required this.link, required this.onCopy, super.key});
 
@@ -4870,7 +4800,7 @@ class DropCodeDialog extends StatelessWidget {
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(DropTheme.radiusCard),
                   ),
                   child: SizedBox.square(
                     dimension: qrSize,
@@ -4915,291 +4845,6 @@ class DropCodeDialog extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _AboutScreen extends StatelessWidget {
-  const _AboutScreen({
-    required this.networkLoading,
-    required this.networkStatus,
-  });
-
-  final bool networkLoading;
-  final DropNetworkStatus networkStatus;
-
-  @override
-  Widget build(BuildContext context) {
-    return _InfoScaffold(
-      title: 'About',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _AppLogoLockup(),
-          const SizedBox(height: 22),
-          const _SectionHeader(title: 'What it does'),
-          const SizedBox(height: 8),
-          const _TextCard(
-            text:
-                'Erebrus Drop lets you create a private local Drop Room for nearby devices. People on the same Wi-Fi or hotspot can join from the app or a browser to move files, folders, text, and streamable media without an account or cloud upload.',
-          ),
-          const SizedBox(height: 16),
-          const _SectionHeader(title: 'Why it matters'),
-          const SizedBox(height: 8),
-          const _TextCard(
-            text:
-                'NetSepio builds for digital sovereignty, privacy, and individual agency in a surveilled internet. Erebrus Drop is one small, practical piece of that ethos: useful sharing that keeps control close to you, your device, and the people you choose.',
-          ),
-          const SizedBox(height: 16),
-          const _SectionHeader(title: 'Capabilities'),
-          const SizedBox(height: 8),
-          const _CapabilityCard(
-            icon: Icons.wifi_tethering_outlined,
-            title: 'Current Wi-Fi hosting',
-            status: 'Available',
-            detail:
-                'Drop Rooms can host on the active local network with browser access.',
-            color: DropTheme.success,
-          ),
-          const _CapabilityCard(
-            icon: Icons.link_outlined,
-            title: 'Manual Join',
-            status: 'Available',
-            detail:
-                'Join another room by entering its Drop Link, then browse, send text, create folders, and download files.',
-            color: DropTheme.success,
-          ),
-          if (supportsNativeQrScanner)
-            const _CapabilityCard(
-              icon: Icons.qr_code_scanner_outlined,
-              title: 'QR scan',
-              status: 'Available',
-              detail:
-                  'Scan a host Drop Code with the camera and join from the detected Drop Link.',
-              color: DropTheme.success,
-            ),
-          _CapabilityCard(
-            icon: Icons.network_wifi_outlined,
-            title: 'Hosting network',
-            status: networkLoading
-                ? 'Checking'
-                : networkStatus.isReady
-                ? networkStatus.label
-                : 'Hotspot needed',
-            detail: networkLoading
-                ? 'Checking for Wi-Fi or an active hotspot.'
-                : networkStatus.isReady
-                ? 'Drops start on the current ${networkStatus.label} network.'
-                : 'Connect to Wi-Fi or create a hotspot in system Settings before starting a room.',
-            color: networkLoading
-                ? DropTheme.muted
-                : networkStatus.isReady
-                ? DropTheme.success
-                : DropTheme.amber,
-          ),
-          const _CapabilityCard(
-            icon: Icons.radar_outlined,
-            title: 'Nearby Rooms',
-            status: 'Available',
-            detail:
-                'Live rooms advertise _erebrusdrop._tcp on the local network. Apps on the same Wi-Fi or hotspot can discover and open nearby rooms.',
-            color: DropTheme.success,
-          ),
-          const _CapabilityCard(
-            icon: Icons.radar_outlined,
-            title: 'Smart Send intake',
-            status: 'Available',
-            detail:
-                'Android and iOS share-sheet text and files can enter Smart Send or a live room.',
-            color: DropTheme.success,
-          ),
-          const SizedBox(height: 18),
-          const _AboutFooterLinks(),
-          const SizedBox(height: 12),
-          Center(
-            child: Text(
-              _copyrightNotice,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: DropTheme.faint,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PrivacyScreen extends StatelessWidget {
-  const _PrivacyScreen();
-
-  @override
-  Widget build(BuildContext context) {
-    return const _InfoScaffold(
-      title: 'Privacy',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _AppLogoLockup(compact: true),
-          SizedBox(height: 18),
-          _TextCard(
-            text:
-                'Erebrus Drop does not collect analytics, advertising identifiers, contact lists, location history, or account profiles. NetSepio does not receive your transferred files, pasted text, folder contents, room passwords, or Drop Links.',
-          ),
-          SizedBox(height: 8),
-          _TextCard(
-            text:
-                'Transfers happen between nearby devices on your local Wi-Fi or hotspot network. Files and text stay on the devices and folders you choose.',
-          ),
-          SizedBox(height: 8),
-          _TextCard(
-            text:
-                'Permissions are feature-scoped: camera for QR scans, local network access for Drop Rooms, and file or folder access for uploads and downloads. You control when those features are used.',
-          ),
-          SizedBox(height: 8),
-          _TextCard(text: 'For privacy questions, contact $_supportEmail.'),
-        ],
-      ),
-    );
-  }
-}
-
-class _TermsScreen extends StatelessWidget {
-  const _TermsScreen();
-
-  @override
-  Widget build(BuildContext context) {
-    return const _InfoScaffold(
-      title: 'Terms',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _AppLogoLockup(compact: true),
-          SizedBox(height: 18),
-          _TextCard(
-            text:
-                'Erebrus Drop is provided for private, nearby device-to-device sharing. Use it only for files and content you own or have permission to share.',
-          ),
-          SizedBox(height: 8),
-          _TextCard(
-            text:
-                'You are responsible for who joins your Drop Room, the network you use, and the files or text you send. Keep room passwords and Drop Links private when sharing sensitive content.',
-          ),
-          SizedBox(height: 8),
-          _TextCard(
-            text:
-                'The app is provided as-is. Local transfers depend on your device, operating system, browser, storage, permissions, and network conditions.',
-          ),
-          SizedBox(height: 8),
-          _TextCard(
-            text:
-                'To the fullest extent permitted by law, you agree to indemnify and hold NetSepio harmless from claims, losses, damages, liabilities, and expenses arising from your use of Erebrus Drop, the content you share, or your violation of these terms or applicable law.',
-          ),
-          SizedBox(height: 8),
-          _TextCard(
-            text:
-                'Erebrus Platform, brand, and apps are products of NetSepio. For support, contact $_supportEmail.',
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InfoScaffold extends StatelessWidget {
-  const _InfoScaffold({required this.title, required this.child});
-
-  final String title;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final maxWidth = DesktopLayout.contentMaxWidth(
-              windowWidth: constraints.maxWidth,
-            );
-            return SingleChildScrollView(
-              padding: const EdgeInsets.all(18),
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: maxWidth),
-                  child: child,
-                ),
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
-}
-
-class _AppLogoLockup extends StatelessWidget {
-  const _AppLogoLockup({this.compact = false});
-
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: BrandLockup(
-        centered: true,
-        markSize: compact ? 76 : 96,
-        wordmarkSize: compact ? 26 : 30,
-        subtitle: 'Version $_appVersion',
-      ),
-    );
-  }
-}
-
-class _TextCard extends StatelessWidget {
-  const _TextCard({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return DropCard(
-      child: Text(text, style: Theme.of(context).textTheme.bodyMedium),
-    );
-  }
-}
-
-class _AboutFooterLinks extends StatelessWidget {
-  const _AboutFooterLinks();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Wrap(
-        alignment: WrapAlignment.center,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 4,
-        children: [
-          TextButton(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const _PrivacyScreen()),
-            ),
-            child: const Text('Privacy'),
-          ),
-          Text(
-            '|',
-            style: TextStyle(color: Theme.of(context).colorScheme.outline),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const _TermsScreen()),
-            ),
-            child: const Text('Terms'),
-          ),
-        ],
       ),
     );
   }
@@ -5279,24 +4924,16 @@ class _FeatureGrid extends StatelessWidget {
             item.$1,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontFamily: DropTheme.bodyFont,
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-              color: DropTheme.white,
-            ),
+            style: Theme.of(context).textTheme.titleSmall,
           ),
           const SizedBox(height: 2),
           Text(
             item.$3,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontFamily: DropTheme.bodyFont,
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-              color: DropTheme.muted,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(fontSize: 11),
           ),
           const SizedBox(height: 10),
           Row(
@@ -5310,13 +4947,13 @@ class _FeatureGrid extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 6),
-              const Text(
+              Text(
                 'Ready',
-                style: TextStyle(
-                  fontFamily: DropTheme.bodyFont,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   fontSize: 10.5,
                   fontWeight: FontWeight.w700,
                   color: DropTheme.success,
+                  letterSpacing: 0,
                 ),
               ),
             ],
