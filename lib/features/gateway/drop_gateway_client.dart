@@ -1,7 +1,12 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:pointycastle/export.dart';
 
 import 'gateway_config.dart';
 import 'gateway_http.dart';
@@ -152,5 +157,218 @@ class DropGatewayClient {
   String _randomIdempotencyKey() {
     final bytes = List<int>.generate(16, (_) => 0);
     return base64Encode(bytes).replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
+  }
+
+  /// Downloads a gateway file to a temporary file.
+  ///
+  /// Public files are fetched from the IPFS gateway at `GATEWAY_URL/ipfs/{cid}`.
+  /// Private files use the authenticated endpoint
+  /// `/api/v2/drop/files/{file_id}/download`.
+  ///
+  /// If [encryptionKey] is provided and the file is encrypted, the bytes are
+  /// decrypted with AES-256-GCM before the file is returned.
+  Future<File> downloadFile(
+    DropGatewayFile file, {
+    String? encryptionKey,
+    void Function(int received, int total)? onProgress,
+  }) async {
+    if (file.encrypted && (encryptionKey == null || encryptionKey.isEmpty)) {
+      throw GatewayException(
+        'This file is encrypted. Provide a decryption key to download.',
+      );
+    }
+
+    final url = _resolveDownloadUrl(file);
+    final directory = await _downloadStagingDirectory();
+    await directory.create(recursive: true);
+    final tempFile = await _uniqueStagingFile(directory, _safeName(file.filename));
+
+    final client = HttpClient();
+    client.connectionTimeout = GatewayHttp.createClient().connectionTimeout;
+    try {
+      final request = await client.getUrl(url).timeout(const Duration(seconds: 20));
+      if (!file.isPublic && bearerToken != null && bearerToken!.isNotEmpty) {
+        request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $bearerToken');
+      }
+      final response = await request.close().timeout(const Duration(seconds: 60));
+      if (response.statusCode >= 400) {
+        final body = await utf8.decoder.bind(response).join();
+        throw GatewayException(GatewayHttp.errorMessage(response.statusCode, body));
+      }
+      final sink = tempFile.openWrite();
+      var received = 0;
+      final total = response.contentLength;
+      try {
+        await for (final chunk in response) {
+          received += chunk.length;
+          sink.add(chunk);
+          onProgress?.call(received, total);
+        }
+      } finally {
+        await sink.close();
+      }
+    } on SocketException catch (e) {
+      throw GatewayException('Cannot reach Erebrus: ${e.message}');
+    } on TimeoutException {
+      throw GatewayException('Download timed out');
+    } finally {
+      client.close(force: true);
+    }
+
+    if (file.encrypted && encryptionKey != null && encryptionKey.isNotEmpty) {
+      final encrypted = await tempFile.readAsBytes();
+      Uint8List decrypted;
+      try {
+        decrypted = _decryptAesGcm(
+          encrypted,
+          encryptionKey,
+          file.encryptionMetadata,
+          file.fileId,
+        );
+      } catch (e) {
+        throw GatewayException('Decryption failed: $e');
+      }
+      final decryptedFile = File('${tempFile.path}.dec');
+      await decryptedFile.writeAsBytes(decrypted);
+      return decryptedFile;
+    }
+
+    return tempFile;
+  }
+
+  Uri _resolveDownloadUrl(DropGatewayFile file) {
+    // 1. Use the server-provided download URL if available.
+    if (file.downloadUrl != null && file.downloadUrl!.isNotEmpty) {
+      return Uri.parse(file.downloadUrl!);
+    }
+    // 2. If a public gateway URL is provided, use it.
+    if (file.gatewayUrl != null && file.gatewayUrl!.isNotEmpty) {
+      return Uri.parse(file.gatewayUrl!);
+    }
+    // 3. If a CID is present, fetch it from the IPFS gateway path.
+    //    A CID is a public content identifier, so this works for both
+    //    public and encrypted files regardless of the visibility flag.
+    if (file.cid?.isNotEmpty == true) {
+      return GatewayHttp.apiUri(_base, path: '/ipfs/${file.cid}');
+    }
+    // 4. Fallback to the authenticated private-file endpoint.
+    return GatewayHttp.apiUri(
+      _base,
+      path: '/api/v2/drop/files/${file.fileId}/download',
+    );
+  }
+
+  Future<Directory> _downloadStagingDirectory() async {
+    final temp = await getTemporaryDirectory();
+    return Directory('${temp.path}${Platform.pathSeparator}erebrus_drop_downloads');
+  }
+
+  Future<File> _uniqueStagingFile(Directory directory, String name) async {
+    final dot = name.lastIndexOf('.');
+    final base = dot > 0 ? name.substring(0, dot) : name;
+    final ext = dot > 0 ? name.substring(dot) : '';
+    final random = Random.secure().nextInt(999999).toString().padLeft(6, '0');
+    var candidate = File(
+      '${directory.path}${Platform.pathSeparator}$base-$random$ext',
+    );
+    var index = 1;
+    while (await candidate.exists()) {
+      candidate = File(
+        '${directory.path}${Platform.pathSeparator}$base-$random-$index$ext',
+      );
+      index++;
+    }
+    return candidate;
+  }
+
+  String _safeName(String name) {
+    final safe = name
+        .replaceAll(RegExp(r'[\\/:*?"<>|]'), '-')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    return safe.isEmpty ? 'download' : safe;
+  }
+
+  /// Decrypts [encryptedBytes] using AES-256-GCM.
+  ///
+  /// The [keyText] is treated as:
+  ///   - a base64-encoded 32-byte key if it is 44 characters,
+  ///   - a hex 32-byte key if it is 64 hex characters,
+  ///   - otherwise it is hashed with SHA-256 to produce a 32-byte key.
+  ///
+  /// The 12-byte nonce is read from `metadata['iv']` or `metadata['nonce']`
+  /// (base64). If absent, a deterministic nonce is derived from [fileId] so
+  /// files encrypted without a stored nonce can still be decrypted.
+  Uint8List _decryptAesGcm(
+    Uint8List encryptedBytes,
+    String keyText,
+    Map<String, dynamic>? metadata,
+    String fileId,
+  ) {
+    final key = _deriveKey(keyText);
+    var nonce = _decodeNonce(metadata);
+    if (nonce == null || nonce.length != 12) {
+      final hash = sha256.convert(utf8.encode(fileId)).bytes;
+      nonce = Uint8List.fromList(hash.take(12).toList());
+    }
+
+    // If the server returns the auth tag separately in metadata, append it.
+    final tagBase64 = (metadata?['tag'] ?? metadata?['auth_tag'])?.toString();
+    Uint8List cipherInput = encryptedBytes;
+    if (tagBase64 != null && tagBase64.isNotEmpty) {
+      final tag = base64Decode(tagBase64);
+      cipherInput = Uint8List(encryptedBytes.length + tag.length)
+        ..setAll(0, encryptedBytes)
+        ..setAll(encryptedBytes.length, tag);
+    }
+
+    final cipher = GCMBlockCipher(AESEngine())
+      ..init(false, AEADParameters(KeyParameter(key), 128, nonce, Uint8List(0)));
+    try {
+      return cipher.process(cipherInput);
+    } on ArgumentError catch (e) {
+      throw StateError('Decryption failed: ${e.message}');
+    }
+  }
+
+  Uint8List _deriveKey(String keyText) {
+    if (keyText.length == 44) {
+      try {
+        final decoded = base64Decode(keyText);
+        if (decoded.length == 32) return Uint8List.fromList(decoded);
+      } catch (_) {}
+    }
+    if (keyText.length == 64) {
+      try {
+        final decoded = _hexDecode(keyText);
+        if (decoded.length == 32) return Uint8List.fromList(decoded);
+      } catch (_) {}
+    }
+    return Uint8List.fromList(sha256.convert(utf8.encode(keyText)).bytes);
+  }
+
+  Uint8List? _decodeNonce(Map<String, dynamic>? metadata) {
+    final raw = metadata?['iv'] ?? metadata?['nonce'];
+    if (raw == null) return null;
+    final text = raw.toString();
+    if (text.isEmpty) return null;
+    try {
+      if (text.length == 24) {
+        // 12 bytes encoded as hex.
+        return _hexDecode(text);
+      }
+      return base64Decode(text);
+    } catch (_) {
+      return utf8.encode(text) as Uint8List?;
+    }
+  }
+
+  Uint8List _hexDecode(String hex) {
+    final bytes = <int>[];
+    for (var i = 0; i < hex.length; i += 2) {
+      final byte = int.parse(hex.substring(i, i + 2), radix: 16);
+      bytes.add(byte);
+    }
+    return Uint8List.fromList(bytes);
   }
 }

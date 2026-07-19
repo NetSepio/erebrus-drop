@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -40,7 +42,8 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
 
   void _onSignedIn() {
     if (widget.auth.isSignedIn && mounted) {
-      Navigator.of(context).pop();
+      // Pop the login screen (and any open bottom sheets) back to the main app.
+      Navigator.of(context).popUntil((route) => route.isFirst);
     }
   }
 
@@ -216,23 +219,7 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
   }
 
   Widget _loadingOverlay() {
-    return Container(
-      color: DropTheme.black.withValues(alpha: 0.75),
-      alignment: Alignment.center,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const CircularProgressIndicator(color: DropTheme.orange),
-          const SizedBox(height: 16),
-          Text(
-            'Connecting to Erebrus…',
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(color: DropTheme.white),
-          ),
-        ],
-      ),
-    );
+    return _LoadingOverlay(auth: widget.auth);
   }
 
   void _showEmailSheet(BuildContext context) {
@@ -595,6 +582,69 @@ class _InputField extends StatelessWidget {
       keyboardType: keyboardType,
       autofocus: autofocus,
       decoration: InputDecoration(hintText: hint),
+    );
+  }
+}
+
+/// Loading overlay that shows a cancel button after a few seconds so users
+/// can escape a hung ReownKit/browser sign-in attempt.
+class _LoadingOverlay extends StatefulWidget {
+  const _LoadingOverlay({required this.auth});
+
+  final DropAuthService auth;
+
+  @override
+  State<_LoadingOverlay> createState() => _LoadingOverlayState();
+}
+
+class _LoadingOverlayState extends State<_LoadingOverlay> {
+  Timer? _showCancelTimer;
+  bool _showCancel = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _showCancelTimer = Timer(const Duration(seconds: 8), () {
+      if (mounted) setState(() => _showCancel = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _showCancelTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: DropTheme.black.withValues(alpha: 0.75),
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const CircularProgressIndicator(color: DropTheme.orange),
+          const SizedBox(height: 16),
+          Text(
+            'Connecting to Erebrus…',
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: DropTheme.white),
+          ),
+          if (_showCancel) ...[
+            const SizedBox(height: 18),
+            TextButton(
+              onPressed: () {
+                widget.auth.cancelAuthentication();
+              },
+              style: TextButton.styleFrom(
+                foregroundColor: DropTheme.orange,
+              ),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

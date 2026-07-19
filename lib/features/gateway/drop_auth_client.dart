@@ -117,10 +117,13 @@ class DropAuthClient {
   }
 
   /// `POST /api/v2/auth/email/login/start` — send a login code to the email.
-  Future<void> emailLoginStart(String email) async {
+  Future<void> emailLoginStart(
+    String email, {
+    String app = 'drop',
+  }) async {
     await GatewayHttp.postJson(
       GatewayHttp.apiUri(_base, path: '/api/v2/auth/email/login/start'),
-      {'email': email.trim().toLowerCase()},
+      {'email': email.trim().toLowerCase(), 'app': app},
     );
   }
 
