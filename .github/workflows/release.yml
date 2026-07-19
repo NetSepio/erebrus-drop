@@ -87,8 +87,8 @@ jobs:
 
       - name: Build release APKs
         run: |
-          flutter build apk --flavor playstore --release
-          flutter build apk --flavor dappstore --release
+          scripts/build.sh build-apk --flavor playstore --release
+          scripts/build.sh build-apk --flavor dappstore --release
 
       - name: Package sideload artifacts
         run: |
@@ -199,7 +199,7 @@ jobs:
       - run: flutter pub get
       - run: pip install pillow
       - run: python3 scripts/generate-desktop-assets.py
-      - run: flutter build windows --release
+      - run: scripts/build.sh build-windows --release
       - name: Package Windows artifact
         shell: bash
         run: |

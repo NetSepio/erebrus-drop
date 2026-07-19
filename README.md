@@ -134,11 +134,31 @@ Install dependencies:
 flutter pub get
 ```
 
-Run the app:
+Copy the example environment file and fill in any missing values:
 
 ```sh
-flutter run
+cp .env.example .env
 ```
+
+Run the app with `.env` dart-defines (recommended):
+
+```sh
+scripts/build.sh run
+```
+
+Or run directly with Flutter:
+
+```sh
+flutter run --dart-define-from-file=.env
+```
+
+**Android Studio / IntelliJ:** the green **Run** button calls `flutter run`
+directly, so add `--dart-define-from-file=.env` to the run configuration’s
+**Additional run args**. For the **Build APK** action also include a flavor,
+e.g. `--dart-define-from-file=.env --flavor playstore` or `--flavor dappstore`.
+
+The `scripts/build.sh build-apk` and `build-appbundle` commands default to the
+`playstore` flavor automatically.
 
 Verify:
 

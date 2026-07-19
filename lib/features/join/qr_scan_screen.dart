@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../ui/theme/drop_theme.dart';
+
 class QrScanScreen extends StatefulWidget {
   const QrScanScreen({super.key});
 
@@ -45,7 +47,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
                   color: Theme.of(context).colorScheme.primary,
                   width: 3,
                 ),
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(DropTheme.radiusCard),
               ),
             ),
           ),
@@ -119,14 +121,14 @@ class _QrScanScreenState extends State<QrScanScreen> {
 
   Widget _scannerPlaceholder(BuildContext context) {
     return const ColoredBox(
-      color: Colors.black,
+      color: DropTheme.black,
       child: Center(child: CircularProgressIndicator()),
     );
   }
 
   Widget _scannerErrorPanel(BuildContext context, String message) {
     return ColoredBox(
-      color: Colors.black,
+      color: DropTheme.black,
       child: Center(
         child: Padding(
           padding: const EdgeInsets.all(24),

@@ -315,7 +315,7 @@ class DropAuthService {
 
       final challenge = await _authClient.fetchAuthChallenge(walletAddress: address);
       if (challenge.message.isEmpty) {
-        error.value = 'Gateway returned an empty challenge';
+        error.value = 'Erebrus returned an empty challenge';
         return;
       }
 

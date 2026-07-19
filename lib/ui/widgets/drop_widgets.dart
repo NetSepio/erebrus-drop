@@ -227,6 +227,36 @@ class DropCard extends StatelessWidget {
   }
 }
 
+/// Inset surface for lists, progress panels, and empty states — a lighter
+/// `surfaceHigh` tile with a hairline border and `radiusTile`. Use this instead
+/// of hand-rolling `DecoratedBox`/`Container` surfaces inside screens.
+class DropInset extends StatelessWidget {
+  const DropInset({
+    required this.child,
+    this.padding = const EdgeInsets.all(12),
+    this.color = DropTheme.surfaceHigh,
+    this.borderColor = DropTheme.line,
+    super.key,
+  });
+
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final Color color;
+  final Color borderColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(DropTheme.radiusTile),
+        border: Border.all(color: borderColor),
+      ),
+      child: Padding(padding: padding, child: child),
+    );
+  }
+}
+
 /// A soft radial accent glow bleed for a screen corner (spec §4). Decorative
 /// and non-interactive — drop it into a Stack behind the scroll body.
 class AmbientGlow extends StatelessWidget {
