@@ -248,8 +248,8 @@ object SolanaWalletBridge {
 
                 val messageBytes = message.toByteArray(Charsets.UTF_8)
                 val signed: MobileWalletAdapterClient.SignMessagesResult = client.signMessagesDetached(
-                    arrayOf(authResult.publicKey),
                     arrayOf(messageBytes),
+                    arrayOf(authResult.publicKey),
                 ).get()
 
                 if (signed.messages.isEmpty() || signed.messages[0].signatures.isEmpty()) {
