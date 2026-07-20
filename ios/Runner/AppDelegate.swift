@@ -189,7 +189,7 @@ import UIKit
   }
 
   private func consumeSharedPayload(result: FlutterResult) {
-    let appGroupId = "group.com.erebrus.drop"
+    let appGroupId = "group.com.erebrus.shared"
     guard let container = FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: appGroupId
     ) else {
@@ -479,7 +479,7 @@ import UIKit
 
   private func shareIntakeInboxDirectory() throws -> URL {
     guard let container = FileManager.default.containerURL(
-      forSecurityApplicationGroupIdentifier: "group.com.erebrus.drop"
+      forSecurityApplicationGroupIdentifier: "group.com.erebrus.shared"
     ) else {
       throw HostFolderError.message("Shared App Group is not available.")
     }

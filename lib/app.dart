@@ -1731,6 +1731,8 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     return GestureDetector(
       onTap: signedIn
           ? () async {
+              final confirmed = await confirmGatewaySignOut(context);
+              if (!confirmed || !mounted) return;
               await _dropAuthService.signOut();
               if (mounted) {
                 _snack('Signed out');

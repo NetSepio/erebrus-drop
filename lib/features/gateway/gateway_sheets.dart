@@ -7,6 +7,34 @@ import 'gateway_models.dart';
 
 enum GatewayOrgSheetResult { none, changed }
 
+Future<bool> confirmGatewaySignOut(BuildContext context) async {
+  return await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Sign out?'),
+          content: const Text(
+            'Are you sure you want to sign out of your Erebrus account?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: DropTheme.danger,
+                foregroundColor: DropTheme.white,
+              ),
+              onPressed: () => Navigator.of(context).pop(true),
+              icon: const Icon(Icons.logout_rounded),
+              label: const Text('Sign out'),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+}
+
 Future<GatewayOrgSheetResult> showGatewayOrgSheet({
   required BuildContext context,
   required DropAuthService authService,
@@ -105,6 +133,8 @@ class _GatewayOrgSheetState extends State<GatewayOrgSheet> {
                       const SizedBox(height: 8),
                       TextButton.icon(
                         onPressed: () async {
+                          final confirmed = await confirmGatewaySignOut(context);
+                          if (!confirmed || !context.mounted) return;
                           final navigator = Navigator.of(context);
                           await widget.authService.signOut();
                           if (!mounted) return;

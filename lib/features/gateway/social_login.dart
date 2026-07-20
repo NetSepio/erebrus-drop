@@ -11,10 +11,11 @@ import 'auth_config.dart';
 bool get googleSignInSupported =>
     hasGoogleSignIn && (Platform.isAndroid || Platform.isIOS);
 
-/// Whether Apple sign-in can run: native on iOS/macOS, or a configured Services
-/// id elsewhere.
+/// Whether Apple sign-in can run: native on iOS (the app targets iOS 13+), or
+/// through a configured Services id on non-Apple mobile platforms.
 Future<bool> appleSignInSupported() async {
-  if (Platform.isIOS || Platform.isMacOS) {
+  if (Platform.isIOS) return true;
+  if (Platform.isMacOS) {
     try {
       return await SignInWithApple.isAvailable();
     } catch (_) {
@@ -27,6 +28,7 @@ Future<bool> appleSignInSupported() async {
 /// Runs the Google sign-in sheet and returns an id_token, or null if cancelled.
 Future<String?> googleIdToken() async {
   final google = GoogleSignIn(
+    clientId: Platform.isIOS ? kGoogleIosClientId : null,
     serverClientId: hasGoogleSignIn ? kGoogleServerClientId : null,
     scopes: const ['email'],
   );
@@ -40,10 +42,12 @@ Future<String?> googleIdToken() async {
   return token;
 }
 
-/// Runs the Apple sign-in flow and returns the identity token, or null if
-/// cancelled.
-Future<String?> appleIdToken() async {
+/// Runs Apple sign-in and returns the values the gateway needs to validate the
+/// authorization, or null if the user cancels.
+Future<AppleLoginCredential?> appleCredential() async {
   final useWebRelay = !(Platform.isIOS || Platform.isMacOS);
+  final nonce = generateNonce();
+  final state = 'drop.${generateNonce()}';
   try {
     final cred = await SignInWithApple.getAppleIDCredential(
       scopes: const [
@@ -56,18 +60,44 @@ Future<String?> appleIdToken() async {
               redirectUri: Uri.parse(kAppleRedirectUri),
             )
           : null,
+      nonce: nonce,
+      state: state,
     );
     final token = cred.identityToken;
     if (token == null || token.isEmpty) {
       throw const SocialLoginException('Apple did not return an identity token');
     }
-    return token;
+    if (cred.state != state) {
+      throw const SocialLoginException(
+        'Apple sign-in state mismatch — please try again',
+      );
+    }
+    return AppleLoginCredential(
+      identityToken: token,
+      authorizationCode: cred.authorizationCode,
+      nonce: nonce,
+      state: state,
+    );
   } on SignInWithAppleAuthorizationException catch (e) {
     if (e.code == AuthorizationErrorCode.canceled) return null;
     throw SocialLoginException(
       e.message.isEmpty ? 'Apple sign-in failed' : e.message,
     );
   }
+}
+
+class AppleLoginCredential {
+  const AppleLoginCredential({
+    required this.identityToken,
+    required this.authorizationCode,
+    required this.nonce,
+    required this.state,
+  });
+
+  final String identityToken;
+  final String authorizationCode;
+  final String nonce;
+  final String state;
 }
 
 /// Best-effort sign-out from the Google session so the chooser shows next time.

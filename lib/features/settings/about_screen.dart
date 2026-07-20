@@ -102,30 +102,35 @@ class AboutScreen extends StatelessWidget {
             const SizedBox(height: 10),
             DropCard(
               padding: EdgeInsets.zero,
-              child: Column(
-                children: [
-                  _LegalRow(
-                    icon: Icons.privacy_tip_outlined,
-                    title: 'Privacy Policy',
-                    subtitle: 'What we collect and what we never log',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const PrivacyScreen(),
+              child: Material(
+                type: MaterialType.transparency,
+                borderRadius: BorderRadius.circular(DropTheme.radiusCard),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  children: [
+                    _LegalRow(
+                      icon: Icons.privacy_tip_outlined,
+                      title: 'Privacy Policy',
+                      subtitle: 'What we collect and what we never log',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const PrivacyScreen(),
+                        ),
                       ),
                     ),
-                  ),
-                  const Divider(height: 1, indent: 58, endIndent: 16),
-                  _LegalRow(
-                    icon: Icons.description_outlined,
-                    title: 'Terms of Use',
-                    subtitle: 'Acceptable use, disclaimers, and beta notice',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const TermsScreen(),
+                    const Divider(height: 1, indent: 58, endIndent: 16),
+                    _LegalRow(
+                      icon: Icons.description_outlined,
+                      title: 'Terms of Use',
+                      subtitle: 'Acceptable use, disclaimers, and beta notice',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const TermsScreen(),
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 28),
