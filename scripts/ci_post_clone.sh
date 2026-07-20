@@ -1,7 +1,8 @@
 #!/bin/sh
-# Xcode Cloud pre-build script for the iOS Flutter app.
-# Installs Flutter (if needed), fetches dependencies, and generates the
-# Swift Package Manager files Xcode requires before it can resolve packages.
+# Xcode Cloud post-clone script for the iOS Flutter app.
+# Runs immediately after the repo is cloned and before Xcode resolves packages.
+# Installs Flutter, fetches dependencies, and generates the local Swift Package
+# Manager files Xcode needs to resolve the workspace.
 set -e
 
 # Xcode Cloud provides the checked-out repository path.
@@ -26,6 +27,6 @@ export PATH="$FLUTTER_DIR/bin:$PATH"
 flutter --version
 flutter pub get
 
-# Generate iOS configuration, local Swift packages, and run pod install
-# without performing the full compile (Xcode Cloud will do that next).
+# Generate the iOS configuration and local Swift packages so Xcode can resolve
+# dependencies. This does not compile the app (Xcode Cloud will do that next).
 flutter build ios --config-only
