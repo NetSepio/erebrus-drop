@@ -1,7 +1,7 @@
 import UIKit
 
 final class ShareViewController: UIViewController {
-  private let appGroupId = "group.com.erebrus.drop"
+  private let appGroupId = "group.com.erebrus.shared"
   private let inboxName = "ShareInbox"
   private let plainTextType = "public.plain-text"
   private let urlType = "public.url"

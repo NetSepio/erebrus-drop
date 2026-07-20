@@ -149,11 +149,21 @@ class DropAuthClient {
     return _identitySession(map);
   }
 
-  /// `POST /api/v2/auth/apple` — exchange an Apple id_token for a session.
-  Future<DropAuthSession> appleLogin(String idToken) async {
+  /// `POST /api/v2/auth/apple` — validate Apple authorization and get a session.
+  Future<DropAuthSession> appleLogin({
+    required String idToken,
+    required String authorizationCode,
+    required String nonce,
+    required String state,
+  }) async {
     final map = await GatewayHttp.postJson(
       GatewayHttp.apiUri(_base, path: '/api/v2/auth/apple'),
-      {'id_token': idToken},
+      {
+        'id_token': idToken,
+        'authorization_code': authorizationCode,
+        'nonce': nonce,
+        'state': state,
+      },
     );
     return _identitySession(map);
   }

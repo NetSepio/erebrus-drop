@@ -157,41 +157,42 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
               ),
               const SizedBox(height: 12),
             ],
-            if (widget.auth.googleLoginAvailable) ...[
-              _OutlinedButton(
-                label: 'Continue with Google',
-                icon: Icons.g_mobiledata_rounded,
-                onPressed: () => widget.auth.signInWithGoogle(),
-              ),
-              const SizedBox(height: 12),
-            ],
-            if (widget.auth.appleLoginAvailable) ...[
-              _OutlinedButton(
-                label: 'Continue with Apple',
-                icon: Icons.apple,
-                onPressed: () => widget.auth.signInWithApple(),
+            if (widget.auth.googleLoginAvailable ||
+                widget.auth.appleLoginAvailable) ...[
+              _SocialLoginButtons(
+                googleAvailable: widget.auth.googleLoginAvailable,
+                appleAvailable: widget.auth.appleLoginAvailable,
+                onGooglePressed: widget.auth.signInWithGoogle,
+                onApplePressed: widget.auth.signInWithApple,
               ),
               const SizedBox(height: 12),
             ],
             if (!reownReady &&
                 !widget.auth.googleLoginAvailable &&
                 !widget.auth.appleLoginAvailable &&
-                !widget.auth.emailLoginAvailable)
+                !widget.auth.emailLoginAvailable) ...[
               _PrimaryButton(
                 label: 'Sign in with browser',
                 icon: Icons.open_in_browser,
                 onPressed: () => widget.auth.openWebSignIn(),
-              )
-            else ...[
-              const SizedBox(height: 8),
-              const _DividerLabel(label: 'CONNECT A WALLET'),
-              const SizedBox(height: 8),
-              _PrimaryButton(
-                label: 'Connect Wallet',
-                icon: Icons.account_balance_wallet,
-                onPressed: () => widget.auth.openReownModal(),
               ),
+              const SizedBox(height: 8),
             ],
+            const _DividerLabel(label: 'CONNECT A WALLET'),
+            const SizedBox(height: 8),
+            _PrimaryButton(
+              label: reownReady
+                  ? 'Connect Wallet'
+                  : widget.auth.reownInitializing.value
+                  ? 'Preparing Wallet…'
+                  : 'Wallet Unavailable',
+              icon: reownReady
+                  ? Icons.account_balance_wallet
+                  : Icons.hourglass_top_rounded,
+              onPressed: reownReady
+                  ? () => widget.auth.openReownModal(context)
+                  : null,
+            ),
           ],
           const SizedBox(height: 20),
           ValueListenableBuilder<String?>(
@@ -258,16 +259,16 @@ Widget _legalFooter(BuildContext context) {
     children: [
       Text('By continuing you agree to our ', style: faint),
       GestureDetector(
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const TermsScreen()),
-        ),
+        onTap: () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute<void>(builder: (_) => const TermsScreen())),
         child: Text('Terms', style: link),
       ),
       Text(' and ', style: faint),
       GestureDetector(
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const PrivacyScreen()),
-        ),
+        onTap: () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute<void>(builder: (_) => const PrivacyScreen())),
         child: Text('Privacy Policy', style: link),
       ),
       Text('.', style: faint),
@@ -283,7 +284,7 @@ class _PrimaryButton extends StatelessWidget {
   });
   final String label;
   final IconData icon;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -331,15 +332,111 @@ class _OutlinedButton extends StatelessWidget {
   }
 }
 
+class _SocialLoginButtons extends StatelessWidget {
+  const _SocialLoginButtons({
+    required this.googleAvailable,
+    required this.appleAvailable,
+    required this.onGooglePressed,
+    required this.onApplePressed,
+  });
+
+  final bool googleAvailable;
+  final bool appleAvailable;
+  final VoidCallback onGooglePressed;
+  final VoidCallback onApplePressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final bothAvailable = googleAvailable && appleAvailable;
+
+    return Material(
+      color: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(DropTheme.radiusButton),
+        side: const BorderSide(color: DropTheme.lineStrong),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Row(
+        children: [
+          if (googleAvailable)
+            Expanded(
+              child: _SocialLoginSegment(
+                semanticLabel: 'Continue with Google',
+                label: bothAvailable ? 'Google' : 'Continue with Google',
+                icon: Icons.g_mobiledata_rounded,
+                iconSize: 27,
+                onPressed: onGooglePressed,
+              ),
+            ),
+          if (googleAvailable && appleAvailable)
+            Container(width: 1, height: 28, color: DropTheme.lineStrong),
+          if (appleAvailable)
+            Expanded(
+              child: _SocialLoginSegment(
+                semanticLabel: 'Continue with Apple',
+                label: bothAvailable ? 'Apple' : 'Continue with Apple',
+                icon: Icons.apple,
+                iconSize: 22,
+                onPressed: onApplePressed,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SocialLoginSegment extends StatelessWidget {
+  const _SocialLoginSegment({
+    required this.semanticLabel,
+    required this.label,
+    required this.icon,
+    required this.iconSize,
+    required this.onPressed,
+  });
+
+  final String semanticLabel;
+  final String label;
+  final IconData icon;
+  final double iconSize;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: semanticLabel,
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: onPressed,
+        child: SizedBox(
+          height: 52,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: iconSize, color: DropTheme.white),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: Theme.of(
+                  context,
+                ).textTheme.labelLarge?.copyWith(color: DropTheme.white),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _DividerLabel extends StatelessWidget {
   const _DividerLabel({required this.label});
   final String label;
 
   @override
   Widget build(BuildContext context) {
-    final line = Expanded(
-      child: Container(height: 1, color: DropTheme.line),
-    );
+    final line = Expanded(child: Container(height: 1, color: DropTheme.line));
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Row(
@@ -665,9 +762,7 @@ class _LoadingOverlayState extends State<_LoadingOverlay> {
               onPressed: () {
                 widget.auth.cancelAuthentication();
               },
-              style: TextButton.styleFrom(
-                foregroundColor: DropTheme.orange,
-              ),
+              style: TextButton.styleFrom(foregroundColor: DropTheme.orange),
               child: const Text('Cancel'),
             ),
           ],

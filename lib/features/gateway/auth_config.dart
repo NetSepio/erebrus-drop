@@ -11,16 +11,21 @@ bool get hasReownProjectId => kReownProjectId.isNotEmpty;
 const kGoogleServerClientId = String.fromEnvironment(
   'GOOGLE_SERVER_CLIENT_ID',
   defaultValue:
-      '743089346496-15iub9ug9b4jkqonokg2js80ndjv8nba.apps.googleusercontent.com',
+      '743089346496-hughdpru3ucqpui4489i0udke2nvppie.apps.googleusercontent.com',
 );
 bool get hasGoogleSignIn => kGoogleServerClientId.isNotEmpty;
+
+/// Native iOS OAuth client for the `com.erebrus.drop` bundle identifier.
+/// This is public OAuth metadata, not a secret.
+const kGoogleIosClientId =
+    '743089346496-bc04c5k6qibqs454q6k8ui9g9cs0g241.apps.googleusercontent.com';
 
 /// Apple Sign-In Services id + redirect, needed only for the web/Android relay
 /// flow; on iOS/macOS native Apple sign-in uses the app's capability instead.
 const kAppleServiceId = String.fromEnvironment('APPLE_SERVICE_ID');
 const kAppleRedirectUri = String.fromEnvironment(
   'APPLE_REDIRECT_URI',
-  defaultValue: 'https://gateway.erebrus.io/api/v2/auth/apple/callback',
+  defaultValue: 'https://gateway.erebrus.io/api/v2/auth/apple/callback/drop',
 );
 
 /// Erebrus webapp origin.

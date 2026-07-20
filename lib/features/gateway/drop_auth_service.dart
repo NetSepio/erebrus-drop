@@ -36,8 +36,8 @@ class DropAuthService {
     required this.solana,
     DropAuthClient? authClient,
     DropGatewayClient? gatewayClient,
-  })  : _authClient = authClient ?? DropAuthClient(),
-        _gatewayClient = gatewayClient ?? DropGatewayClient();
+  }) : _authClient = authClient ?? DropAuthClient(),
+       _gatewayClient = gatewayClient ?? DropGatewayClient();
 
   final SolanaWalletService solana;
   final DropAuthClient _authClient;
@@ -49,12 +49,16 @@ class DropAuthService {
   String? _authMethod;
   String? _mwaAuthToken;
   ReownAppKitModal? _appKitModal;
+  Future<void>? _reownInitFuture;
 
-  final ValueNotifier<List<DropOrg>> orgs = ValueNotifier<List<DropOrg>>(const []);
+  final ValueNotifier<List<DropOrg>> orgs = ValueNotifier<List<DropOrg>>(
+    const [],
+  );
   final ValueNotifier<DropOrg?> selectedOrg = ValueNotifier<DropOrg?>(null);
   final ValueNotifier<bool> isAuthenticating = ValueNotifier<bool>(false);
   final ValueNotifier<String?> error = ValueNotifier<String?>(null);
   final ValueNotifier<bool> reownReady = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> reownInitializing = ValueNotifier<bool>(false);
   final ValueNotifier<bool> awaitingWebCallback = ValueNotifier<bool>(false);
   final ValueNotifier<bool> solanaMobileDevice = ValueNotifier<bool>(false);
   final ValueNotifier<bool> appleDeviceReady = ValueNotifier<bool>(false);
@@ -72,19 +76,22 @@ class DropAuthService {
 
   /// Combined [Listenable] for UI state observers.
   Listenable get state => Listenable.merge([
-        signedIn,
-        isAuthenticating,
-        error,
-        reownReady,
-        awaitingWebCallback,
-        solanaMobileDevice,
-        appleDeviceReady,
-        authMethods,
-      ]);
+    signedIn,
+    isAuthenticating,
+    error,
+    reownReady,
+    reownInitializing,
+    awaitingWebCallback,
+    solanaMobileDevice,
+    appleDeviceReady,
+    authMethods,
+  ]);
 
   bool get emailLoginAvailable => authMethods.value.email;
-  bool get googleLoginAvailable => authMethods.value.google && googleSignInSupported;
-  bool get appleLoginAvailable => authMethods.value.apple && appleDeviceReady.value;
+  bool get googleLoginAvailable =>
+      authMethods.value.google && googleSignInSupported;
+  bool get appleLoginAvailable =>
+      authMethods.value.apple && appleDeviceReady.value;
 
   static const String _kToken = 'erebrus_gateway_token';
   static const String _kWallet = 'erebrus_gateway_wallet';
@@ -117,15 +124,65 @@ class DropAuthService {
 
   /// Initializes Reown AppKit once a [BuildContext] is available.
   Future<void> initReown(BuildContext context) async {
+    while (context.mounted) {
+      final active = _reownInitFuture;
+      if (active != null) {
+        await active;
+        if (!context.mounted) return;
+        if (_appKitModal?.modalContext == context ||
+            !hasReownProjectId ||
+            solanaMobileDevice.value ||
+            isDesktopPlatform) {
+          return;
+        }
+        // The active initialization belonged to a screen that was replaced.
+        // Loop once more so the modal receives this screen's live context.
+        continue;
+      }
+
+      if (!context.mounted) return;
+      late final Future<void> future;
+      future = _runReownInitialization(context).whenComplete(() {
+        if (identical(_reownInitFuture, future)) _reownInitFuture = null;
+      });
+      _reownInitFuture = future;
+      await future;
+      return;
+    }
+  }
+
+  Future<void> _runReownInitialization(BuildContext context) async {
+    try {
+      await _initializeReown(context);
+    } catch (e) {
+      debugPrint('[Reown] init failed: $e');
+      error.value = 'Wallet connect failed to start: $e';
+      reownReady.value = false;
+    } finally {
+      reownInitializing.value = false;
+    }
+  }
+
+  Future<void> _initializeReown(BuildContext context) async {
     if (solanaMobileDevice.value || isDesktopPlatform) return;
+    reownInitializing.value = true;
     if (!hasReownProjectId) {
       error.value = kReownProjectIdMissingMessage;
       reownReady.value = false;
       return;
     }
-    if (_appKitModal != null) {
-      reownReady.value = true;
+
+    final previousModal = _appKitModal;
+    final wasReady = reownReady.value;
+    if (previousModal?.modalContext == context && wasReady) {
       return;
+    }
+
+    reownReady.value = false;
+    final existingAppKit = wasReady ? previousModal?.appKit : null;
+    if (previousModal != null) {
+      await previousModal.dispose();
+      _appKitModal = null;
     }
 
     ReownAppKitModalNetworks.removeSupportedNetworks('eip155');
@@ -145,13 +202,11 @@ class DropAuthService {
           };
 
     await PackageInfo.fromPlatform();
-    if (!context.mounted) {
-      reownReady.value = false;
-      return;
-    }
+    if (!context.mounted) return;
 
     _appKitModal = ReownAppKitModal(
       context: context,
+      appKit: existingAppKit,
       projectId: kReownProjectId,
       logLevel: LogLevel.error,
       metadata: PairingMetadata(
@@ -195,13 +250,26 @@ class DropAuthService {
     }
   }
 
-  Future<void> openReownModal() async {
+  Future<void> openReownModal(BuildContext context) async {
     error.value = null;
-    if (_appKitModal == null || !reownReady.value) {
-      error.value = 'Wallet connect is still starting — try again in a moment';
+    final modal = _appKitModal;
+    if (modal == null || !reownReady.value || modal.modalContext != context) {
+      await initReown(context);
+    }
+    if (!context.mounted) return;
+    final readyModal = _appKitModal;
+    if (readyModal == null ||
+        !reownReady.value ||
+        readyModal.modalContext != context) {
+      error.value = 'Wallet connection is unavailable right now';
       return;
     }
-    await _appKitModal!.openModalView();
+    try {
+      await readyModal.openModalView();
+    } catch (e) {
+      debugPrint('[Reown] open failed: $e');
+      error.value = 'Could not open wallet connection: $e';
+    }
   }
 
   /// Cancels an in-flight sign-in attempt and dismisses any open wallet modal.
@@ -224,7 +292,10 @@ class DropAuthService {
     try {
       final url = DesktopWebAuth.buildLoginUrl();
       final uri = Uri.parse(url);
-      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
       if (!launched) {
         awaitingWebCallback.value = false;
         error.value = 'Could not open the browser — check your default browser';
@@ -284,14 +355,17 @@ class DropAuthService {
     try {
       final callback = DesktopWebAuth.parseManualAuthInput(input);
       if (callback == null || callback.token.isEmpty) {
-        error.value = 'Could not read a sign-in token — paste the PASETO or full callback URL';
+        error.value =
+            'Could not read a sign-in token — paste the PASETO or full callback URL';
         return;
       }
       final session = DropAuthSession(
         token: callback.token,
         userId: callback.userId.isEmpty ? 'imported' : callback.userId,
         role: callback.role.isEmpty ? 'user' : callback.role,
-        walletAddress: callback.walletAddress.isEmpty ? 'imported' : callback.walletAddress,
+        walletAddress: callback.walletAddress.isEmpty
+            ? 'imported'
+            : callback.walletAddress,
       );
       await _persistSession(session, method: 'manual_paste');
       DesktopWebAuth.clearPendingState();
@@ -306,7 +380,8 @@ class DropAuthService {
   /// Solana Mobile Wallet Adapter sign-in (Seeker / Saga).
   Future<void> signInWithSolanaMobile(BuildContext context) async {
     if (!Platform.isAndroid || !solanaMobileDevice.value) {
-      error.value = 'Solana Mobile sign-in is only available on Seeker and Saga';
+      error.value =
+          'Solana Mobile sign-in is only available on Seeker and Saga';
       return;
     }
     if (isAuthenticating.value) return;
@@ -325,7 +400,9 @@ class DropAuthService {
         return;
       }
 
-      final challenge = await _authClient.fetchAuthChallenge(walletAddress: address);
+      final challenge = await _authClient.fetchAuthChallenge(
+        walletAddress: address,
+      );
       if (challenge.message.isEmpty) {
         error.value = 'Erebrus returned an empty challenge';
         return;
@@ -350,7 +427,11 @@ class DropAuthService {
       );
 
       _mwaAuthToken = authToken;
-      await _persistSession(session, method: 'solana_mobile', mwaToken: authToken);
+      await _persistSession(
+        session,
+        method: 'solana_mobile',
+        mwaToken: authToken,
+      );
       await _loadOrgs();
     } catch (e) {
       error.value = e.toString();
@@ -385,9 +466,14 @@ class DropAuthService {
     isAuthenticating.value = true;
     error.value = null;
     try {
-      final idToken = await appleIdToken();
-      if (idToken == null) return;
-      final session = await _authClient.appleLogin(idToken);
+      final credential = await appleCredential();
+      if (credential == null) return;
+      final session = await _authClient.appleLogin(
+        idToken: credential.identityToken,
+        authorizationCode: credential.authorizationCode,
+        nonce: credential.nonce,
+        state: credential.state,
+      );
       await _persistSession(session, method: 'apple');
       await _loadOrgs();
     } on AuthException catch (e) {
@@ -448,7 +534,10 @@ class DropAuthService {
   }
 
   /// Creates a new organization and refreshes the org list.
-  Future<DropOrg> createOrg({required String name, required String slug}) async {
+  Future<DropOrg> createOrg({
+    required String name,
+    required String slug,
+  }) async {
     if (!isSignedIn) throw const AuthException('Sign in first');
     final org = await _authClient.createOrg(
       bearerToken: _bearerToken!,
@@ -583,8 +672,14 @@ class DropAuthService {
     isAuthenticating.value = true;
     error.value = null;
     try {
-      final challenge = await _authClient.fetchAuthChallenge(walletAddress: address);
-      final signature = await _signChallengeWithModal(modal, address, challenge.message);
+      final challenge = await _authClient.fetchAuthChallenge(
+        walletAddress: address,
+      );
+      final signature = await _signChallengeWithModal(
+        modal,
+        address,
+        challenge.message,
+      );
       final session = await _authClient.authenticate(
         challengeId: challenge.challengeId,
         signature: signature,
@@ -623,19 +718,24 @@ class DropAuthService {
     String message,
   ) async {
     final chainId = modal.selectedChain!.chainId;
-    final messageBase58 = base58encode(Uint8List.fromList(utf8.encode(message)));
-
-    final response = await modal.request(
-      topic: modal.session!.topic,
-      chainId: chainId,
-      request: SessionRequestParams(
-        method: 'solana_signMessage',
-        params: {'pubkey': address, 'message': messageBase58},
-      ),
-    ).timeout(
-      const Duration(minutes: 2),
-      onTimeout: () => throw const AuthException('Wallet signature timed out'),
+    final messageBase58 = base58encode(
+      Uint8List.fromList(utf8.encode(message)),
     );
+
+    final response = await modal
+        .request(
+          topic: modal.session!.topic,
+          chainId: chainId,
+          request: SessionRequestParams(
+            method: 'solana_signMessage',
+            params: {'pubkey': address, 'message': messageBase58},
+          ),
+        )
+        .timeout(
+          const Duration(minutes: 2),
+          onTimeout: () =>
+              throw const AuthException('Wallet signature timed out'),
+        );
 
     return _signatureToTransmittable(response);
   }
@@ -666,7 +766,9 @@ class DropAuthService {
     return null;
   }
 
-  Future<SolanaWalletOption?> _pickOrUseConnectedSolanaWallet(BuildContext context) async {
+  Future<SolanaWalletOption?> _pickOrUseConnectedSolanaWallet(
+    BuildContext context,
+  ) async {
     if (solana.isConnected && solana.connectedWallet != null) {
       return solana.connectedWallet;
     }

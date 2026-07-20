@@ -1,5 +1,7 @@
 import 'package:erebrus_drop/app.dart';
+import 'package:erebrus_drop/features/gateway/gateway_sheets.dart';
 import 'package:erebrus_drop/features/onboarding/onboarding_screen.dart';
+import 'package:erebrus_drop/features/settings/about_screen.dart';
 import 'package:erebrus_drop/ui/theme/drop_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -40,6 +42,53 @@ void main() {
     expect(find.text('Start Drop Room'), findsOneWidget);
     expect(find.text('Join Drop Room'), findsOneWidget);
     expect(find.text('Send'), findsWidgets);
+  });
+
+  testWidgets('about legal rows paint on their own material surface', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(theme: DropTheme.dark(), home: const AboutScreen()),
+    );
+    await tester.pump();
+
+    expect(find.text('Privacy Policy'), findsOneWidget);
+    expect(find.text('Terms of Use'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('sign-out confirmation supports cancel and confirm', (
+    tester,
+  ) async {
+    bool? result;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: DropTheme.dark(),
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () async {
+                result = await confirmGatewaySignOut(context);
+              },
+              child: const Text('Open sign-out dialog'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open sign-out dialog'));
+    await tester.pumpAndSettle();
+    expect(find.text('Sign out?'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(result, isFalse);
+
+    await tester.tap(find.text('Open sign-out dialog'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sign out').last);
+    await tester.pumpAndSettle();
+    expect(result, isTrue);
   });
 
   testWidgets('renders primary tabs across common Android screen sizes', (
