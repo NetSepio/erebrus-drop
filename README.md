@@ -32,6 +32,14 @@ or cloud upload.
 - Smart Send: send quick text into a room.
 - Settings and About: app details, privacy, terms, and NetSepio ethos.
 
+## What's New in 1.0.6+6
+
+- **Configurable IPFS gateway** — choose a preset (Erebrus, Cloudflare, Pinata, IPFS.io) or enter a custom gateway URL in Settings.
+- **User-selected Drop folder** — all gateway downloads save to the folder you pick through the system file picker.
+- **Cleaner Settings** — removed the Solana dApp Store wallet card and the "Private by design" promo block.
+- **Better wallet sign-in** — improved Solana Mobile Wallet and Reown message signing and fixed the Erebrus Drop logo shown during wallet connection.
+- **Sign-in legal links** — both **Terms** and **Privacy Policy** are now linked on the sign-in screen.
+
 ## Release
 
 Current release version:
