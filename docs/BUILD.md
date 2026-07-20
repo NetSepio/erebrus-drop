@@ -8,12 +8,18 @@ and fill in any missing values, then use the provided wrapper so `.env` is
 injected automatically:
 
 ```bash
-cp .env.example .env
+cp env.example .env
 flutter pub get
 scripts/build.sh run                              # Android debug (playstore flavor default)
 scripts/build.sh build-appbundle --release        # Google Play (playstore flavor default)
 scripts/build.sh build-apk --flavor dappstore --release         # Solana dApp Store
 ```
+
+Environment variables:
+
+- `REOWN_PROJECT_ID` — required for wallet/social login.
+- `GATEWAY_URL` — Erebrus gateway base URL (default `https://gateway.erebrus.io`).
+- `IPFS_GATEWAY_URL` — public IPFS gateway for CID downloads (default `https://ipfs.erebrus.io`).
 
 `scripts/build.sh build-apk` and `build-appbundle` default to the `playstore`
 flavor when no `--flavor` is given.

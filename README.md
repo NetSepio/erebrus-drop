@@ -1,6 +1,6 @@
 # Erebrus Drop
 
-Current version: `1.0.5+5`
+Current version: `1.0.6+6`
 
 Erebrus Drop is a local-first file and text sharing app for nearby devices. A
 phone can create a temporary Drop Room on the current Wi-Fi network or hotspot,
@@ -37,7 +37,7 @@ or cloud upload.
 Current release version:
 
 ```text
-1.0.5+5
+1.0.6+6
 ```
 
 Android release versioning:
@@ -137,8 +137,14 @@ flutter pub get
 Copy the example environment file and fill in any missing values:
 
 ```sh
-cp .env.example .env
+cp env.example .env
 ```
+
+Key variables:
+
+- `REOWN_PROJECT_ID` — required for wallet/social login.
+- `GATEWAY_URL` — Erebrus gateway base URL (default `https://gateway.erebrus.io`).
+- `IPFS_GATEWAY_URL` — public IPFS gateway for CID downloads (default `https://ipfs.erebrus.io`).
 
 Run the app with `.env` dart-defines (recommended):
 

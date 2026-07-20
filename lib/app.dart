@@ -6,14 +6,15 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/desktop_shell.dart';
 import 'core/drop_models.dart';
 import 'core/host_folder_bridge.dart';
 import 'core/platform_capabilities.dart';
-import 'core/platform_downloads.dart';
 import 'core/platform_network.dart';
 import 'features/gateway/drop_auth_service.dart';
+import 'features/gateway/gateway_config.dart';
 import 'features/gateway/gateway_http.dart';
 import 'features/gateway/gateway_models.dart';
 import 'features/gateway/gateway_sheets.dart';
@@ -36,7 +37,7 @@ import 'ui/layout/desktop_layout.dart';
 import 'ui/theme/drop_theme.dart';
 import 'ui/widgets/drop_widgets.dart';
 
-const String _appVersion = '1.0.5+5';
+const String _appVersion = '1.0.6+6';
 
 class ErebrusDropApp extends StatefulWidget {
   const ErebrusDropApp({this.skipOnboarding = false, super.key});
@@ -142,6 +143,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   DropNode? _selectedSendNode;
   bool _gatewayUploading = false;
   String? _gatewayUploadedCid;
+  String _ipfsGatewayUrl = resolveIpfsGatewayUrl();
   int _libraryScopeIndex = 0; // 0 Local, 1 Global
   int _smartSendScopeIndex = 0; // 0 Local, 1 Global
   final ValueNotifier<int> _joinUiVersion = ValueNotifier<int>(0);
@@ -201,9 +203,36 @@ class _DropHomeScreenState extends State<DropHomeScreen>
 
   DropRoomSession? get _session => _server.session;
 
+  static const String _kIpfsGatewayUrlPref = 'ipfs_gateway_url';
+
   static String _defaultRoomName() {
     final suffix = 1000 + math.Random.secure().nextInt(9000);
     return 'ErebrusDrop$suffix';
+  }
+
+  Future<void> _loadIpfsGatewayUrl() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(_kIpfsGatewayUrlPref);
+      final url = saved != null && saved.trim().isNotEmpty
+          ? saved.trim()
+          : resolveIpfsGatewayUrl();
+      _ipfsGatewayUrl = url;
+      _dropAuthService.gatewayClient.ipfsGatewayUrl = url;
+    } catch (_) {
+      // Leave the default/dart-define value in place.
+    }
+  }
+
+  Future<void> _saveIpfsGatewayUrl(String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (url.trim().isEmpty || url.trim() == resolveIpfsGatewayUrl()) {
+      await prefs.remove(_kIpfsGatewayUrlPref);
+    } else {
+      await prefs.setString(_kIpfsGatewayUrlPref, url.trim());
+    }
+    setState(() => _ipfsGatewayUrl = url.trim());
+    _dropAuthService.gatewayClient.ipfsGatewayUrl = url.trim();
   }
 
   @override
@@ -215,6 +244,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     unawaited(_loadHostFolderSelection());
     unawaited(_refreshNetworkStatus());
     unawaited(_detectSolanaMobileDevice());
+    unawaited(_loadIpfsGatewayUrl());
     unawaited(_loadGatewaySession());
     _dropAuthService.selectedOrg.addListener(_onSelectedOrgChanged);
     _shareSubscription = _shareIntakeService.watchIncomingShares().listen(
@@ -937,10 +967,14 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         streamable: false,
       ),
     );
-    final scope = file.scope;
-    final scopeLabel = file.orgId != null ? '$scope · org' : scope;
-    final meta =
-        '${formatBytes(file.sizeBytes)} · ${_shortWhen(file.createdAt)} · $scopeLabel';
+    final tags = <String>[
+      formatBytes(file.sizeBytes),
+      _shortWhen(file.createdAt),
+      if (file.isPublic) 'Public' else 'Private',
+      if (file.encrypted) 'Encrypted',
+      if (file.orgId != null) 'Org',
+    ];
+    final meta = tags.join(' · ');
     return DecoratedBox(
       decoration: BoxDecoration(
         border: first
@@ -1230,23 +1264,6 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                           : DropTheme.orange,
                     ),
                     _NodeDetailChip(
-                      icon: selected.acceptingUploads
-                          ? Icons.cloud_upload_rounded
-                          : Icons.block_rounded,
-                      label: selected.acceptingUploads
-                          ? 'Accepting uploads'
-                          : 'Uploads paused',
-                      color: selected.acceptingUploads
-                          ? DropTheme.success
-                          : DropTheme.danger,
-                    ),
-                    if (selected.acceptsPublicUploads)
-                      const _NodeDetailChip(
-                        icon: Icons.people_rounded,
-                        label: 'Public uploads',
-                        color: DropTheme.success,
-                      ),
-                    _NodeDetailChip(
                       icon: Icons.layers_rounded,
                       label: selected.deploymentProfile.capitalize(),
                       color: DropTheme.faint,
@@ -1373,6 +1390,14 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   }
 
   Future<void> _downloadGatewayFile(DropGatewayFile file) async {
+    if (_hostFolderSelection == null) {
+      await _promptSelectDropFolder();
+      if (_hostFolderSelection == null) {
+        if (mounted) _snack('Choose a Drop folder to save downloads');
+        return;
+      }
+    }
+
     String? encryptionKey;
     if (file.encrypted) {
       encryptionKey = await _promptEncryptionKey(file.filename);
@@ -1385,20 +1410,60 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         file,
         encryptionKey: encryptionKey,
       );
-      final saved = await PlatformDownloads.saveFileToDownloads(
-        source: temp,
+      final selection = _hostFolderSelection!;
+      final saved = await _hostFolderBridge.copyFileInto(
+        rootUri: selection.uri,
+        folderPath: '/',
+        sourcePath: temp.path,
         name: file.filename,
-        mimeType: file.contentType,
+        mimeType: file.contentType ?? 'application/octet-stream',
       );
       if (!mounted) return;
-      _snack('Saved to ${saved.location}');
+      _snack('Saved to ${saved.name} in ${selection.name}');
     } on GatewayException catch (e) {
       if (!mounted) return;
       _snack('Download failed: ${e.message}');
+    } on PlatformException catch (e) {
+      if (!mounted) return;
+      _snack('Could not save file: ${e.message}. Re-select the Drop folder.');
+      await _hostFolderService.clearSelection();
+      setState(() => _hostFolderSelection = null);
     } catch (e) {
       if (!mounted) return;
       _snack('Download failed: $e');
     }
+  }
+
+  /// Asks the user to pick a Drop folder before downloading.
+  /// Returns `true` if a folder was selected.
+  Future<bool> _promptSelectDropFolder() async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: DropTheme.black,
+            title: const Text('Choose Drop folder'),
+            content: const Text(
+              'Gateway downloads are saved to your selected Drop folder. '
+              'Please choose a folder and grant permission to write there.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () async {
+                  await _selectHostFolder();
+                  if (ctx.mounted) {
+                    Navigator.of(ctx).pop(_hostFolderSelection != null);
+                  }
+                },
+                child: const Text('Choose folder'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
   }
 
   /// Shows a dialog for entering or loading an encryption key.
@@ -1574,7 +1639,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           const SizedBox(height: 12),
           _hostFolderSettingsCard(),
           const SizedBox(height: 12),
-          _privateByDesignCard(),
+          _ipfsGatewaySettingsCard(),
           const SizedBox(height: 22),
           const Eyebrow('ABOUT'),
           const SizedBox(height: 10),
@@ -1873,50 +1938,117 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     );
   }
 
-  Widget _privateByDesignCard() {
-    return DropCard.tinted(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const LeadingTile(
-                icon: Icons.shield_rounded,
-                gradient: true,
-                size: 42,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Private by design',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      'Everything stays on your network.',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          const Row(
-            children: [
-              Expanded(child: _PrivacyChip('No analytics')),
-              SizedBox(width: 6),
-              Expanded(child: _PrivacyChip('No tracking')),
-              SizedBox(width: 6),
-              Expanded(child: _PrivacyChip('No cloud relay')),
-            ],
-          ),
-        ],
+
+  Widget _ipfsGatewaySettingsCard() {
+    return DropCard(
+      padding: EdgeInsets.zero,
+      child: _settingsRow(
+        icon: Icons.cloud_done_outlined,
+        title: 'IPFS Gateway',
+        subtitle: _ipfsGatewayUrl,
+        onTap: () => unawaited(_showIpfsGatewayPicker()),
+        trailing: const Icon(
+          Icons.chevron_right_rounded,
+          color: DropTheme.faint,
+        ),
+        first: true,
+        last: true,
       ),
     );
+  }
+
+  Future<void> _showIpfsGatewayPicker() async {
+    const presets = <String>[
+      'https://ipfs.erebrus.io',
+      'https://cloudflare-ipfs.com',
+      'https://gateway.pinata.cloud',
+      'https://ipfs.io',
+    ];
+    final initial = _ipfsGatewayUrl;
+    String? selected = presets.contains(initial) ? initial : null;
+    final customCtrl = TextEditingController(
+      text: presets.contains(initial) ? '' : initial,
+    );
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final effectiveUrl = selected ?? customCtrl.text.trim();
+          return AlertDialog(
+            backgroundColor: DropTheme.black,
+            title: const Text('IPFS Gateway'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Choose the gateway used to fetch files by CID.'),
+                  const SizedBox(height: 12),
+                  for (final preset in presets)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      leading: Icon(
+                        selected == preset
+                            ? Icons.radio_button_checked_rounded
+                            : Icons.radio_button_unchecked_rounded,
+                        color: selected == preset ? DropTheme.orange : DropTheme.faint,
+                      ),
+                      title: Text(preset),
+                      onTap: () {
+                        setDialogState(() {
+                          selected = preset;
+                          customCtrl.clear();
+                        });
+                      },
+                    ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    leading: Icon(
+                      selected == null
+                          ? Icons.radio_button_checked_rounded
+                          : Icons.radio_button_unchecked_rounded,
+                      color: selected == null ? DropTheme.orange : DropTheme.faint,
+                    ),
+                    title: const Text('Custom'),
+                    onTap: () => setDialogState(() => selected = null),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 34),
+                    child: TextField(
+                      controller: customCtrl,
+                      enabled: selected == null,
+                      decoration: const InputDecoration(
+                        hintText: 'https://your-gateway.tld',
+                      ),
+                      onChanged: (_) => setDialogState(() {}),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: effectiveUrl.isEmpty
+                    ? null
+                    : () {
+                        Navigator.of(ctx).pop();
+                        unawaited(_saveIpfsGatewayUrl(effectiveUrl));
+                      },
+                child: const Text('Save'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    customCtrl.dispose();
   }
 
   Widget _settingsFooter() {
@@ -4878,46 +5010,6 @@ extension _StringCapitalize on String {
   String capitalize() {
     if (isEmpty) return this;
     return '${this[0].toUpperCase()}${substring(1)}';
-  }
-}
-
-/// A "Private by design" assurance chip: success check + label.
-class _PrivacyChip extends StatelessWidget {
-  const _PrivacyChip(this.label);
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: DropTheme.success.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: DropTheme.success.withValues(alpha: 0.24)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.check_rounded, color: DropTheme.success, size: 13),
-          const SizedBox(width: 4),
-          Flexible(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w700,
-                color: DropTheme.white,
-                letterSpacing: 0,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
 

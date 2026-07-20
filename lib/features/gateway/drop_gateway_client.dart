@@ -15,12 +15,23 @@ import 'gateway_models.dart';
 /// Client for the Erebrus gateway Drop endpoints.
 class DropGatewayClient {
   DropGatewayClient({String? gatewayUrl, this.bearerToken})
-      : _base = GatewayHttp.normalizeBase(gatewayUrl ?? resolveGatewayUrl());
+      : _base = GatewayHttp.normalizeBase(gatewayUrl ?? resolveGatewayUrl()),
+        _ipfsGatewayBase = GatewayHttp.normalizeBase(resolveIpfsGatewayUrl());
 
   final Uri _base;
+  Uri _ipfsGatewayBase;
   String? bearerToken;
 
   set token(String? value) => bearerToken = value;
+
+  /// Sets the public IPFS gateway base URL (e.g. `https://ipfs.erebrus.io`).
+  set ipfsGatewayUrl(String? value) {
+    _ipfsGatewayBase = GatewayHttp.normalizeBase(
+      value != null && value.trim().isNotEmpty ? value.trim() : resolveIpfsGatewayUrl(),
+    );
+  }
+
+  String get ipfsGatewayUrl => _ipfsGatewayBase.toString();
 
   /// `GET /api/v2/drop/nodes` — public or private-org Drop-capable nodes.
   Future<List<DropNode>> fetchDropNodes({
@@ -161,9 +172,10 @@ class DropGatewayClient {
 
   /// Downloads a gateway file to a temporary file.
   ///
-  /// Public files are fetched from the IPFS gateway at `GATEWAY_URL/ipfs/{cid}`.
-  /// Private files use the authenticated endpoint
-  /// `/api/v2/drop/files/{file_id}/download`.
+  /// Tries several candidate URLs in order:
+  /// 1. Server-provided `download_url` / `gateway_url`.
+  /// 2. Public IPFS gateway at `GATEWAY_URL/ipfs/{cid}`.
+  /// 3. Authenticated private-file endpoints.
   ///
   /// If [encryptionKey] is provided and the file is encrypted, the bytes are
   /// decrypted with AES-256-GCM before the file is returned.
@@ -178,16 +190,121 @@ class DropGatewayClient {
       );
     }
 
-    final url = _resolveDownloadUrl(file);
+    final candidates = _resolveDownloadCandidates(file);
+    if (candidates.isEmpty) {
+      throw GatewayException('No download URL available for this file.');
+    }
+
     final directory = await _downloadStagingDirectory();
     await directory.create(recursive: true);
     final tempFile = await _uniqueStagingFile(directory, _safeName(file.filename));
 
+    GatewayException? lastError;
+    for (var i = 0; i < candidates.length; i++) {
+      final url = candidates[i];
+      try {
+        await _downloadToTemp(
+          url,
+          tempFile,
+          needsAuth: _needsAuthForDownload(url),
+          onProgress: onProgress,
+        );
+        lastError = null;
+        break;
+      } on GatewayException catch (e) {
+        lastError = e;
+        // Try the next candidate on HTTP errors (404, 403, etc.).
+        if (i == candidates.length - 1) rethrow;
+        continue;
+      }
+    }
+
+    if (lastError != null) throw lastError;
+
+    if (file.encrypted && encryptionKey != null && encryptionKey.isNotEmpty) {
+      final encrypted = await tempFile.readAsBytes();
+      Uint8List decrypted;
+      try {
+        decrypted = _decryptAesGcm(
+          encrypted,
+          encryptionKey,
+          file.encryptionMetadata,
+          file.fileId,
+        );
+      } catch (e) {
+        throw GatewayException('Decryption failed: $e');
+      }
+      final decryptedFile = File('${tempFile.path}.dec');
+      await decryptedFile.writeAsBytes(decrypted);
+      return decryptedFile;
+    }
+
+    return tempFile;
+  }
+
+  /// Builds the ordered list of URLs to try for a file download.
+  List<Uri> _resolveDownloadCandidates(DropGatewayFile file) {
+    final candidates = <Uri>[];
+    void addRaw(String? raw) {
+      if (raw == null || raw.trim().isEmpty) return;
+      final uri = Uri.tryParse(raw.trim());
+      if (uri == null) return;
+      if (uri.hasAbsolutePath && !uri.hasScheme) {
+        candidates.add(_base.resolve(raw.trim()));
+      } else {
+        candidates.add(uri);
+      }
+    }
+
+    addRaw(file.downloadUrl);
+    addRaw(file.gatewayUrl);
+    if (file.cid?.isNotEmpty == true) {
+      candidates.add(
+        GatewayHttp.apiUri(
+          _ipfsGatewayBase,
+          path: '/ipfs/${file.cid}',
+        ),
+      );
+    }
+    if (file.fileId.isNotEmpty) {
+      candidates.add(
+        GatewayHttp.apiUri(
+          _base,
+          path: '/api/v2/drop/files/${file.fileId}/download',
+        ),
+      );
+      candidates.add(
+        GatewayHttp.apiUri(
+          _base,
+          path: '/api/v2/drop/uploads/${file.fileId}/download',
+        ),
+      );
+    }
+
+    // Deduplicate while preserving order.
+    final seen = <String>{};
+    return candidates.where((u) => seen.add(u.toString())).toList();
+  }
+
+  /// Whether a download URL needs the bearer token.
+  bool _needsAuthForDownload(Uri url) {
+    return url.host == _base.host &&
+        (url.path.startsWith('/api/v2/drop/files/') ||
+            url.path.startsWith('/api/v2/drop/uploads/'));
+  }
+
+  /// Downloads [url] to [tempFile] and throws [GatewayException] on HTTP errors.
+  Future<void> _downloadToTemp(
+    Uri url,
+    File tempFile, {
+    required bool needsAuth,
+    void Function(int received, int total)? onProgress,
+  }) async {
     final client = HttpClient();
     client.connectionTimeout = GatewayHttp.createClient().connectionTimeout;
     try {
       final request = await client.getUrl(url).timeout(const Duration(seconds: 20));
-      if (!file.isPublic && bearerToken != null && bearerToken!.isNotEmpty) {
+      if (needsAuth && bearerToken != null && bearerToken!.isNotEmpty) {
         request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $bearerToken');
       }
       final response = await request.close().timeout(const Duration(seconds: 60));
@@ -214,48 +331,6 @@ class DropGatewayClient {
     } finally {
       client.close(force: true);
     }
-
-    if (file.encrypted && encryptionKey != null && encryptionKey.isNotEmpty) {
-      final encrypted = await tempFile.readAsBytes();
-      Uint8List decrypted;
-      try {
-        decrypted = _decryptAesGcm(
-          encrypted,
-          encryptionKey,
-          file.encryptionMetadata,
-          file.fileId,
-        );
-      } catch (e) {
-        throw GatewayException('Decryption failed: $e');
-      }
-      final decryptedFile = File('${tempFile.path}.dec');
-      await decryptedFile.writeAsBytes(decrypted);
-      return decryptedFile;
-    }
-
-    return tempFile;
-  }
-
-  Uri _resolveDownloadUrl(DropGatewayFile file) {
-    // 1. Use the server-provided download URL if available.
-    if (file.downloadUrl != null && file.downloadUrl!.isNotEmpty) {
-      return Uri.parse(file.downloadUrl!);
-    }
-    // 2. If a public gateway URL is provided, use it.
-    if (file.gatewayUrl != null && file.gatewayUrl!.isNotEmpty) {
-      return Uri.parse(file.gatewayUrl!);
-    }
-    // 3. If a CID is present, fetch it from the IPFS gateway path.
-    //    A CID is a public content identifier, so this works for both
-    //    public and encrypted files regardless of the visibility flag.
-    if (file.cid?.isNotEmpty == true) {
-      return GatewayHttp.apiUri(_base, path: '/ipfs/${file.cid}');
-    }
-    // 4. Fallback to the authenticated private-file endpoint.
-    return GatewayHttp.apiUri(
-      _base,
-      path: '/api/v2/drop/files/${file.fileId}/download',
-    );
   }
 
   Future<Directory> _downloadStagingDirectory() async {
