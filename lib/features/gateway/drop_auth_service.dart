@@ -337,11 +337,13 @@ class DropAuthService {
         return;
       }
 
-      final signature = await PlatformWallet.signMessage(
+      final rawSignature = await PlatformWallet.signMessage(
         wallet: wallet,
         authToken: authToken,
         message: challenge.message,
       );
+      // MWA returns the signature as hex, but the gateway expects base58.
+      final signature = _signatureToBase58(rawSignature);
 
       final session = await _authClient.authenticate(
         challengeId: challenge.challengeId,
@@ -637,7 +639,21 @@ class DropAuthService {
       onTimeout: () => throw const AuthException('Wallet signature timed out'),
     );
 
-    return _signatureToTransmittable(response);
+    return _signatureToBase58(_signatureToTransmittable(response));
+  }
+
+  /// MWA returns signatures as hex; Reown wallets return base58. Normalize to
+  /// base58 so the gateway always receives a Solana-standard encoded signature.
+  String _signatureToBase58(String signature) {
+    final hex = signature.replaceAll(RegExp(r'[^0-9a-fA-F]'), '');
+    if (hex.length == 128 && hex.length == signature.length) {
+      final bytes = Uint8List(64);
+      for (var i = 0; i < 64; i++) {
+        bytes[i] = int.parse(hex.substring(i * 2, i * 2 + 2), radix: 16);
+      }
+      return base58encode(bytes);
+    }
+    return signature;
   }
 
   String _signatureToTransmittable(dynamic response) {

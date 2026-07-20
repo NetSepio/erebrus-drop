@@ -26,8 +26,8 @@ object SolanaWalletBridge {
     private const val WALLET_ICON_PX = 96
     // Wallets resolve icon via Uri.withAppendedPath(identityUri, iconPath), not RFC
     // relative resolution — use a simple filename under the site root.
-    private val MWA_IDENTITY_URI = Uri.parse("https://erebrus.io")
-    private val MWA_ICON_RELATIVE_URI = Uri.parse("favicon.ico")
+    private val MWA_IDENTITY_URI = Uri.parse("https://erebrus.io/drop/")
+    private val MWA_ICON_RELATIVE_URI = Uri.parse("logo.png?v=2")
 
     private data class KnownWallet(
         val name: String,

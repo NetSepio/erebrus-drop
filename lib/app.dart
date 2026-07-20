@@ -29,8 +29,6 @@ import 'features/onboarding/onboarding_screen.dart';
 import 'features/onboarding/onboarding_store.dart';
 import 'features/settings/about_screen.dart';
 import 'features/smart_send/share_intake_service.dart';
-import 'features/wallet/solana_device_detector.dart';
-import 'features/wallet/solana_wallet_card.dart';
 import 'features/wallet/solana_wallet_service.dart';
 import 'server/drop_server.dart';
 import 'ui/layout/desktop_layout.dart';
@@ -131,7 +129,6 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   late final DropAuthService _dropAuthService = DropAuthService(
     solana: _solanaWalletService,
   );
-  bool _isSolanaMobileDevice = false;
   final ValueNotifier<int> _networkUiVersion = ValueNotifier<int>(0);
 
   // Gateway / org state
@@ -243,7 +240,6 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     unawaited(_loadDeviceName());
     unawaited(_loadHostFolderSelection());
     unawaited(_refreshNetworkStatus());
-    unawaited(_detectSolanaMobileDevice());
     unawaited(_loadIpfsGatewayUrl());
     unawaited(_loadGatewaySession());
     _dropAuthService.selectedOrg.addListener(_onSelectedOrgChanged);
@@ -281,14 +277,6 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       }
       unawaited(_refreshRoomData());
     }
-  }
-
-  Future<void> _detectSolanaMobileDevice() async {
-    final isSolanaDevice = await isSolanaMobileDevice();
-    if (!mounted) {
-      return;
-    }
-    setState(() => _isSolanaMobileDevice = isSolanaDevice);
   }
 
   Future<void> _loadGatewaySession() async {
@@ -1606,10 +1594,6 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const _Head(title: 'Settings'),
-          if (_isSolanaMobileDevice) ...[
-            const SizedBox(height: 16),
-            SolanaWalletCard(walletService: _solanaWalletService),
-          ],
           const SizedBox(height: 16),
           _gatewayAccountCard(),
           const SizedBox(height: 12),

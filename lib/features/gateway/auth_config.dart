@@ -43,7 +43,7 @@ const kSolanaChain = 'sol';
 
 /// App path on the erebrus site for icons and MWA identity.
 const kErebrusDropBasePath = '/drop';
-const kErebrusDropLogoFile = 'logo.png';
+const kErebrusDropLogoFile = 'logo.png?v=2';
 const kErebrusDropLogoPath = '$kErebrusDropBasePath/$kErebrusDropLogoFile';
 
 String _erebrusOriginBase(String webOrigin) =>
