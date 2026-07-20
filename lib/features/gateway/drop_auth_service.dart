@@ -337,10 +337,11 @@ class DropAuthService {
         return;
       }
 
+      final signMessage = _prepareSignMessage(challenge.message);
       final rawSignature = await PlatformWallet.signMessage(
         wallet: wallet,
         authToken: authToken,
-        message: challenge.message,
+        message: signMessage,
       );
       // MWA returns the signature as hex, but the gateway expects base58.
       final signature = _signatureToBase58(rawSignature);
@@ -625,7 +626,8 @@ class DropAuthService {
     String message,
   ) async {
     final chainId = modal.selectedChain!.chainId;
-    final messageBase58 = base58encode(Uint8List.fromList(utf8.encode(message)));
+    final signMessage = _prepareSignMessage(message);
+    final messageBase58 = base58encode(Uint8List.fromList(utf8.encode(signMessage)));
 
     final response = await modal.request(
       topic: modal.session!.topic,
@@ -640,6 +642,26 @@ class DropAuthService {
     );
 
     return _signatureToBase58(_signatureToTransmittable(response));
+  }
+
+  /// The gateway sometimes returns the challenge as a hex-encoded UTF-8 string.
+  /// Decode it so wallets display plaintext and sign the intended bytes.
+  String _prepareSignMessage(String raw) {
+    final hex = raw.replaceAll(RegExp(r'^(0x|0X)'), '').replaceAll(' ', '');
+    if (hex.isEmpty || hex.length.isOdd || !RegExp(r'^[0-9a-fA-F]+$').hasMatch(hex)) {
+      return raw;
+    }
+    try {
+      final bytes = Uint8List(hex.length ~/ 2);
+      for (var i = 0; i < bytes.length; i++) {
+        bytes[i] = int.parse(hex.substring(i * 2, i * 2 + 2), radix: 16);
+      }
+      final plain = utf8.decode(bytes, allowMalformed: false);
+      return plain.isNotEmpty ? plain : raw;
+    } catch (_) {
+      // Not hex-encoded text; fall back to the original challenge.
+      return raw;
+    }
   }
 
   /// MWA returns signatures as hex; Reown wallets return base58. Normalize to
