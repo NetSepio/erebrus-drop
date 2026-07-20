@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../ui/theme/drop_theme.dart';
+import '../settings/privacy_screen.dart';
+import '../settings/terms_screen.dart';
 import 'auth_config.dart';
 import 'desktop_web_auth.dart';
 import 'drop_auth_service.dart';
@@ -206,13 +208,7 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
             },
           ),
           const SizedBox(height: 24),
-          Text(
-            'By continuing you agree to Erebrus terms.',
-            textAlign: TextAlign.center,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: DropTheme.faint),
-          ),
+          _legalFooter(context),
         ],
       ),
     );
@@ -245,6 +241,38 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
       ),
     );
   }
+}
+
+Widget _legalFooter(BuildContext context) {
+  final faint = Theme.of(
+    context,
+  ).textTheme.bodySmall?.copyWith(color: DropTheme.faint);
+  final link = faint?.copyWith(
+    color: DropTheme.orange,
+    fontWeight: FontWeight.w600,
+  );
+
+  return Wrap(
+    alignment: WrapAlignment.center,
+    crossAxisAlignment: WrapCrossAlignment.center,
+    children: [
+      Text('By continuing you agree to our ', style: faint),
+      GestureDetector(
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const TermsScreen()),
+        ),
+        child: Text('Terms', style: link),
+      ),
+      Text(' and ', style: faint),
+      GestureDetector(
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const PrivacyScreen()),
+        ),
+        child: Text('Privacy Policy', style: link),
+      ),
+      Text('.', style: faint),
+    ],
+  );
 }
 
 class _PrimaryButton extends StatelessWidget {
