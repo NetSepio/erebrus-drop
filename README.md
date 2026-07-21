@@ -39,7 +39,7 @@ or cloud upload.
 - **Persistent macOS folder access** — sandbox-safe security-scoped bookmarks preserve access to the selected Drop folder across launches.
 - **Cleaner Settings** — removed the Solana dApp Store wallet card and the "Private by design" promo block.
 - **Google and Apple sign-in** — native social login is available when enabled by the gateway, with Apple sign-in supported on iOS and macOS.
-- **Reliable desktop browser sign-in** — `erebrusdrop://` callbacks return to the running app automatically on macOS, Windows, and Linux, while manual token paste remains available as a fallback.
+- **Reliable desktop browser sign-in** — `erebrusdrop://` callbacks return to the running app automatically on macOS, Windows, and Linux, including Google, Apple, and email accounts without a linked wallet; manual token paste remains available as a fallback.
 - **Safer sign-in navigation** — every platform can return from the sign-in screen and continue as a guest if login is cancelled or fails.
 - **Better wallet sign-in** — improved Solana Mobile Wallet and Reown message signing, waits for Reown readiness before enabling its action, and fixes the Erebrus Drop logo shown during wallet connection.
 - **Safer sign-out** — signing out now requires confirmation and uses the existing Erebrus visual language.
