@@ -618,14 +618,13 @@ class DropAuthService {
   }
 
   Future<void> _listenDeepLinks() async {
-    if (isDesktopPlatform) return;
     try {
       final appLinks = AppLinks();
       appLinks.uriLinkStream.listen((uri) {
         final url = uri.toString();
         if (DesktopWebAuth.isAuthCallback(url)) {
           unawaited(handleWebAuthCallback(url));
-        } else {
+        } else if (!isDesktopPlatform) {
           _appKitModal?.dispatchEnvelope(url);
         }
       });

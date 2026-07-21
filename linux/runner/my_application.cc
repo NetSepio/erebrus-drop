@@ -1,6 +1,7 @@
 #include "my_application.h"
 
 #include <flutter_linux/flutter_linux.h>
+#include <gio/gdesktopappinfo.h>
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
 #endif
@@ -13,6 +14,10 @@ struct _MyApplication {
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
+
+static constexpr char kCallbackMimeType[] =
+    "x-scheme-handler/erebrusdrop";
+static constexpr char kDesktopFileName[] = "com.erebrus.drop.desktop";
 
 static gchar* my_application_icon_path() {
   g_autofree gchar* exe = g_file_read_link("/proc/self/exe", NULL);
@@ -31,6 +36,68 @@ static void my_application_apply_icon(GtkWindow* window) {
   gtk_window_set_icon_from_file(window, icon_path, NULL);
 }
 
+// Register erebrusdrop:// for this user so the browser can return an
+// authentication callback to the app. Keeping the executable path in the
+// desktop entry also makes relocatable Flutter bundles work after being moved.
+static void my_application_register_url_scheme() {
+  g_autofree gchar* executable_path =
+      g_file_read_link("/proc/self/exe", nullptr);
+  if (executable_path == nullptr) {
+    return;
+  }
+
+  g_autofree gchar* applications_dir =
+      g_build_filename(g_get_user_data_dir(), "applications", nullptr);
+  if (g_mkdir_with_parents(applications_dir, 0755) != 0) {
+    g_warning("Failed to create the user applications directory");
+    return;
+  }
+
+  g_autofree gchar* desktop_file_path =
+      g_build_filename(applications_dir, kDesktopFileName, nullptr);
+  g_autofree gchar* escaped_executable =
+      g_strescape(executable_path, nullptr);
+  g_autofree gchar* icon_path = my_application_icon_path();
+  g_autofree gchar* escaped_icon =
+      icon_path == nullptr ? nullptr : g_strescape(icon_path, nullptr);
+  g_autofree gchar* desktop_entry = g_strdup_printf(
+      "[Desktop Entry]\n"
+      "Name=Erebrus Drop\n"
+      "Comment=Private peer-to-peer file sharing\n"
+      "Exec=\"%s\" %%u\n"
+      "Icon=%s\n"
+      "Terminal=false\n"
+      "Type=Application\n"
+      "Categories=Utility;Network;\n"
+      "MimeType=%s;\n"
+      "StartupWMClass=%s\n",
+      escaped_executable, escaped_icon == nullptr ? "" : escaped_icon,
+      kCallbackMimeType, APPLICATION_ID);
+
+  g_autoptr(GError) write_error = nullptr;
+  if (!g_file_set_contents(desktop_file_path, desktop_entry, -1,
+                           &write_error)) {
+    g_warning("Failed to register the Erebrus Drop URL handler: %s",
+              write_error->message);
+    return;
+  }
+
+  g_autoptr(GDesktopAppInfo) app_info =
+      g_desktop_app_info_new(kDesktopFileName);
+  if (app_info == nullptr) {
+    g_warning("Failed to load the Erebrus Drop desktop entry");
+    return;
+  }
+
+  g_autoptr(GError) default_error = nullptr;
+  if (!g_app_info_set_as_default_for_type(G_APP_INFO(app_info),
+                                           kCallbackMimeType,
+                                           &default_error)) {
+    g_warning("Failed to make Erebrus Drop the URL handler: %s",
+              default_error->message);
+  }
+}
+
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
@@ -39,6 +106,13 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
+
+  GList* windows = gtk_application_get_windows(GTK_APPLICATION(application));
+  if (windows != nullptr) {
+    gtk_window_present(GTK_WINDOW(windows->data));
+    return;
+  }
+
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
@@ -102,6 +176,7 @@ static gboolean my_application_local_command_line(GApplication* application,
                                                   int* exit_status) {
   MyApplication* self = MY_APPLICATION(application);
   // Strip out the first argument as it is the binary name.
+  g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
   self->dart_entrypoint_arguments = g_strdupv(*arguments + 1);
 
   g_autoptr(GError) error = nullptr;
@@ -114,12 +189,16 @@ static gboolean my_application_local_command_line(GApplication* application,
   g_application_activate(application);
   *exit_status = 0;
 
-  return TRUE;
+  // Allow GApplication to forward the command line to the primary process.
+  // app_links_linux receives that signal and sends the callback into Dart.
+  return FALSE;
 }
 
 // Implements GApplication::startup.
 static void my_application_startup(GApplication* application) {
   G_APPLICATION_CLASS(my_application_parent_class)->startup(application);
+
+  my_application_register_url_scheme();
 
   g_autofree gchar* icon_path = my_application_icon_path();
   if (icon_path != NULL && g_file_test(icon_path, G_FILE_TEST_EXISTS)) {
@@ -163,5 +242,7 @@ MyApplication* my_application_new() {
 
   return MY_APPLICATION(g_object_new(my_application_get_type(),
                                      "application-id", APPLICATION_ID, "flags",
-                                     G_APPLICATION_NON_UNIQUE, nullptr));
+                                     G_APPLICATION_HANDLES_COMMAND_LINE |
+                                         G_APPLICATION_HANDLES_OPEN,
+                                     nullptr));
 }
