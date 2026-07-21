@@ -36,8 +36,13 @@ or cloud upload.
 
 - **Configurable IPFS gateway** — choose a preset (Erebrus, Cloudflare, Pinata, IPFS.io) or enter a custom gateway URL in Settings.
 - **User-selected Drop folder** — all gateway downloads save to the folder you pick through the system file picker.
+- **Persistent macOS folder access** — sandbox-safe security-scoped bookmarks preserve access to the selected Drop folder across launches.
 - **Cleaner Settings** — removed the Solana dApp Store wallet card and the "Private by design" promo block.
-- **Better wallet sign-in** — improved Solana Mobile Wallet and Reown message signing and fixed the Erebrus Drop logo shown during wallet connection.
+- **Google and Apple sign-in** — native social login is available when enabled by the gateway, with Apple sign-in supported on iOS and macOS.
+- **Reliable desktop browser sign-in** — `erebrusdrop://` callbacks return to the running app automatically on macOS, Windows, and Linux, while manual token paste remains available as a fallback.
+- **Safer sign-in navigation** — every platform can return from the sign-in screen and continue as a guest if login is cancelled or fails.
+- **Better wallet sign-in** — improved Solana Mobile Wallet and Reown message signing, waits for Reown readiness before enabling its action, and fixes the Erebrus Drop logo shown during wallet connection.
+- **Safer sign-out** — signing out now requires confirmation and uses the existing Erebrus visual language.
 - **Sign-in legal links** — both **Terms** and **Privacy Policy** are now linked on the sign-in screen.
 
 ## Release
@@ -101,9 +106,9 @@ flutter build apk --flavor dappstore --release
 
 ### Desktop (macOS / Windows / Linux)
 
-Erebrus Drop ships on macOS, Windows, and Linux as well: system
-tray, responsive layout, mDNS room discovery, folder library, and hide-to-tray
-on close.
+Erebrus Drop ships on macOS, Windows, and Linux as well: system tray,
+responsive layout, mDNS room discovery, folder library, automatic browser
+authentication callbacks, and hide-to-tray on close.
 
 **Generate brand assets** (tray icons, Dock/taskbar launcher icons, macOS
 About icon, Linux window icon) before a desktop release build:

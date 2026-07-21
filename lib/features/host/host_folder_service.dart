@@ -13,22 +13,30 @@ class HostFolderSelection {
     required this.name,
     required this.uri,
     required this.platform,
+    this.bookmark,
   });
 
   final String name;
   final String uri;
   final String platform;
+  final String? bookmark;
 
   factory HostFolderSelection.fromJson(Map<Object?, Object?> json) {
     return HostFolderSelection(
       name: json['name']?.toString() ?? 'Selected folder',
       uri: json['uri']?.toString() ?? '',
       platform: json['platform']?.toString() ?? 'unknown',
+      bookmark: json['bookmark']?.toString(),
     );
   }
 
   Map<String, Object?> toJson() {
-    return {'name': name, 'uri': uri, 'platform': platform};
+    return {
+      'name': name,
+      'uri': uri,
+      'platform': platform,
+      if (bookmark != null) 'bookmark': bookmark,
+    };
   }
 }
 
@@ -60,7 +68,11 @@ class HostFolderService {
       if (decoded is! Map<String, Object?>) {
         return null;
       }
-      final selection = HostFolderSelection.fromJson(decoded);
+      var selection = HostFolderSelection.fromJson(decoded);
+      if (Platform.isMacOS) {
+        selection = await DesktopHostFolder.restoreSelection(selection);
+        await file.writeAsString(jsonEncode(selection.toJson()));
+      }
       unawaited(_syncShareIntakeHostFolder(selection));
       return selection;
     } on Object {
@@ -88,6 +100,15 @@ class HostFolderService {
   }
 
   Future<void> clearSelection() async {
+    if (Platform.isMacOS) {
+      try {
+        await DesktopHostFolder.releaseAccess();
+      } on MissingPluginException {
+        // The saved metadata should still be cleared on older native builds.
+      } on PlatformException {
+        // Losing the active security scope does not prevent forgetting it.
+      }
+    }
     try {
       final file = await _selectionFile();
       if (await file.exists()) {

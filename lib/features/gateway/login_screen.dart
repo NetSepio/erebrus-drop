@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -79,7 +80,23 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const SizedBox(height: 24),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () => Navigator.of(context).pop(),
+              icon: const Icon(Icons.arrow_back_rounded, size: 20),
+              label: const Text('Continue as guest'),
+              style: TextButton.styleFrom(
+                foregroundColor: DropTheme.muted,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 4,
+                  vertical: 10,
+                ),
+                textStyle: Theme.of(context).textTheme.labelLarge,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
           Center(
             child: Container(
               width: 72,
@@ -114,6 +131,16 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
           ),
           const SizedBox(height: 36),
           if (isDesktop) ...[
+            if (defaultTargetPlatform == TargetPlatform.macOS &&
+                widget.auth.appleLoginAvailable) ...[
+              _SocialLoginButtons(
+                googleAvailable: false,
+                appleAvailable: true,
+                onGooglePressed: widget.auth.signInWithGoogle,
+                onApplePressed: widget.auth.signInWithApple,
+              ),
+              const SizedBox(height: 12),
+            ],
             _PrimaryButton(
               label: 'Sign in with browser',
               icon: Icons.open_in_browser,

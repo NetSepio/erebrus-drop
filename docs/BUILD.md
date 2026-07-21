@@ -47,8 +47,9 @@ Erebrus Drop ships as a Flutter desktop app on all three platforms. Shared Dart
 code drives the UI, tray, window sizing, responsive layout, mDNS discovery,
 folder library, and in-app About/Privacy/Terms.
 
-Native pieces differ only where the OS requires it (e.g. macOS template tray
-icon, folder picker bridges).
+Native pieces differ only where the OS requires it, including macOS sandboxed
+folder access and each desktop platform's `erebrusdrop://` browser callback
+registration and running-instance delivery.
 
 ### Prerequisites
 
@@ -118,6 +119,8 @@ Artifacts land in `dist/`:
 | Responsive layout + side rail | ✓ | ✓ | ✓ |
 | mDNS nearby rooms (Bonsoir) | ✓ | ✓ | ✓ |
 | Folder library / file ops | ✓ | ✓ | ✓ |
+| Browser sign-in callback | ✓ | ✓ | ✓ |
+| Apple sign-in | ✓ | — | — |
 | In-app About / copyright | ✓ | ✓ | ✓ |
 | Launcher / taskbar icon | ✓ | ✓ | ✓ |
 | Menu bar About (native) | ✓ | — | — |
@@ -125,7 +128,9 @@ Artifacts land in `dist/`:
 ### Desktop notes
 
 - **Hosting:** local HTTP server binds on the LAN; allow incoming connections in the OS firewall if prompted.
-- **Folders:** macOS uses a native folder picker; Windows/Linux folder selection may need additional native wiring for the picker UI (file ops work via Dart).
+- **Folders:** macOS uses a directory-only `NSOpenPanel`, stores a security-scoped bookmark, restores it on later launches, and holds access only while the folder is selected. The Mac App Store sandbox uses **User Selected File: Read/Write**; broad Downloads-folder access is not required.
+- **Browser sign-in:** all desktop builds register `erebrusdrop://`. A callback launches the app when closed or is forwarded to and focuses the existing app instance when already running. The paste-token action remains a recovery fallback.
+- **Authentication:** macOS shows Apple sign-in above the browser action only when the gateway advertises `apple: true`. All desktop and mobile sign-in screens can return to the pushed main app route as a guest.
 - **Wallet:** Solana Mobile Wallet features are Android-only by design.
 - **QR scan:** hidden on desktop; use manual join or Drop Link.
 

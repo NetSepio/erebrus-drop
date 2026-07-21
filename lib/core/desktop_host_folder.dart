@@ -32,6 +32,36 @@ class DesktopHostFolder {
     }
   }
 
+  static Future<HostFolderSelection> restoreSelection(
+    HostFolderSelection selection,
+  ) async {
+    final bookmark = selection.bookmark;
+    if (!Platform.isMacOS || bookmark == null || bookmark.isEmpty) {
+      throw PlatformException(
+        code: 'HOST_FOLDER_BOOKMARK_MISSING',
+        message: 'Select the Drop folder again to grant macOS access.',
+      );
+    }
+    final result = await _channel.invokeMethod<Map<Object?, Object?>>(
+      'restoreHostFolderAccess',
+      {'bookmark': bookmark},
+    );
+    if (result == null || (result['uri']?.toString().isEmpty ?? true)) {
+      throw PlatformException(
+        code: 'HOST_FOLDER_BOOKMARK_FAILED',
+        message: 'Could not restore access to the saved Drop folder.',
+      );
+    }
+    return HostFolderSelection.fromJson(result);
+  }
+
+  static Future<void> releaseAccess() async {
+    if (!Platform.isMacOS) {
+      return;
+    }
+    await _channel.invokeMethod<void>('releaseHostFolderAccess');
+  }
+
   static Future<List<HostFolderItem>> list({
     required String rootUri,
     required String path,
@@ -43,7 +73,10 @@ class DesktopHostFolder {
     }
     final folderStat = await folder.stat();
     if (folderStat.type != FileSystemEntityType.directory) {
-      throw _hostError('HOST_FOLDER_LIST_FAILED', 'Path is not a folder: $path');
+      throw _hostError(
+        'HOST_FOLDER_LIST_FAILED',
+        'Path is not a folder: $path',
+      );
     }
 
     final entities = await folder.list(followLinks: false).toList();
@@ -80,7 +113,9 @@ class DesktopHostFolder {
     if (!await source.exists()) {
       throw _hostError('HOST_FOLDER_COPY_FAILED', 'Source file not found.');
     }
-    final requestedName = _safeName(name.isEmpty ? source.uri.pathSegments.last : name);
+    final requestedName = _safeName(
+      name.isEmpty ? source.uri.pathSegments.last : name,
+    );
     final destination = await _uniqueChildFile(
       parent: folder,
       name: requestedName,
@@ -164,7 +199,10 @@ class DesktopHostFolder {
     );
     await _assertWithinRoot(root: root, target: destination);
     if (await destination.exists()) {
-      throw _hostError('RENAME_ITEM_FAILED', 'An item with that name already exists.');
+      throw _hostError(
+        'RENAME_ITEM_FAILED',
+        'An item with that name already exists.',
+      );
     }
     await source.rename(destination.path);
   }
@@ -176,14 +214,20 @@ class DesktopHostFolder {
   }) async {
     final root = await _resolveRootDirectory(rootUri);
     final source = await _resolveHostEntity(root: root, path: path);
-    final destination = await _resolveHostEntity(root: root, path: destinationPath);
+    final destination = await _resolveHostEntity(
+      root: root,
+      path: destinationPath,
+    );
     final destinationParent = destination.parent;
     if (!await destinationParent.exists()) {
       throw _hostError('MOVE_ITEM_FAILED', 'Destination parent not found.');
     }
     final destinationParentStat = await destinationParent.stat();
     if (destinationParentStat.type != FileSystemEntityType.directory) {
-      throw _hostError('MOVE_ITEM_FAILED', 'Destination parent is not a folder.');
+      throw _hostError(
+        'MOVE_ITEM_FAILED',
+        'Destination parent is not a folder.',
+      );
     }
     if (await destination.exists()) {
       throw _hostError('MOVE_ITEM_FAILED', 'Destination already exists.');
@@ -265,16 +309,17 @@ class DesktopHostFolder {
     required Directory root,
     required String path,
   }) async {
-    final target = File(
-      (await _hostDirectory(root: root, path: path)).path,
-    );
+    final target = File((await _hostDirectory(root: root, path: path)).path);
     await _assertWithinRoot(root: root, target: target);
     if (!await target.exists()) {
       throw _hostError('OPEN_FILE_FAILED', 'File not found: $path');
     }
     final stat = await target.stat();
     if (stat.type == FileSystemEntityType.directory) {
-      throw _hostError('OPEN_FILE_FAILED', 'Open a folder by browsing into it.');
+      throw _hostError(
+        'OPEN_FILE_FAILED',
+        'Open a folder by browsing into it.',
+      );
     }
     return target;
   }
@@ -307,9 +352,7 @@ class DesktopHostFolder {
   }) async {
     var current = root;
     for (final segment in _hostPathSegments(path)) {
-      current = Directory(
-        '${current.path}${Platform.pathSeparator}$segment',
-      );
+      current = Directory('${current.path}${Platform.pathSeparator}$segment');
     }
     return Directory(await current.absolute.resolveSymbolicLinks());
   }
@@ -325,7 +368,10 @@ class DesktopHostFolder {
         ? rootPath
         : '$rootPath$separator';
     if (targetPath != rootPath && !targetPath.startsWith(normalizedRoot)) {
-      throw _hostError('HOST_FOLDER_LIST_FAILED', 'Path is outside the selected folder.');
+      throw _hostError(
+        'HOST_FOLDER_LIST_FAILED',
+        'Path is outside the selected folder.',
+      );
     }
   }
 
@@ -373,7 +419,9 @@ class DesktopHostFolder {
     return path
         .split('/')
         .map((segment) => segment.trim())
-        .where((segment) => segment.isNotEmpty && segment != '.' && segment != '..')
+        .where(
+          (segment) => segment.isNotEmpty && segment != '.' && segment != '..',
+        )
         .map(_safeName)
         .where((segment) => segment.isNotEmpty)
         .toList();
@@ -402,7 +450,9 @@ class DesktopHostFolder {
 
   static Future<Directory> _cacheDirectory(String name) async {
     final support = await getApplicationSupportDirectory();
-    final directory = Directory('${support.path}${Platform.pathSeparator}$name');
+    final directory = Directory(
+      '${support.path}${Platform.pathSeparator}$name',
+    );
     await directory.create(recursive: true);
     return directory;
   }
@@ -418,7 +468,9 @@ class DesktopHostFolder {
     var candidate = File('${parent.path}${Platform.pathSeparator}$safe');
     var index = 1;
     while (await candidate.exists()) {
-      final nextName = extension.isEmpty ? '$base-$index' : '$base-$index$extension';
+      final nextName = extension.isEmpty
+          ? '$base-$index'
+          : '$base-$index$extension';
       candidate = File('${parent.path}${Platform.pathSeparator}$nextName');
       index++;
     }
@@ -456,21 +508,30 @@ class DesktopHostFolder {
     if (Platform.isMacOS) {
       final result = await Process.run('open', [path]);
       if (result.exitCode != 0) {
-        throw _hostError('OPEN_FILE_UNAVAILABLE', 'No app can open this file type.');
+        throw _hostError(
+          'OPEN_FILE_UNAVAILABLE',
+          'No app can open this file type.',
+        );
       }
       return;
     }
     if (Platform.isLinux) {
       final result = await Process.run('xdg-open', [path]);
       if (result.exitCode != 0) {
-        throw _hostError('OPEN_FILE_UNAVAILABLE', 'No app can open this file type.');
+        throw _hostError(
+          'OPEN_FILE_UNAVAILABLE',
+          'No app can open this file type.',
+        );
       }
       return;
     }
     if (Platform.isWindows) {
       final result = await Process.run('cmd', ['/c', 'start', '', path]);
       if (result.exitCode != 0) {
-        throw _hostError('OPEN_FILE_UNAVAILABLE', 'No app can open this file type.');
+        throw _hostError(
+          'OPEN_FILE_UNAVAILABLE',
+          'No app can open this file type.',
+        );
       }
     }
   }
@@ -479,14 +540,20 @@ class DesktopHostFolder {
     if (Platform.isMacOS) {
       final result = await Process.run('open', ['-R', path]);
       if (result.exitCode != 0) {
-        throw _hostError('SHARE_FILE_UNAVAILABLE', 'Could not reveal this file.');
+        throw _hostError(
+          'SHARE_FILE_UNAVAILABLE',
+          'Could not reveal this file.',
+        );
       }
       return;
     }
     if (Platform.isWindows) {
       final result = await Process.run('explorer', ['/select,', path]);
       if (result.exitCode != 0) {
-        throw _hostError('SHARE_FILE_UNAVAILABLE', 'Could not reveal this file.');
+        throw _hostError(
+          'SHARE_FILE_UNAVAILABLE',
+          'Could not reveal this file.',
+        );
       }
       return;
     }
@@ -494,7 +561,10 @@ class DesktopHostFolder {
       final parent = File(path).parent.path;
       final result = await Process.run('xdg-open', [parent]);
       if (result.exitCode != 0) {
-        throw _hostError('SHARE_FILE_UNAVAILABLE', 'Could not reveal this file.');
+        throw _hostError(
+          'SHARE_FILE_UNAVAILABLE',
+          'Could not reveal this file.',
+        );
       }
     }
   }
