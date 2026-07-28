@@ -35,7 +35,7 @@ import 'ui/layout/desktop_layout.dart';
 import 'ui/theme/drop_theme.dart';
 import 'ui/widgets/drop_widgets.dart';
 
-const String _appVersion = '1.0.6+6';
+const String _appVersion = '1.0.7+7';
 
 class ErebrusDropApp extends StatefulWidget {
   const ErebrusDropApp({this.skipOnboarding = false, super.key});
@@ -453,12 +453,11 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     _networkUiVersion.dispose();
     _joinUiVersion.dispose();
     unawaited(_shareSubscription?.cancel());
-    unawaited(
-      _roomRuntimeService.setKeepAwake(enabled: false).catchError((_) {}),
-    );
-    unawaited(_roomRuntimeService.stopMdnsRoom().catchError((_) {}));
-    unawaited(_roomRuntimeService.stopForegroundRoom().catchError((_) {}));
-    unawaited(_server.stop());
+    // A share intent can recreate the Flutter view even though the process and
+    // its DropServer singleton are still alive. Widget disposal is therefore
+    // not room ownership: stopping here would turn an Android/iOS UI lifecycle
+    // event into an implicit press of the Stop button. Explicit stop/quit paths
+    // perform the room teardown through _stopRoom().
     super.dispose();
   }
 

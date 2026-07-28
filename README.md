@@ -1,6 +1,6 @@
 # Erebrus Drop
 
-Current version: `1.0.6+6`
+Current version: `1.0.7+7`
 
 Erebrus Drop is a local-first file and text sharing app for nearby devices. A
 phone can create a temporary Drop Room on the current Wi-Fi network or hotspot,
@@ -32,7 +32,12 @@ or cloud upload.
 - Smart Send: send quick text into a room.
 - Settings and About: app details, privacy, terms, and NetSepio ethos.
 
-## What's New in 1.0.6+6
+## What's New in 1.0.7+7
+
+- **Persistent live Drop Rooms during sharing** — receiving a file through the Android or iOS share flow no longer treats Flutter UI recreation as a request to stop the active room.
+- **Cleaner repository metadata** — macOS `.DS_Store` files are ignored throughout the repository.
+
+### Previously in 1.0.6+6
 
 - **Configurable IPFS gateway** — choose a preset (Erebrus, Cloudflare, Pinata, IPFS.io) or enter a custom gateway URL in Settings.
 - **User-selected Drop folder** — all gateway downloads save to the folder you pick through the system file picker.
@@ -50,7 +55,7 @@ or cloud upload.
 Current release version:
 
 ```text
-1.0.6+6
+1.0.7+7
 ```
 
 Android release versioning:
@@ -197,7 +202,7 @@ GitHub Actions:
 
 Release checklist:
 
-1. Bump `version:` in `pubspec.yaml` (e.g. `1.0.6+6`).
+1. Bump `version:` in `pubspec.yaml` (e.g. `1.0.7+7`).
 2. Run `python3 scripts/generate-desktop-assets.py` if brand images changed.
 3. Commit and push to `main`.
 4. **GitHub → Actions → Release → Run workflow**.

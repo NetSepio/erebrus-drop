@@ -1,6 +1,6 @@
 # Erebrus Drop Spec Coverage
 
-Current app version: `1.0.5+5`
+Current app version: `1.0.7+7`
 
 ## Implemented in this repo
 
@@ -30,6 +30,7 @@ Current app version: `1.0.5+5`
 - Android QR scanning handles Android 15 edge-to-edge system insets without deprecated system bar color APIs.
 - iOS QR scanning uses AVFoundation QR metadata detection.
 - Android and iOS share-sheet text and file intake can populate Smart Send or import files into a live room.
+- Live Drop Rooms survive share-intent-triggered Flutter UI recreation and stop only through explicit host stop/quit actions.
 - Android local-only hotspot can be requested through the platform channel; unsupported/OEM-denied devices show a manual guide.
 - Android foreground hosting service keeps a room higher priority while it is live.
 - App lifecycle-aware refresh avoids background UI polling while a room is being served.
