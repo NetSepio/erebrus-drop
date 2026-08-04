@@ -1,3 +1,5 @@
+import '../../plan_label.dart';
+
 /// An organization the signed-in user belongs to.
 class DropOrg {
   const DropOrg({
@@ -17,6 +19,7 @@ class DropOrg {
   final String? verificationStatus;
 
   bool get verified => verificationStatus == 'verified';
+  String get planLabel => erebrusPlanLabel(plan);
 
   factory DropOrg.fromJson(Map<String, dynamic> json) {
     String? str(String key) {
@@ -119,7 +122,8 @@ class DropUploadReservation {
       scope: (json['scope'] ?? 'public').toString(),
       visibility: (json['visibility'] ?? 'private').toString(),
       filename: (json['filename'] ?? '').toString(),
-      sizeBytes: (json['size_bytes'] ?? json['declared_size_bytes'] ?? 0) as int,
+      sizeBytes:
+          (json['size_bytes'] ?? json['declared_size_bytes'] ?? 0) as int,
       status: (json['status'] ?? '').toString(),
       cid: json['cid']?.toString(),
     );
@@ -167,9 +171,7 @@ class DropGatewayFile {
   bool get isPublic => visibility.toLowerCase() == 'public';
 
   factory DropGatewayFile.fromJson(Map<String, dynamic> json) {
-    final created = DateTime.tryParse(
-      json['created_at']?.toString() ?? '',
-    );
+    final created = DateTime.tryParse(json['created_at']?.toString() ?? '');
     return DropGatewayFile(
       id: (json['id'] ?? json['file_id'] ?? '').toString(),
       fileId: (json['file_id'] ?? json['id'] ?? '').toString(),
@@ -185,11 +187,7 @@ class DropGatewayFile {
       encrypted: json['encrypted'] == true,
       status: (json['status'] ?? 'available').toString(),
       cid: json['cid']?.toString(),
-      downloadUrl: _pickUrl(json, const [
-        'download_url',
-        'public_url',
-        'url',
-      ]),
+      downloadUrl: _pickUrl(json, const ['download_url', 'public_url', 'url']),
       gatewayUrl: _pickUrl(json, const ['gateway_url', 'ipfs_url']),
       encryptionMetadata: json['encryption_metadata'] is Map
           ? Map<String, dynamic>.from(json['encryption_metadata'] as Map)
