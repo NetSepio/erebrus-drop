@@ -90,9 +90,9 @@ class _GatewayOrgSheetState extends State<GatewayOrgSheet> {
           children: [
             Text(
               'Organization',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 6),
             Text(
@@ -115,7 +115,9 @@ class _GatewayOrgSheetState extends State<GatewayOrgSheet> {
                           selected: selected?.id == org.id,
                           onTap: () async {
                             if (selected?.id == org.id) {
-                              Navigator.of(context).pop(GatewayOrgSheetResult.none);
+                              Navigator.of(
+                                context,
+                              ).pop(GatewayOrgSheetResult.none);
                               return;
                             }
                             final navigator = Navigator.of(context);
@@ -133,7 +135,9 @@ class _GatewayOrgSheetState extends State<GatewayOrgSheet> {
                       const SizedBox(height: 8),
                       TextButton.icon(
                         onPressed: () async {
-                          final confirmed = await confirmGatewaySignOut(context);
+                          final confirmed = await confirmGatewaySignOut(
+                            context,
+                          );
                           if (!confirmed || !context.mounted) return;
                           final navigator = Navigator.of(context);
                           await widget.authService.signOut();
@@ -238,7 +242,9 @@ class _OrgRow extends StatelessWidget {
         child: Row(
           children: [
             LeadingTile(
-              icon: selected ? Icons.check_circle_rounded : Icons.business_rounded,
+              icon: selected
+                  ? Icons.check_circle_rounded
+                  : Icons.business_rounded,
               accent: selected ? DropTheme.success : null,
               size: 40,
             ),
@@ -247,20 +253,21 @@ class _OrgRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    org.name,
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
+                  Text(org.name, style: Theme.of(context).textTheme.titleSmall),
                   const SizedBox(height: 2),
                   Text(
-                    '${org.plan ?? 'Free'} · ${org.slug}',
+                    '${org.planLabel} · ${org.slug}',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
               ),
             ),
             if (selected)
-              const Icon(Icons.check_rounded, color: DropTheme.success, size: 20),
+              const Icon(
+                Icons.check_rounded,
+                color: DropTheme.success,
+                size: 20,
+              ),
           ],
         ),
       ),

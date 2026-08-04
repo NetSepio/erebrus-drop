@@ -1261,9 +1261,9 @@ class _DropHomeScreenState extends State<DropHomeScreen>
               ] else
                 Text(
                   'Select a node to upload to',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: DropTheme.muted,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(color: DropTheme.muted),
                 ),
               const SizedBox(height: 10),
               // Deduplicate by nodeId and use String IDs as dropdown values
@@ -1275,9 +1275,10 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                     uniqueNodes.putIfAbsent(node.nodeId, () => node);
                   }
                   final selectedId =
-                      selected != null && uniqueNodes.containsKey(selected.nodeId)
-                          ? selected.nodeId
-                          : null;
+                      selected != null &&
+                          uniqueNodes.containsKey(selected.nodeId)
+                      ? selected.nodeId
+                      : null;
                   return DropdownButton<String>(
                     isExpanded: true,
                     value: selectedId,
@@ -1290,9 +1291,8 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                           ),
                         )
                         .toList(),
-                    onChanged: (nodeId) => setState(
-                      () => _selectedSendNode = uniqueNodes[nodeId],
-                    ),
+                    onChanged: (nodeId) =>
+                        setState(() => _selectedSendNode = uniqueNodes[nodeId]),
                   );
                 },
               ),
@@ -1490,8 +1490,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           ),
           TextButton(
             onPressed: () async {
-              final picked =
-                  await _nativeFilePickerService.pickFileForUpload();
+              final picked = await _nativeFilePickerService.pickFileForUpload();
               if (picked == null || picked.path.isEmpty) return;
               try {
                 final text = await File(picked.path).readAsString();
@@ -1688,18 +1687,18 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.vertical(
-          top: first ? const Radius.circular(DropTheme.radiusCard) : Radius.zero,
-          bottom: last ? const Radius.circular(DropTheme.radiusCard) : Radius.zero,
+          top: first
+              ? const Radius.circular(DropTheme.radiusCard)
+              : Radius.zero,
+          bottom: last
+              ? const Radius.circular(DropTheme.radiusCard)
+              : Radius.zero,
         ),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
           child: Row(
             children: [
-              LeadingTile(
-                icon: icon,
-                accent: DropTheme.orange,
-                size: 42,
-              ),
+              LeadingTile(icon: icon, accent: DropTheme.orange, size: 42),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -1714,10 +1713,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                   ],
                 ),
               ),
-              if (trailing != null) ...[
-                const SizedBox(width: 8),
-                trailing,
-              ],
+              if (trailing != null) ...[const SizedBox(width: 8), trailing],
             ],
           ),
         ),
@@ -1769,8 +1765,8 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       final wallet = _dropAuthService.walletAddress;
       final label = org?.name ?? 'Personal';
       final sub = wallet != null && wallet.length > 12
-          ? '${wallet.substring(0, 6)}…${wallet.substring(wallet.length - 4)} · ${org?.plan ?? 'Free'}'
-          : 'Unknown wallet · ${org?.plan ?? 'Free'}';
+          ? '${wallet.substring(0, 6)}…${wallet.substring(wallet.length - 4)} · ${org?.planLabel ?? 'Free'}'
+          : 'Unknown wallet · ${org?.planLabel ?? 'Free'}';
       return DropCard(
         child: Row(
           children: [
@@ -1820,8 +1816,10 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Unlock public Drop nodes',
-              style: Theme.of(context).textTheme.titleSmall),
+          Text(
+            'Unlock public Drop nodes',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
           const SizedBox(height: 6),
           Text(
             'Sign in or register to send files through Erebrus nodes and manage your account.',
@@ -1923,7 +1921,6 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     );
   }
 
-
   Widget _ipfsGatewaySettingsCard() {
     return DropCard(
       padding: EdgeInsets.zero,
@@ -1978,7 +1975,9 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                         selected == preset
                             ? Icons.radio_button_checked_rounded
                             : Icons.radio_button_unchecked_rounded,
-                        color: selected == preset ? DropTheme.orange : DropTheme.faint,
+                        color: selected == preset
+                            ? DropTheme.orange
+                            : DropTheme.faint,
                       ),
                       title: Text(preset),
                       onTap: () {
@@ -1995,7 +1994,9 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                       selected == null
                           ? Icons.radio_button_checked_rounded
                           : Icons.radio_button_unchecked_rounded,
-                      color: selected == null ? DropTheme.orange : DropTheme.faint,
+                      color: selected == null
+                          ? DropTheme.orange
+                          : DropTheme.faint,
                     ),
                     title: const Text('Custom'),
                     onTap: () => setDialogState(() => selected = null),
@@ -5020,10 +5021,7 @@ class _NodeStatusChip extends StatelessWidget {
           Container(
             width: 7,
             height: 7,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
           const SizedBox(width: 5),
           Text(
