@@ -96,7 +96,7 @@ class _GatewayOrgSheetState extends State<GatewayOrgSheet> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Select the organization whose plan is used for Drop nodes.',
+              'Select the organization used for private Drop nodes and files.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 16),

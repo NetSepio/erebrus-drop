@@ -14,7 +14,11 @@ class DesktopLayout {
   DesktopLayout._();
 
   /// Switch bottom navigation to a side rail at this width and above.
-  static const double railBreakpoint = 980;
+  ///
+  /// The desktop app opens at 880 logical pixels, so the breakpoint must keep
+  /// the default window in its desktop navigation mode while still allowing
+  /// narrow windows to fall back to the compact bottom bar.
+  static const double railBreakpoint = 840;
 
   static const double standardMaxWidth = 920;
   static const double libraryMaxWidth = 1180;

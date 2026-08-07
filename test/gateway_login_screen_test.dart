@@ -89,6 +89,29 @@ void main() {
 
     expect(find.text('Continue with Apple'), findsNothing);
     expect(find.text('Sign in with browser'), findsOneWidget);
+    expect(find.text('Paste sign-in token'), findsNothing);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('shows token recovery only while waiting for browser return', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+
+    final auth = DropAuthService(solana: SolanaWalletService());
+    auth.awaitingWebCallback.value = true;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: DropTheme.dark(),
+        home: GatewayLoginScreen(auth: auth),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Paste sign-in token'), findsNothing);
+    expect(find.text('Browser didn’t return?'), findsOneWidget);
+    expect(find.text('Paste token from clipboard'), findsOneWidget);
     debugDefaultTargetPlatformOverride = null;
   });
 }

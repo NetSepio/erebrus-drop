@@ -248,6 +248,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     );
     if (isDesktopPlatform) {
       DesktopShell.instance.registerQuitHandler(_desktopQuit);
+      _syncDesktopTray();
     }
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (_server.isRunning && _appInForeground) {
@@ -277,6 +278,13 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       }
       unawaited(_refreshRoomData());
     }
+  }
+
+  void _syncDesktopTray() {
+    if (!isDesktopPlatform) return;
+    unawaited(
+      DesktopShell.instance.setRoomActive(_server.isRunning).catchError((_) {}),
+    );
   }
 
   Future<void> _loadGatewaySession() async {
@@ -640,8 +648,8 @@ class _DropHomeScreenState extends State<DropHomeScreen>
             EnterTransition(delayMs: 60, child: _homeHeadline()),
             const SizedBox(height: 12),
             Text(
-              'Drop files, text, and media between nearby devices — no cloud '
-              'account, no forced app install.',
+              'Drop files, text, and media nearby, or use Erebrus nodes when '
+              'you need global reach.',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 24),
@@ -729,7 +737,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'Nothing leaves your network. No cloud relay, ever.',
+              'Local Drop Rooms stay on your network. Global sends are always explicit.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: DropTheme.white,
                 fontWeight: FontWeight.w600,
@@ -811,7 +819,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
             title: 'Library',
             subtitle: _libraryScopeIndex == 0
                 ? 'Shared this session'
-                : 'Files pinned to erebrus nodes',
+                : 'Files pinned to Erebrus nodes',
             action: DropIconButton(
               icon: Icons.refresh_rounded,
               busy: _loadingLibraryFiles || _gatewayFilesLoading,
@@ -1078,7 +1086,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
             title: 'Smart Send',
             subtitle: _smartSendScopeIndex == 0
                 ? 'Push text into the room'
-                : 'Upload files to erebrus nodes and get the share link',
+                : 'Upload files to Erebrus nodes and get the share link',
             action: _smartSendScopeIndex == 0
                 ? DropIconButton(
                     icon: Icons.content_paste_rounded,
@@ -1764,9 +1772,10 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       final org = _dropAuthService.selectedOrg.value;
       final wallet = _dropAuthService.walletAddress;
       final label = org?.name ?? 'Personal';
-      final sub = wallet != null && wallet.length > 12
-          ? '${wallet.substring(0, 6)}…${wallet.substring(wallet.length - 4)} · ${org?.planLabel ?? 'Free'}'
-          : 'Unknown wallet · ${org?.planLabel ?? 'Free'}';
+      final identity = wallet != null && wallet.length > 12
+          ? '${wallet.substring(0, 6)}…${wallet.substring(wallet.length - 4)}'
+          : 'Signed in';
+      final sub = '$identity · ${org?.planLabel ?? 'Free'}';
       return DropCard(
         child: Row(
           children: [
@@ -3269,6 +3278,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           hostFolderPlatform: _hostFolderSelection?.platform,
         ),
       );
+      _syncDesktopTray();
       await _roomRuntimeService.setKeepAwake(enabled: true);
       await _roomRuntimeService.startForegroundRoom(
         roomName: session.name,
@@ -3443,6 +3453,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     await _roomRuntimeService.stopMdnsRoom();
     await _roomRuntimeService.stopForegroundRoom();
     await _server.stop();
+    _syncDesktopTray();
     if (!mounted) return;
     setState(() {
       _storage = null;
@@ -4377,7 +4388,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           child: BrandLockup(
             markSize: 46,
             eyebrow: 'Local-first',
-            subtitle: 'No cloud. No account. Nearby only.',
+            subtitle: 'Private rooms nearby. Global sharing optional.',
           ),
         ),
         if (supportsNativeQrScanner) ...[

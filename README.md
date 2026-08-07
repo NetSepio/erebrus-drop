@@ -34,6 +34,11 @@ or cloud upload.
 
 ## What's New in 1.0.7+7
 
+- **Live room tray status** — the desktop tray icon is muted while idle and switches to the full adaptive black/white macOS glyph while a Drop Room is live.
+- **Cleaner desktop sign-in** — browser sign-in is now the primary action; clipboard-token recovery appears only when the browser callback does not return automatically.
+- **Clearer local and global sharing language** — onboarding, Home, Library, Smart Send, organization selection, and account status now describe nearby rooms and optional Erebrus node sharing consistently.
+- **Improved desktop navigation** — the default desktop window now uses its side navigation while narrower windows retain the compact bottom bar.
+
 - **Persistent live Drop Rooms during sharing** — receiving a file through the Android or iOS share flow no longer treats Flutter UI recreation as a request to stop the active room.
 - **Cleaner repository metadata** — macOS `.DS_Store` files are ignored throughout the repository.
 
