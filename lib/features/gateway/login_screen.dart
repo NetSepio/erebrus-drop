@@ -2,20 +2,19 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../ui/theme/drop_theme.dart';
 import '../settings/privacy_screen.dart';
 import '../settings/terms_screen.dart';
 import 'auth_config.dart';
-import 'desktop_web_auth.dart';
 import 'drop_auth_service.dart';
 
 /// Multi-provider sign-in screen for Erebrus Drop.
 ///
 /// Mobile: Reown AppKit (wallet + social/email), native Google/Apple, Erebrus
 /// email OTP, and Solana Mobile Wallet Adapter on Seeker/Saga.
-/// Desktop: Browser sign-in with erebrusdrop:// callback + paste fallback.
+/// Desktop: Browser sign-in with an automatic erebrusdrop:// callback and a
+/// clipboard fallback shown only while waiting for that callback.
 class GatewayLoginScreen extends StatefulWidget {
   const GatewayLoginScreen({super.key, required this.auth});
   final DropAuthService auth;
@@ -147,12 +146,6 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
               onPressed: () => widget.auth.openWebSignIn(),
             ),
             const SizedBox(height: 16),
-            _OutlinedButton(
-              label: 'Paste sign-in token',
-              icon: Icons.paste,
-              onPressed: () => _showPasteSheet(context),
-            ),
-            const SizedBox(height: 20),
             Text(
               'Opens $kErebrusWebOrigin/auth in your browser.\n'
               'After you sign in, you\'ll return here automatically.',
@@ -254,18 +247,6 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
       builder: (ctx) => Padding(
         padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
         child: _EmailLoginSheet(auth: widget.auth),
-      ),
-    );
-  }
-
-  void _showPasteSheet(BuildContext context) {
-    widget.auth.error.value = null;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: _PasteTokenSheet(auth: widget.auth),
       ),
     );
   }
@@ -616,105 +597,6 @@ class _EmailLoginSheetState extends State<_EmailLoginSheet> {
   }
 }
 
-class _PasteTokenSheet extends StatefulWidget {
-  const _PasteTokenSheet({required this.auth});
-  final DropAuthService auth;
-
-  @override
-  State<_PasteTokenSheet> createState() => _PasteTokenSheetState();
-}
-
-class _PasteTokenSheetState extends State<_PasteTokenSheet> {
-  final _ctrl = TextEditingController();
-  bool _busy = false;
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(24, 18, 24, 28),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'Paste sign-in token',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(color: DropTheme.white),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Paste the full callback URL or PASETO token from the browser.',
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: DropTheme.muted),
-          ),
-          const SizedBox(height: 18),
-          _InputField(
-            controller: _ctrl,
-            hint: 'erebrusdrop://auth?token=…',
-            autofocus: true,
-          ),
-          const SizedBox(height: 16),
-          FilledButton(
-            onPressed: _busy ? null : _submit,
-            child: _busy
-                ? const SizedBox(
-                    height: 20,
-                    width: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: DropTheme.onAccent,
-                    ),
-                  )
-                : const Text('Sign in'),
-          ),
-          const SizedBox(height: 12),
-          TextButton(
-            onPressed: _launchWeb,
-            child: const Text('Open Erebrus sign-in in browser'),
-          ),
-          ValueListenableBuilder<String?>(
-            valueListenable: widget.auth.error,
-            builder: (context, err, _) {
-              if (err == null || err.isEmpty) return const SizedBox.shrink();
-              return Text(
-                err,
-                textAlign: TextAlign.center,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: DropTheme.danger),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _submit() async {
-    final input = _ctrl.text.trim();
-    if (input.isEmpty) return;
-    setState(() => _busy = true);
-    await widget.auth.signInWithPastedCredential(input);
-    if (!mounted) return;
-    setState(() => _busy = false);
-    if (widget.auth.isSignedIn) Navigator.pop(context);
-  }
-
-  Future<void> _launchWeb() async {
-    final url = DesktopWebAuth.buildLoginUrl();
-    final uri = Uri.parse(url);
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
-}
-
 class _InputField extends StatelessWidget {
   const _InputField({
     required this.controller,
@@ -738,8 +620,7 @@ class _InputField extends StatelessWidget {
   }
 }
 
-/// Loading overlay that shows a cancel button after a few seconds so users
-/// can escape a hung ReownKit/browser sign-in attempt.
+/// Loading overlay with browser-return recovery and delayed cancellation.
 class _LoadingOverlay extends StatefulWidget {
   const _LoadingOverlay({required this.auth});
 
@@ -778,11 +659,36 @@ class _LoadingOverlayState extends State<_LoadingOverlay> {
           const CircularProgressIndicator(color: DropTheme.orange),
           const SizedBox(height: 16),
           Text(
-            'Connecting to Erebrus…',
+            widget.auth.awaitingWebCallback.value
+                ? 'Waiting for browser sign-in'
+                : 'Connecting to Erebrus…',
             style: Theme.of(
               context,
             ).textTheme.bodyMedium?.copyWith(color: DropTheme.white),
           ),
+          if (widget.auth.awaitingWebCallback.value) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Complete sign-in in your browser. You’ll return here automatically.',
+              textAlign: TextAlign.center,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: DropTheme.muted),
+            ),
+            const SizedBox(height: 22),
+            Text(
+              'Browser didn’t return?',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: DropTheme.faint),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: widget.auth.signInFromClipboard,
+              icon: const Icon(Icons.content_paste_go_outlined, size: 18),
+              label: const Text('Paste token from clipboard'),
+            ),
+          ],
           if (_showCancel) ...[
             const SizedBox(height: 18),
             TextButton(

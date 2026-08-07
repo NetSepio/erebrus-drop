@@ -18,6 +18,7 @@ class DesktopShell with WindowListener, TrayListener {
 
   static bool _initialized = false;
   DesktopQuitHandler? _onQuit;
+  bool? _roomActive;
 
   static Future<void> ensureInitialized() async {
     if (!isDesktopPlatform || _initialized) {
@@ -33,6 +34,17 @@ class DesktopShell with WindowListener, TrayListener {
 
   void registerQuitHandler(DesktopQuitHandler handler) {
     _onQuit = handler;
+  }
+
+  /// Keeps the tray glyph in sync with the room lifecycle. On macOS both
+  /// states are template images, so the active glyph automatically becomes
+  /// black or white with the menu bar while the inactive glyph stays muted.
+  Future<void> setRoomActive(bool active) async {
+    if (!isDesktopPlatform || _roomActive == active) {
+      return;
+    }
+    await _applyTrayVisual(active);
+    _roomActive = active;
   }
 
   Future<void> hideToTray() async {
@@ -79,16 +91,8 @@ class DesktopShell with WindowListener, TrayListener {
   }
 
   Future<void> _configureTray() async {
-    if (Platform.isMacOS) {
-      await trayManager.setIcon(
-        DropTheme.trayIconTemplate,
-        isTemplate: true,
-        iconSize: 18,
-      );
-    } else {
-      await trayManager.setIcon(DropTheme.trayIcon);
-    }
-    await trayManager.setToolTip('Erebrus Drop');
+    await _applyTrayVisual(false);
+    _roomActive = false;
     await trayManager.setContextMenu(
       Menu(
         items: [
@@ -96,6 +100,25 @@ class DesktopShell with WindowListener, TrayListener {
           MenuItem(key: 'quit', label: 'Quit'),
         ],
       ),
+    );
+  }
+
+  Future<void> _applyTrayVisual(bool active) async {
+    if (Platform.isMacOS) {
+      await trayManager.setIcon(
+        active
+            ? DropTheme.trayIconTemplate
+            : DropTheme.trayIconTemplateInactive,
+        isTemplate: true,
+        iconSize: 18,
+      );
+    } else {
+      await trayManager.setIcon(
+        active ? DropTheme.trayIcon : DropTheme.trayIconInactive,
+      );
+    }
+    await trayManager.setToolTip(
+      active ? 'Erebrus Drop — Room live' : 'Erebrus Drop — No active room',
     );
   }
 

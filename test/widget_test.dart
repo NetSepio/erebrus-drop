@@ -32,6 +32,16 @@ void main() {
 
     expect(find.text('Guests can join from browser'), findsOneWidget);
     expect(tester.takeException(), isNull);
+
+    await tester.drag(find.byType(PageView), const Offset(-700, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Local-first by default.'), findsOneWidget);
+    expect(
+      find.text('Private rooms stay nearby. Global sharing is optional.'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('shows Erebrus Drop home actions', (tester) async {

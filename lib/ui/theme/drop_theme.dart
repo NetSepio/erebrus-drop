@@ -18,8 +18,12 @@ class DropTheme {
 
   /// Transparent-background marks for desktop system tray icons.
   static const String trayIcon = 'assets/images/erebrus-tray-64.png';
+  static const String trayIconInactive =
+      'assets/images/erebrus-tray-inactive-64.png';
   static const String trayIconTemplate =
       'assets/images/erebrus-tray-template-64.png';
+  static const String trayIconTemplateInactive =
+      'assets/images/erebrus-tray-template-inactive-64.png';
 
   /// Back-compat alias; defaults to the primary (glossy) mark.
   static const String logoAsset = logoFlat;

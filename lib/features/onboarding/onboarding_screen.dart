@@ -27,8 +27,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       body: 'No app install required for nearby devices.',
     ),
     _OnboardingSlide(
-      title: 'No cloud. No account.',
-      body: 'Your data stays on your devices.',
+      title: 'Local-first by default.',
+      body: 'Private rooms stay nearby. Global sharing is optional.',
     ),
   ];
 
