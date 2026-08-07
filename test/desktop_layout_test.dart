@@ -18,4 +18,9 @@ void main() {
   test('narrow desktop window uses compact navigation', () {
     expect(DesktopLayout.useSideRail(800), isFalse);
   });
+
+  test('large desktop content uses split workspaces', () {
+    expect(DesktopLayout.useSplitPane(1100), isTrue);
+    expect(DesktopLayout.useSplitPane(900), isFalse);
+  });
 }

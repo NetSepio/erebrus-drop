@@ -22,7 +22,7 @@ or cloud upload.
 - Pull files from a joined room directly into a live hosted room.
 - Use optional room passwords and scoped folder access.
 - Save received files to the platform-appropriate user-visible location.
-- Transfer locally without analytics, tracking, accounts, or cloud relay.
+- Transfer directly on your local network, or explicitly use Erebrus nodes for global reach.
 
 ## App Surfaces
 
@@ -37,8 +37,7 @@ or cloud upload.
 - **Live room tray status** — the desktop tray icon is muted while idle and switches to the full adaptive black/white macOS glyph while a Drop Room is live.
 - **Cleaner desktop sign-in** — browser sign-in is now the primary action; clipboard-token recovery appears only when the browser callback does not return automatically.
 - **Clearer local and global sharing language** — onboarding, Home, Library, Smart Send, organization selection, and account status now describe nearby rooms and optional Erebrus node sharing consistently.
-- **Improved desktop navigation** — the default desktop window now uses its side navigation while narrower windows retain the compact bottom bar.
-
+- **Desktop-first workspaces** — large Library and Smart Send views use split panes, the navigation rail shows live-room status, files can be dragged into Home or Send, and Cmd/Ctrl shortcuts cover tabs, refresh, and new rooms.
 - **Persistent live Drop Rooms during sharing** — receiving a file through the Android or iOS share flow no longer treats Flutter UI recreation as a request to stop the active room.
 - **Cleaner repository metadata** — macOS `.DS_Store` files are ignored throughout the repository.
 
@@ -244,9 +243,13 @@ curl http://<room-ip>:8787/api/room
 
 ## Privacy
 
-Erebrus Drop is designed for local device-to-device transfer. NetSepio does not
-collect analytics, advertising identifiers, contact lists, location history,
-account profiles, transferred files, pasted text, folder contents, room
-passwords, or Drop Links.
+Erebrus Drop is local-first. Nearby Drop Rooms transfer directly over your
+Wi-Fi or hotspot without sending their contents to Erebrus services. Global
+Send is a separate, explicit path that uploads the file you choose to the
+selected Erebrus node.
+
+Erebrus Drop does not collect analytics, advertising identifiers, contact
+lists, or location history. Global features necessarily process the active
+account session, selected node or organization, and explicitly uploaded file.
 
 Erebrus Platform, brand, and apps are products of NetSepio.

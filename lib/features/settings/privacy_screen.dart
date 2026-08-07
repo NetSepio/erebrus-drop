@@ -22,12 +22,17 @@ class PrivacyScreen extends StatelessWidget {
             const SizedBox(height: 18),
             const _TextCard(
               text:
-                  'Erebrus Drop does not collect analytics, advertising identifiers, contact lists, location history, or account profiles. NetSepio does not receive your transferred files, pasted text, folder contents, room passwords, or Drop Links.',
+                  'Erebrus Drop does not collect analytics, advertising identifiers, contact lists, or location history. Local Drop Room contents, passwords, and links are not sent to Erebrus services.',
             ),
             const SizedBox(height: 8),
             const _TextCard(
               text:
-                  'Transfers happen between nearby devices on your local Wi-Fi or hotspot network. Files and text stay on the devices and folders you choose.',
+                  'Erebrus Drop has two distinct paths. Local Drop Rooms transfer directly between devices on your Wi-Fi or hotspot. Global Send uploads only the file you explicitly choose to the selected Erebrus node.',
+            ),
+            const SizedBox(height: 8),
+            const _TextCard(
+              text:
+                  'Global features necessarily process your sign-in session, selected organization or node, and uploaded file. The Library shows each global file’s public or private and encrypted status when that information is available.',
             ),
             const SizedBox(height: 8),
             const _TextCard(

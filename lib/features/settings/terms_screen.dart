@@ -22,7 +22,7 @@ class TermsScreen extends StatelessWidget {
             const SizedBox(height: 18),
             const _TextCard(
               text:
-                  'Erebrus Drop is provided for private, nearby device-to-device sharing. Use it only for files and content you own or have permission to share.',
+                  'Erebrus Drop provides direct nearby Drop Rooms and optional Global Send through Erebrus nodes. Use either path only for files and content you own or have permission to share.',
             ),
             const SizedBox(height: 8),
             const _TextCard(
@@ -32,7 +32,7 @@ class TermsScreen extends StatelessWidget {
             const SizedBox(height: 8),
             const _TextCard(
               text:
-                  'The app is provided as-is. Local transfers depend on your device, operating system, browser, storage, permissions, and network conditions.',
+                  'The app is provided as-is. Local transfers depend on your devices and network conditions. Global transfers additionally depend on the selected node, gateway availability, and the access or encryption status shown for the file.',
             ),
             const SizedBox(height: 8),
             const _TextCard(

@@ -3,6 +3,7 @@ import 'package:erebrus_drop/features/gateway/gateway_sheets.dart';
 import 'package:erebrus_drop/features/onboarding/onboarding_screen.dart';
 import 'package:erebrus_drop/features/settings/about_screen.dart';
 import 'package:erebrus_drop/ui/theme/drop_theme.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -38,7 +39,7 @@ void main() {
 
     expect(find.text('Local-first by default.'), findsOneWidget);
     expect(
-      find.text('Private rooms stay nearby. Global sharing is optional.'),
+      find.text('Direct nearby. Decentralized when distance matters.'),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
@@ -54,6 +55,36 @@ void main() {
     expect(find.text('Send'), findsWidgets);
   });
 
+  testWidgets('large desktop exposes rail status and split workspaces', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    tester.view.devicePixelRatio = 1;
+
+    await tester.pumpWidget(const ErebrusDropApp(skipOnboarding: true));
+    await tester.pump();
+
+    expect(find.text('IDLE'), findsOneWidget);
+    expect(
+      find.text('Direct nearby. Decentralized when distance matters.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byIcon(Icons.folder_outlined));
+    await tester.pump();
+    expect(find.text('Select a file or folder'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.bolt_outlined));
+    await tester.pump();
+    expect(find.text('Drop files'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    debugDefaultTargetPlatformOverride = null;
+    tester.view.resetDevicePixelRatio();
+    await tester.binding.setSurfaceSize(null);
+  });
+
   testWidgets('about legal rows paint on their own material surface', (
     tester,
   ) async {
@@ -64,6 +95,7 @@ void main() {
 
     expect(find.text('Privacy Policy'), findsOneWidget);
     expect(find.text('Terms of Use'), findsOneWidget);
+    expect(find.textContaining('direct when nearby'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

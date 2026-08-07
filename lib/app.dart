@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -143,6 +144,9 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   String _ipfsGatewayUrl = resolveIpfsGatewayUrl();
   int _libraryScopeIndex = 0; // 0 Local, 1 Global
   int _smartSendScopeIndex = 0; // 0 Local, 1 Global
+  DropFileItem? _selectedLocalFile;
+  DropGatewayFile? _selectedGlobalFile;
+  bool _draggingFiles = false;
   final ValueNotifier<int> _joinUiVersion = ValueNotifier<int>(0);
   final TextEditingController _roomName = TextEditingController(
     text: _defaultRoomName(),
@@ -512,7 +516,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     final useSideRail = DesktopLayout.useSideRail(
       MediaQuery.sizeOf(context).width,
     );
-    return PopScope(
+    final shell = PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
         if (!didPop) {
@@ -590,6 +594,48 @@ class _DropHomeScreenState extends State<DropHomeScreen>
               ),
       ),
     );
+    if (!isDesktopPlatform) return shell;
+    return CallbackShortcuts(
+      bindings: _desktopShortcutBindings(),
+      child: Focus(autofocus: true, child: shell),
+    );
+  }
+
+  Map<ShortcutActivator, VoidCallback> _desktopShortcutBindings() {
+    final bindings = <ShortcutActivator, VoidCallback>{};
+    void bind(LogicalKeyboardKey key, VoidCallback callback) {
+      bindings[SingleActivator(key, meta: true)] = callback;
+      bindings[SingleActivator(key, control: true)] = callback;
+    }
+
+    bind(LogicalKeyboardKey.digit1, () => _selectTab(0));
+    bind(LogicalKeyboardKey.digit2, () => _selectTab(1));
+    bind(LogicalKeyboardKey.digit3, () => _selectTab(2));
+    bind(LogicalKeyboardKey.digit4, () => _selectTab(3));
+    bind(LogicalKeyboardKey.digit5, () => _selectTab(4));
+    bind(LogicalKeyboardKey.keyN, _showStartRoomSheet);
+    bind(LogicalKeyboardKey.keyR, _refreshCurrentTab);
+    return bindings;
+  }
+
+  void _refreshCurrentTab() {
+    switch (_tab) {
+      case 0:
+        unawaited(_refreshNetworkStatus());
+        if (_server.isRunning) unawaited(_refreshRoomData());
+      case 1:
+        unawaited(_discoverNearbyRooms());
+      case 2:
+        if (_libraryScopeIndex == 0) {
+          unawaited(_loadLibraryFiles());
+        } else {
+          unawaited(_refreshGatewayFiles());
+        }
+      case 3:
+        if (_smartSendScopeIndex == 1) unawaited(_refreshGatewayNodes());
+      case 4:
+        unawaited(_refreshNetworkStatus());
+    }
   }
 
   Widget _desktopNavigationRail() {
@@ -597,6 +643,12 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       selectedIndex: _tab,
       onDestinationSelected: _selectTab,
       labelType: NavigationRailLabelType.all,
+      groupAlignment: -0.35,
+      leading: Padding(
+        padding: const EdgeInsets.only(top: 10, bottom: 6),
+        child: Image.asset(DropTheme.logoFlat, width: 38, height: 38),
+      ),
+      trailing: _desktopRailRoomStatus(),
       destinations: const [
         NavigationRailDestination(
           icon: Icon(Icons.home_outlined),
@@ -627,55 +679,132 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     );
   }
 
+  Widget _desktopRailRoomStatus() {
+    final session = _session;
+    final live = session != null;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 18, 8, 0),
+      child: Tooltip(
+        message: live
+            ? '${session.name} · ${_server.activeGuestCount} guest(s)'
+            : 'No active Drop Room',
+        child: InkWell(
+          onTap: () => _selectTab(0),
+          borderRadius: BorderRadius.circular(DropTheme.radiusTile),
+          child: Container(
+            width: 82,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+            decoration: BoxDecoration(
+              color: live
+                  ? DropTheme.success.withValues(alpha: 0.10)
+                  : DropTheme.surface,
+              borderRadius: BorderRadius.circular(DropTheme.radiusTile),
+              border: Border.all(
+                color: live
+                    ? DropTheme.success.withValues(alpha: 0.28)
+                    : DropTheme.line,
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (live)
+                  const PulsingDot(color: DropTheme.success, size: 7)
+                else
+                  const Icon(
+                    Icons.circle_outlined,
+                    color: DropTheme.faint,
+                    size: 14,
+                  ),
+                const SizedBox(height: 6),
+                Text(
+                  live ? 'ROOM LIVE' : 'IDLE',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: live ? DropTheme.success : DropTheme.faint,
+                    fontSize: 9,
+                    letterSpacing: 0.7,
+                  ),
+                ),
+                if (live) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    '${_server.activeGuestCount} joined',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: DropTheme.muted,
+                      fontSize: 9,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  IconButton(
+                    onPressed: _stopRoom,
+                    tooltip: 'Stop room',
+                    visualDensity: VisualDensity.compact,
+                    iconSize: 17,
+                    color: DropTheme.danger,
+                    icon: const Icon(Icons.stop_rounded),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _homeTab() {
     final session = _session;
     final ready = _networkStatus.isReady;
     final online = session != null || ready;
     return _Screen(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          EnterTransition(child: _brandHeader()),
-          const SizedBox(height: 18),
-          if (session == null) ...[
-            DropPill(
-              dot: online,
-              icon: online ? null : Icons.wifi_off_rounded,
-              label: ready ? 'Ready · ${_networkStatus.label}' : 'Offline',
-              color: online ? DropTheme.success : DropTheme.muted,
-            ),
-            const SizedBox(height: 22),
-            EnterTransition(delayMs: 60, child: _homeHeadline()),
-            const SizedBox(height: 12),
-            Text(
-              'Drop files, text, and media nearby, or use Erebrus nodes when '
-              'you need global reach.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 24),
-            EnterTransition(
-              delayMs: 110,
-              child: _homeActionCard(
-                hero: true,
-                icon: Icons.add_rounded,
-                title: 'Start Drop Room',
-                subtitle: 'Host a local browser room on this network.',
-                onTap: _showStartRoomSheet,
+      child: _desktopFileDropTarget(
+        global: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            EnterTransition(child: _brandHeader()),
+            const SizedBox(height: 18),
+            if (session == null) ...[
+              DropPill(
+                dot: online,
+                icon: online ? null : Icons.wifi_off_rounded,
+                label: ready ? 'Ready · ${_networkStatus.label}' : 'Offline',
+                color: online ? DropTheme.success : DropTheme.muted,
               ),
-            ),
-            const SizedBox(height: 12),
-            _homeActionCard(
-              hero: false,
-              icon: Icons.login_rounded,
-              title: 'Join Drop Room',
-              subtitle: 'Enter a local Drop Link and browse after auth.',
-              onTap: () => setState(() => _tab = 1),
-            ),
-            const SizedBox(height: 16),
-            _trustStrip(),
-          ] else
-            _hostDashboard(session),
-        ],
+              const SizedBox(height: 22),
+              EnterTransition(delayMs: 60, child: _homeHeadline()),
+              const SizedBox(height: 12),
+              Text(
+                'Transfer directly when nearby. Choose Erebrus nodes when '
+                'distance matters.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 24),
+              EnterTransition(
+                delayMs: 110,
+                child: _homeActionCard(
+                  hero: true,
+                  icon: Icons.add_rounded,
+                  title: 'Start Drop Room',
+                  subtitle: 'Host a local browser room on this network.',
+                  onTap: _showStartRoomSheet,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _homeActionCard(
+                hero: false,
+                icon: Icons.login_rounded,
+                title: 'Join Drop Room',
+                subtitle: 'Enter a local Drop Link and browse after auth.',
+                onTap: () => setState(() => _tab = 1),
+              ),
+              const SizedBox(height: 16),
+              _trustStrip(),
+            ] else
+              _hostDashboard(session),
+          ],
+        ),
       ),
     );
   }
@@ -737,7 +866,8 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'Local Drop Rooms stay on your network. Global sends are always explicit.',
+              'Nearby rooms transfer directly over your network. Global uses '
+              'a selected Erebrus node only when you choose it.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: DropTheme.white,
                 fontWeight: FontWeight.w600,
@@ -838,45 +968,185 @@ class _DropHomeScreenState extends State<DropHomeScreen>
             labels: const ['Local', 'Global'],
             selected: _libraryScopeIndex,
             onSelected: (i) {
-              setState(() => _libraryScopeIndex = i);
+              setState(() {
+                _libraryScopeIndex = i;
+                _selectedLocalFile = null;
+                _selectedGlobalFile = null;
+              });
               if (i == 1) unawaited(_refreshGatewayFiles());
             },
           ),
           const SizedBox(height: 16),
-          if (_libraryScopeIndex == 1) ...[
-            _gatewayLibraryPanel(),
-          ] else if (!hasLibrarySource)
-            _InfoCard(
-              title: 'Choose a Drop folder',
-              subtitle:
-                  'Library opens your selected phone storage folder even when no room is running.',
-              icon: Icons.folder_special_outlined,
-              onTap: () => unawaited(_selectHostFolder()),
-            )
-          else ...[
-            _libraryPathBar(),
-            const SizedBox(height: 12),
-            if (_libraryError != null)
-              _InfoCard(
-                title: 'Could not open folder',
-                subtitle: _libraryError!,
-                icon: Icons.error_outline,
-                onTap: () => unawaited(_loadLibraryFiles()),
-              )
-            else if (_loadingLibraryFiles)
-              const _InfoCard(
-                title: 'Loading folder',
-                subtitle: 'Reading the selected Drop folder.',
-                icon: Icons.folder_open_outlined,
-              )
-            else if (_files.isEmpty)
-              const _InfoCard(
-                title: 'Folder is empty',
-                subtitle: 'Uploads, pasted text, and local files appear here.',
-                icon: Icons.folder_open_outlined,
-              )
-            else
-              _libraryFilesCard(),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final split = DesktopLayout.useSplitPane(constraints.maxWidth);
+              final content = _libraryContent(
+                hasLibrarySource: hasLibrarySource,
+                selectionMode: split,
+              );
+              if (!split) return content;
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: content),
+                  const SizedBox(width: 16),
+                  SizedBox(width: 320, child: _librarySelectionPanel()),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _libraryContent({
+    required bool hasLibrarySource,
+    required bool selectionMode,
+  }) {
+    if (_libraryScopeIndex == 1) {
+      return _gatewayLibraryPanel(selectionMode: selectionMode);
+    }
+    if (!hasLibrarySource) {
+      return _InfoCard(
+        title: 'Choose a Drop folder',
+        subtitle:
+            'Library opens your selected device folder even when no room is running.',
+        icon: Icons.folder_special_outlined,
+        onTap: () => unawaited(_selectHostFolder()),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _libraryPathBar(),
+        const SizedBox(height: 12),
+        if (_libraryError != null)
+          _InfoCard(
+            title: 'Could not open folder',
+            subtitle: _libraryError!,
+            icon: Icons.error_outline,
+            onTap: () => unawaited(_loadLibraryFiles()),
+          )
+        else if (_loadingLibraryFiles)
+          const _InfoCard(
+            title: 'Loading folder',
+            subtitle: 'Reading the selected Drop folder.',
+            icon: Icons.folder_open_outlined,
+          )
+        else if (_files.isEmpty)
+          const _InfoCard(
+            title: 'Folder is empty',
+            subtitle: 'Uploads, pasted text, and local files appear here.',
+            icon: Icons.folder_open_outlined,
+          )
+        else
+          _libraryFilesCard(selectionMode: selectionMode),
+      ],
+    );
+  }
+
+  Widget _librarySelectionPanel() {
+    if (_libraryScopeIndex == 1) {
+      final file = _selectedGlobalFile;
+      if (file == null) {
+        return const _InfoCard(
+          title: 'Select a global file',
+          subtitle: 'File details and actions will appear here.',
+          icon: Icons.touch_app_outlined,
+        );
+      }
+      return DropCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Eyebrow('GLOBAL FILE'),
+            const SizedBox(height: 10),
+            Text(file.filename, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 6),
+            Text(
+              '${formatBytes(file.sizeBytes)} · ${file.isPublic ? 'Public' : 'Private'}${file.encrypted ? ' · Encrypted' : ''}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            if (file.cid?.isNotEmpty == true) ...[
+              const SizedBox(height: 14),
+              MonoText(file.cid!, size: 11, color: DropTheme.muted),
+            ],
+            const SizedBox(height: 18),
+            PrimaryButton(
+              label: 'Download',
+              icon: Icons.download_rounded,
+              onPressed: () => unawaited(_downloadGatewayFile(file)),
+            ),
+            if (file.cid?.isNotEmpty == true) ...[
+              const SizedBox(height: 8),
+              TonalButton(
+                label: 'Copy CID',
+                icon: Icons.copy_rounded,
+                onPressed: () => _copy(file.cid!, 'IPFS CID copied'),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+
+    final item = _selectedLocalFile;
+    if (item == null) {
+      return const _InfoCard(
+        title: 'Select a file or folder',
+        subtitle: 'Details and desktop actions will appear here.',
+        icon: Icons.touch_app_outlined,
+      );
+    }
+    final isFolder = item.type == 'folder';
+    final (color, icon) = _fileTypeStyle(item);
+    return DropCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          LeadingTile(icon: icon, accent: color, size: 46),
+          const SizedBox(height: 12),
+          Text(item.name, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 5),
+          Text(
+            isFolder
+                ? 'Folder · ${_shortWhen(item.modifiedAt)}'
+                : '${formatBytes(item.sizeBytes)} · ${_shortWhen(item.modifiedAt)}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 18),
+          PrimaryButton(
+            label: isFolder ? 'Open folder' : 'Open file',
+            icon: isFolder ? Icons.folder_open_rounded : Icons.open_in_new,
+            onPressed: () {
+              if (isFolder) {
+                setState(() {
+                  _libraryPath = item.path;
+                  _selectedLocalFile = null;
+                });
+                unawaited(_loadLibraryFiles());
+              } else {
+                unawaited(_openLibraryFile(item));
+              }
+            },
+          ),
+          if (!isFolder) ...[
+            const SizedBox(height: 8),
+            TonalButton(
+              label: 'Share',
+              icon: Icons.ios_share_rounded,
+              onPressed: () => unawaited(_shareLibraryFile(item)),
+            ),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: () => unawaited(_confirmDeleteLibraryFile(item)),
+              icon: const Icon(Icons.delete_outline, color: DropTheme.danger),
+              label: const Text(
+                'Delete',
+                style: TextStyle(color: DropTheme.danger),
+              ),
+            ),
           ],
         ],
       ),
@@ -909,7 +1179,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     );
   }
 
-  Widget _gatewayLibraryPanel() {
+  Widget _gatewayLibraryPanel({required bool selectionMode}) {
     if (!_dropAuthService.isSignedIn) {
       return _InfoCard(
         title: 'Sign in to view global files',
@@ -942,13 +1212,21 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           for (var i = 0; i < _gatewayFiles.length; i++)
-            _gatewayFileTile(_gatewayFiles[i], first: i == 0),
+            _gatewayFileTile(
+              _gatewayFiles[i],
+              first: i == 0,
+              selectionMode: selectionMode,
+            ),
         ],
       ),
     );
   }
 
-  Widget _gatewayFileTile(DropGatewayFile file, {required bool first}) {
+  Widget _gatewayFileTile(
+    DropGatewayFile file, {
+    required bool first,
+    required bool selectionMode,
+  }) {
     final (color, icon) = _fileTypeStyle(
       DropFileItem(
         id: file.id,
@@ -970,8 +1248,11 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       if (file.orgId != null) 'Org',
     ];
     final meta = tags.join(' · ');
-    return DecoratedBox(
+    final tile = DecoratedBox(
       decoration: BoxDecoration(
+        color: selectionMode && _selectedGlobalFile?.fileId == file.fileId
+            ? DropTheme.orange.withValues(alpha: 0.08)
+            : null,
         border: first
             ? null
             : const Border(top: BorderSide(color: DropTheme.line)),
@@ -1021,16 +1302,21 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         ),
       ),
     );
+    if (!selectionMode) return tile;
+    return PressableScale(
+      onTap: () => setState(() => _selectedGlobalFile = file),
+      child: tile,
+    );
   }
 
-  Widget _libraryFilesCard() {
+  Widget _libraryFilesCard({required bool selectionMode}) {
     return DropCard(
       padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           for (var i = 0; i < _files.length; i++)
-            _fileTile(_files[i], first: i == 0),
+            _fileTile(_files[i], first: i == 0, selectionMode: selectionMode),
         ],
       ),
     );
@@ -1079,37 +1365,99 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   Widget _smartSendTab() {
     return _Screen(
       glowAlignment: Alignment.topLeft,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      layout: DesktopContentLayout.workspace,
+      child: _desktopFileDropTarget(
+        global: _smartSendScopeIndex == 1,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _Head(
+              title: 'Smart Send',
+              subtitle: _smartSendScopeIndex == 0
+                  ? 'Push text into the room'
+                  : 'Upload files to Erebrus nodes and get the share link',
+              action: _smartSendScopeIndex == 0
+                  ? DropIconButton(
+                      icon: Icons.content_paste_rounded,
+                      tonal: true,
+                      tooltip: 'Paste clipboard',
+                      onPressed: _pasteClipboard,
+                    )
+                  : null,
+            ),
+            const SizedBox(height: 12),
+            _scopeToggle(
+              labels: const ['Local', 'Global'],
+              selected: _smartSendScopeIndex,
+              onSelected: (i) {
+                setState(() => _smartSendScopeIndex = i);
+                if (i == 1) unawaited(_refreshGatewayNodes());
+              },
+            ),
+            const SizedBox(height: 16),
+            if (_smartSendScopeIndex == 1)
+              _gatewaySendPanel()
+            else
+              _localSmartSendBody(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _desktopFileDropTarget({required bool global, required Widget child}) {
+    if (!isDesktopPlatform) return child;
+    return DropTarget(
+      onDragEntered: (_) => setState(() => _draggingFiles = true),
+      onDragExited: (_) => setState(() => _draggingFiles = false),
+      onDragDone: (detail) {
+        setState(() => _draggingFiles = false);
+        final paths = detail.files
+            .map((file) => file.path)
+            .where((path) => path.isNotEmpty)
+            .toList();
+        if (paths.isEmpty) return;
+        if (global) {
+          unawaited(_uploadDroppedFilesToGateway(paths));
+        } else {
+          unawaited(_handleSharedPayload(SharedPayload(filePaths: paths)));
+        }
+      },
+      child: Stack(
         children: [
-          _Head(
-            title: 'Smart Send',
-            subtitle: _smartSendScopeIndex == 0
-                ? 'Push text into the room'
-                : 'Upload files to Erebrus nodes and get the share link',
-            action: _smartSendScopeIndex == 0
-                ? DropIconButton(
-                    icon: Icons.content_paste_rounded,
-                    tonal: true,
-                    tooltip: 'Paste clipboard',
-                    onPressed: _pasteClipboard,
-                  )
-                : null,
-          ),
-          const SizedBox(height: 12),
-          _scopeToggle(
-            labels: const ['Local', 'Global'],
-            selected: _smartSendScopeIndex,
-            onSelected: (i) {
-              setState(() => _smartSendScopeIndex = i);
-              if (i == 1) unawaited(_refreshGatewayNodes());
-            },
-          ),
-          const SizedBox(height: 16),
-          if (_smartSendScopeIndex == 1)
-            _gatewaySendPanel()
-          else
-            _localSmartSendBody(),
+          child,
+          if (_draggingFiles)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: DropTheme.black.withValues(alpha: 0.88),
+                    borderRadius: BorderRadius.circular(DropTheme.radiusCard),
+                    border: Border.all(color: DropTheme.orange, width: 2),
+                  ),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.file_download_outlined,
+                          color: DropTheme.orange,
+                          size: 42,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          global
+                              ? 'Drop to send through the selected node'
+                              : 'Drop to add to your local Drop folder',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -1118,61 +1466,82 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   Widget _localSmartSendBody() {
     final hosting = _server.isRunning;
     final canSaveSmartText = hosting || _hostFolderSelection != null;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _smartDestinationCard(),
-        const SizedBox(height: 12),
-        DropCard(
-          child: Column(
+    final composer = DropCard(
+      child: Column(
+        children: [
+          TextField(
+            controller: _smartTitle,
+            decoration: const InputDecoration(labelText: 'Title'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _smartText,
+            minLines: 7,
+            maxLines: 13,
+            decoration: const InputDecoration(
+              labelText: 'Text, link, SMS copy, or note',
+              alignLabelWithHint: true,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
             children: [
-              TextField(
-                controller: _smartTitle,
-                decoration: const InputDecoration(labelText: 'Title'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _smartText,
-                minLines: 7,
-                maxLines: 13,
-                decoration: const InputDecoration(
-                  labelText: 'Text, link, SMS copy, or note',
-                  alignLabelWithHint: true,
+              Expanded(
+                child: PrimaryButton(
+                  label: hosting ? 'Send to Room' : 'Save to Folder',
+                  icon: Icons.send_rounded,
+                  onPressed: canSaveSmartText ? _saveSmartText : null,
                 ),
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: PrimaryButton(
-                      label: hosting ? 'Send to Room' : 'Save to Folder',
-                      icon: Icons.send_rounded,
-                      onPressed: canSaveSmartText ? _saveSmartText : null,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  DropIconButton(
-                    icon: Icons.clear_rounded,
-                    tooltip: 'Clear',
-                    onPressed: () {
-                      _smartText.clear();
-                      _smartTitle.text = 'Quick text';
-                    },
-                  ),
-                ],
+              const SizedBox(width: 10),
+              DropIconButton(
+                icon: Icons.clear_rounded,
+                tooltip: 'Clear',
+                onPressed: () {
+                  _smartText.clear();
+                  _smartTitle.text = 'Quick text';
+                },
               ),
             ],
           ),
-        ),
-        const SizedBox(height: 12),
-        const _FeatureGrid(
-          items: [
-            ('Share Sheet', Icons.ios_share_rounded, 'From any app'),
-            ('Files', Icons.attach_file_rounded, 'Native picker'),
-            ('Links', Icons.link_rounded, 'Send as text'),
-          ],
-        ),
+        ],
+      ),
+    );
+    final destination = _smartDestinationCard();
+    const features = _FeatureGrid(
+      items: [
+        ('Share Sheet', Icons.ios_share_rounded, 'From any app'),
+        ('Drop files', Icons.file_download_outlined, 'Desktop'),
+        ('Links', Icons.link_rounded, 'Send as text'),
       ],
+    );
+    final contextPanel = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [destination, const SizedBox(height: 12), features],
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (!DesktopLayout.useSplitPane(constraints.maxWidth)) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              destination,
+              const SizedBox(height: 12),
+              composer,
+              const SizedBox(height: 12),
+              features,
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(flex: 3, child: composer),
+            const SizedBox(width: 16),
+            SizedBox(width: 330, child: contextPanel),
+          ],
+        );
+      },
     );
   }
 
@@ -1199,115 +1568,110 @@ class _DropHomeScreenState extends State<DropHomeScreen>
 
     final selected = _selectedSendNode;
     final nodes = _gatewayNodes;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        DropCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Target node',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              const SizedBox(height: 12),
-              if (selected != null) ...[
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    LeadingTile(
-                      icon: Icons.hub_rounded,
-                      accent: selected.online
-                          ? DropTheme.success
-                          : DropTheme.danger,
-                      size: 42,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            selected.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.titleSmall,
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            '${selected.region.isEmpty ? 'Global' : selected.region} · ${selected.capacity.isEmpty ? 'Unknown capacity' : selected.capacity.capitalize()}',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ],
+    final targetCard = DropCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Target node', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 12),
+          if (selected != null) ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                LeadingTile(
+                  icon: Icons.hub_rounded,
+                  accent: selected.online
+                      ? DropTheme.success
+                      : DropTheme.danger,
+                  size: 42,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        selected.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleSmall,
                       ),
-                    ),
-                    _NodeStatusChip(online: selected.online),
-                  ],
+                      const SizedBox(height: 3),
+                      Text(
+                        '${selected.region.isEmpty ? 'Global' : selected.region} · ${selected.capacity.isEmpty ? 'Unknown capacity' : selected.capacity.capitalize()}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _NodeDetailChip(
-                      icon: selected.isPublic
-                          ? Icons.public_rounded
-                          : Icons.lock_rounded,
-                      label: selected.isPublic ? 'Public' : 'Private',
-                      color: selected.isPublic
-                          ? DropTheme.success
-                          : DropTheme.orange,
-                    ),
-                    _NodeDetailChip(
-                      icon: Icons.layers_rounded,
-                      label: selected.deploymentProfile.capitalize(),
-                      color: DropTheme.faint,
-                    ),
-                  ],
+                _NodeStatusChip(online: selected.online),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _NodeDetailChip(
+                  icon: selected.isPublic
+                      ? Icons.public_rounded
+                      : Icons.lock_rounded,
+                  label: selected.isPublic ? 'Public' : 'Private',
+                  color: selected.isPublic
+                      ? DropTheme.success
+                      : DropTheme.orange,
                 ),
-                const SizedBox(height: 12),
-              ] else
-                Text(
-                  'Select a node to upload to',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodyMedium?.copyWith(color: DropTheme.muted),
+                _NodeDetailChip(
+                  icon: Icons.layers_rounded,
+                  label: selected.deploymentProfile.capitalize(),
+                  color: DropTheme.faint,
                 ),
-              const SizedBox(height: 10),
-              // Deduplicate by nodeId and use String IDs as dropdown values
-              // to avoid object-identity collisions from duplicate instances.
-              Builder(
-                builder: (context) {
-                  final uniqueNodes = <String, DropNode>{};
-                  for (final node in nodes) {
-                    uniqueNodes.putIfAbsent(node.nodeId, () => node);
-                  }
-                  final selectedId =
-                      selected != null &&
-                          uniqueNodes.containsKey(selected.nodeId)
-                      ? selected.nodeId
-                      : null;
-                  return DropdownButton<String>(
-                    isExpanded: true,
-                    value: selectedId,
-                    hint: const Text('Select a node'),
-                    items: uniqueNodes.values
-                        .map(
-                          (node) => DropdownMenuItem(
-                            value: node.nodeId,
-                            child: _NodeDropdownItem(node: node),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (nodeId) =>
-                        setState(() => _selectedSendNode = uniqueNodes[nodeId]),
-                  );
-                },
-              ),
-            ],
+              ],
+            ),
+            const SizedBox(height: 12),
+          ] else
+            Text(
+              'Select a node to upload to',
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: DropTheme.muted),
+            ),
+          const SizedBox(height: 10),
+          // Deduplicate by nodeId and use String IDs as dropdown values
+          // to avoid object-identity collisions from duplicate instances.
+          Builder(
+            builder: (context) {
+              final uniqueNodes = <String, DropNode>{};
+              for (final node in nodes) {
+                uniqueNodes.putIfAbsent(node.nodeId, () => node);
+              }
+              final selectedId =
+                  selected != null && uniqueNodes.containsKey(selected.nodeId)
+                  ? selected.nodeId
+                  : null;
+              return DropdownButton<String>(
+                isExpanded: true,
+                value: selectedId,
+                hint: const Text('Select a node'),
+                items: uniqueNodes.values
+                    .map(
+                      (node) => DropdownMenuItem(
+                        value: node.nodeId,
+                        child: _NodeDropdownItem(node: node),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (nodeId) =>
+                    setState(() => _selectedSendNode = uniqueNodes[nodeId]),
+              );
+            },
           ),
-        ),
-        const SizedBox(height: 12),
+        ],
+      ),
+    );
+    final actions = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
         if (_gatewayUploadedCid?.isNotEmpty == true)
           DropCard.tinted(
             accent: DropTheme.success,
@@ -1347,34 +1711,74 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         ),
       ],
     );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (!DesktopLayout.useSplitPane(constraints.maxWidth)) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [targetCard, const SizedBox(height: 12), actions],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(flex: 3, child: targetCard),
+            const SizedBox(width: 16),
+            SizedBox(width: 330, child: actions),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _uploadToGatewayNode() async {
+    final picked = await _nativeFilePickerService.pickFileForUpload();
+    if (picked == null || picked.path.isEmpty) return;
+    await _uploadFileToGatewayNode(File(picked.path), picked.name);
+  }
+
+  Future<void> _uploadDroppedFilesToGateway(List<String> paths) async {
+    if (!_dropAuthService.isSignedIn) {
+      _snack('Sign in before sending files globally');
+      return;
+    }
+    if (_selectedSendNode == null) {
+      _snack('Select an Erebrus node first');
+      return;
+    }
+    for (final path in paths) {
+      final file = File(path);
+      if (!await file.exists()) continue;
+      final name = file.uri.pathSegments.isEmpty
+          ? 'dropped-file'
+          : file.uri.pathSegments.last;
+      await _uploadFileToGatewayNode(file, name);
+    }
+  }
+
+  Future<void> _uploadFileToGatewayNode(File file, String filename) async {
     final node = _selectedSendNode;
     final org = _dropAuthService.selectedOrg.value;
     if (node == null) return;
-    final picked = await _nativeFilePickerService.pickFileForUpload();
-    if (picked == null || picked.path.isEmpty) return;
     if (!mounted) return;
     setState(() {
       _gatewayUploading = true;
       _gatewayUploadedCid = null;
     });
     try {
-      final file = File(picked.path);
       final isOrgNode = org != null && node.orgId == org.id;
       final orgId = isOrgNode ? org.id : null;
       final uploaded = await _dropAuthService.gatewayClient.uploadFile(
         nodeId: node.nodeId,
         file: file,
-        filename: picked.name,
+        filename: filename,
         visibility: 'public',
         scope: isOrgNode ? 'private' : 'public',
         orgId: orgId,
       );
       if (!mounted) return;
       setState(() => _gatewayUploadedCid = uploaded.cid);
-      _snack('File pinned to global node');
+      _snack('$filename pinned to ${node.name}');
       unawaited(_refreshGatewayFiles());
     } catch (e) {
       if (!mounted) return;
@@ -2397,7 +2801,11 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     );
   }
 
-  Widget _fileTile(DropFileItem item, {required bool first}) {
+  Widget _fileTile(
+    DropFileItem item, {
+    required bool first,
+    required bool selectionMode,
+  }) {
     final isFolder = item.type == 'folder';
     final (color, icon) = _fileTypeStyle(item);
     final meta = isFolder
@@ -2405,12 +2813,17 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         : '${formatBytes(item.sizeBytes)} · ${_shortWhen(item.modifiedAt)}';
     return DecoratedBox(
       decoration: BoxDecoration(
+        color: selectionMode && _selectedLocalFile?.id == item.id
+            ? DropTheme.orange.withValues(alpha: 0.08)
+            : null,
         border: first
             ? null
             : const Border(top: BorderSide(color: DropTheme.line)),
       ),
       child: PressableScale(
-        onTap: isFolder
+        onTap: selectionMode
+            ? () => setState(() => _selectedLocalFile = item)
+            : isFolder
             ? () {
                 setState(() => _libraryPath = item.path);
                 unawaited(_loadLibraryFiles());
@@ -3547,7 +3960,10 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         .where((part) => part.isNotEmpty)
         .toList();
     parts.removeLast();
-    setState(() => _libraryPath = parts.isEmpty ? '/' : '/${parts.join('/')}');
+    setState(() {
+      _libraryPath = parts.isEmpty ? '/' : '/${parts.join('/')}';
+      _selectedLocalFile = null;
+    });
     unawaited(_loadLibraryFiles());
   }
 
@@ -3694,6 +4110,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         return;
       }
       if (mounted) {
+        setState(() => _selectedLocalFile = null);
         _snack('${item.name} deleted');
       }
     } on FileSystemException catch (error) {
@@ -4388,7 +4805,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           child: BrandLockup(
             markSize: 46,
             eyebrow: 'Local-first',
-            subtitle: 'Private rooms nearby. Global sharing optional.',
+            subtitle: 'Direct nearby. Decentralized when distance matters.',
           ),
         ),
         if (supportsNativeQrScanner) ...[
