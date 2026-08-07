@@ -13,9 +13,7 @@ class AboutScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('About Erebrus Drop'),
-      ),
+      appBar: AppBar(title: const Text('About Erebrus Drop')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(22, 14, 22, 36),
         child: Column(
@@ -61,9 +59,9 @@ class AboutScreen extends StatelessWidget {
                 return Center(
                   child: Text(
                     version,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: DropTheme.faint,
-                    ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(color: DropTheme.faint),
                   ),
                 );
               },
@@ -74,10 +72,10 @@ class AboutScreen extends StatelessWidget {
             DropCard(
               child: Text(
                 'NetSepio builds privacy infrastructure for a decentralized web. '
-                'Erebrus Drop keeps file transfers local-first: start a room on '
-                'your network, share a code, and move files between devices without '
-                'a cloud account or forced install. When you need global reach, '
-                'pin files to Erebrus nodes — always under your keys, always your choice.',
+                'Erebrus Drop is direct when nearby and decentralized when distance '
+                'matters. Local Drop Rooms move content across your current network '
+                'without sending it to Erebrus services. Global Send is a separate, '
+                'explicit action that uploads a chosen file to the Erebrus node you select.',
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
             ),
@@ -88,11 +86,19 @@ class AboutScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: const [
-                  _Bullet('Host a local Drop Room and share via QR code or link'),
-                  _Bullet('Transfer files, text, and media between nearby devices'),
-                  _Bullet('Join rooms from any browser — no app install required'),
+                  _Bullet(
+                    'Host a local Drop Room and share via QR code or link',
+                  ),
+                  _Bullet(
+                    'Transfer files, text, and media between nearby devices',
+                  ),
+                  _Bullet(
+                    'Join rooms from any browser — no app install required',
+                  ),
                   _Bullet('Pin files to public and organization Erebrus nodes'),
-                  _Bullet('Authenticate with wallet, email, Google, Apple, or Seeker'),
+                  _Bullet(
+                    'Authenticate with wallet, email, Google, Apple, or Seeker',
+                  ),
                   _Bullet('Run on Android, iOS, macOS, Windows, and Linux'),
                 ],
               ),
@@ -146,7 +152,6 @@ class AboutScreen extends StatelessWidget {
       ),
     );
   }
-
 }
 
 class _Bullet extends StatelessWidget {
@@ -165,10 +170,7 @@ class _Bullet extends StatelessWidget {
             style: TextStyle(color: DropTheme.orange, fontSize: 14),
           ),
           Expanded(
-            child: Text(
-              text,
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
+            child: Text(text, style: Theme.of(context).textTheme.bodyMedium),
           ),
         ],
       ),
@@ -206,10 +208,7 @@ class _LegalRow extends StatelessWidget {
         subtitle,
         style: const TextStyle(color: DropTheme.faint, fontSize: 12.5),
       ),
-      trailing: const Icon(
-        Icons.chevron_right,
-        color: DropTheme.faint,
-      ),
+      trailing: const Icon(Icons.chevron_right, color: DropTheme.faint),
     );
   }
 }

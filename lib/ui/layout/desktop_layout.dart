@@ -7,6 +7,9 @@ enum DesktopContentLayout {
 
   /// Library and other file-heavy views — wider but still bounded.
   library,
+
+  /// Desktop workspaces that become a two-pane layout on large windows.
+  workspace,
 }
 
 /// Breakpoints and width caps for desktop window layouts.
@@ -22,10 +25,16 @@ class DesktopLayout {
 
   static const double standardMaxWidth = 920;
   static const double libraryMaxWidth = 1180;
+  static const double workspaceMaxWidth = 1180;
+  static const double splitPaneBreakpoint = 960;
   static const double horizontalPadding = 40;
 
   static bool useSideRail(double windowWidth) {
     return isDesktopPlatform && windowWidth >= railBreakpoint;
+  }
+
+  static bool useSplitPane(double contentWidth) {
+    return isDesktopPlatform && contentWidth >= splitPaneBreakpoint;
   }
 
   static double contentMaxWidth({
@@ -35,6 +44,7 @@ class DesktopLayout {
     final cap = switch (layout) {
       DesktopContentLayout.standard => standardMaxWidth,
       DesktopContentLayout.library => libraryMaxWidth,
+      DesktopContentLayout.workspace => workspaceMaxWidth,
     };
     final padded = windowWidth - horizontalPadding;
     if (padded <= 0) {

@@ -28,7 +28,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     ),
     _OnboardingSlide(
       title: 'Local-first by default.',
-      body: 'Private rooms stay nearby. Global sharing is optional.',
+      body: 'Direct nearby. Decentralized when distance matters.',
     ),
   ];
 
