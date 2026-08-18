@@ -20,6 +20,7 @@ import 'auth_config.dart';
 import 'desktop_web_auth.dart';
 import 'drop_auth_client.dart';
 import 'drop_gateway_client.dart';
+import 'gateway_http.dart';
 import 'gateway_models.dart';
 import 'social_login.dart';
 
@@ -37,7 +38,10 @@ class DropAuthService {
     DropAuthClient? authClient,
     DropGatewayClient? gatewayClient,
   }) : _authClient = authClient ?? DropAuthClient(),
-       _gatewayClient = gatewayClient ?? DropGatewayClient();
+       _gatewayClient = gatewayClient ?? DropGatewayClient() {
+    _authClient.onUnauthorized = _handleBearerUnauthorized;
+    _gatewayClient.onUnauthorized = _handleBearerUnauthorized;
+  }
 
   final SolanaWalletService solana;
   final DropAuthClient _authClient;
@@ -50,6 +54,8 @@ class DropAuthService {
   String? _mwaAuthToken;
   ReownAppKitModal? _appKitModal;
   Future<void>? _reownInitFuture;
+  Future<void>? _expirationFuture;
+  Future<bool>? _revalidationFuture;
 
   final ValueNotifier<List<DropOrg>> orgs = ValueNotifier<List<DropOrg>>(
     const [],
@@ -118,8 +124,40 @@ class DropAuthService {
     _userId = prefs.getString(_kUserId);
     _authMethod = prefs.getString(_kAuthMethod);
 
-    await _loadOrgs();
-    await _restoreSelectedOrg(prefs);
+    await revalidateSession();
+    if (isSignedIn) await _restoreSelectedOrg(prefs);
+  }
+
+  /// Checks the current bearer session against an authenticated endpoint.
+  /// A 401 expires the session; all other failures leave it recoverable.
+  Future<bool> revalidateSession() {
+    final active = _revalidationFuture;
+    if (active != null) return active;
+    late final Future<bool> future;
+    future = _runSessionRevalidation().whenComplete(() {
+      if (identical(_revalidationFuture, future)) _revalidationFuture = null;
+    });
+    _revalidationFuture = future;
+    return future;
+  }
+
+  Future<bool> _runSessionRevalidation() async {
+    if (!isSignedIn || _bearerToken == null || _bearerToken!.isEmpty) {
+      return false;
+    }
+    try {
+      await _loadOrgs();
+      error.value = null;
+      return true;
+    } on GatewayException catch (e) {
+      if (e.statusCode != HttpStatus.unauthorized) {
+        error.value = e.message;
+      }
+      return isSignedIn;
+    } catch (e) {
+      error.value = e.toString();
+      return isSignedIn;
+    }
   }
 
   /// Initializes Reown AppKit once a [BuildContext] is available.
@@ -563,6 +601,7 @@ class DropAuthService {
 
   /// Clears the signed-in session.
   Future<void> signOut() async {
+    final mwaToken = _mwaAuthToken;
     _bearerToken = null;
     _walletAddress = null;
     _userId = null;
@@ -574,7 +613,6 @@ class DropAuthService {
     signedIn.value = false;
     error.value = null;
 
-    final mwaToken = _mwaAuthToken;
     unawaited(googleSignOut());
     if (mwaToken != null) {
       unawaited(_disconnectSolanaMobile(mwaToken));
@@ -585,6 +623,40 @@ class DropAuthService {
       debugPrint('[Auth] Reown disconnect: $e');
     }
 
+    await _removePersistedSession();
+  }
+
+  Future<void> _handleBearerUnauthorized(String rejectedToken) {
+    if (_bearerToken != rejectedToken) return Future<void>.value();
+    final active = _expirationFuture;
+    if (active != null) return active;
+
+    // Clear in-memory auth before the first await so concurrent failures cannot
+    // start another expiry operation or issue more authenticated requests.
+    _bearerToken = null;
+    _walletAddress = null;
+    _userId = null;
+    _authMethod = null;
+    _mwaAuthToken = null;
+    orgs.value = const [];
+    selectedOrg.value = null;
+    _gatewayClient.token = null;
+    error.value = 'Your session expired. Please sign in again.';
+    signedIn.value = false;
+
+    late final Future<void> future;
+    future = _removePersistedSession()
+        .catchError((Object e) {
+          debugPrint('[Auth] could not clear expired persisted session: $e');
+        })
+        .whenComplete(() {
+          if (identical(_expirationFuture, future)) _expirationFuture = null;
+        });
+    _expirationFuture = future;
+    return future;
+  }
+
+  Future<void> _removePersistedSession() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kToken);
     await prefs.remove(_kWallet);

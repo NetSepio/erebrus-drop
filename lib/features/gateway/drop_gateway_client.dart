@@ -14,20 +14,23 @@ import 'gateway_models.dart';
 
 /// Client for the Erebrus gateway Drop endpoints.
 class DropGatewayClient {
-  DropGatewayClient({String? gatewayUrl, this.bearerToken})
-      : _base = GatewayHttp.normalizeBase(gatewayUrl ?? resolveGatewayUrl()),
-        _ipfsGatewayBase = GatewayHttp.normalizeBase(resolveIpfsGatewayUrl());
+  DropGatewayClient({String? gatewayUrl, this.bearerToken, this.onUnauthorized})
+    : _base = GatewayHttp.normalizeBase(gatewayUrl ?? resolveGatewayUrl()),
+      _ipfsGatewayBase = GatewayHttp.normalizeBase(resolveIpfsGatewayUrl());
 
   final Uri _base;
   Uri _ipfsGatewayBase;
   String? bearerToken;
+  Future<void> Function(String token)? onUnauthorized;
 
   set token(String? value) => bearerToken = value;
 
   /// Sets the public IPFS gateway base URL (e.g. `https://ipfs.erebrus.io`).
   set ipfsGatewayUrl(String? value) {
     _ipfsGatewayBase = GatewayHttp.normalizeBase(
-      value != null && value.trim().isNotEmpty ? value.trim() : resolveIpfsGatewayUrl(),
+      value != null && value.trim().isNotEmpty
+          ? value.trim()
+          : resolveIpfsGatewayUrl(),
     );
   }
 
@@ -45,6 +48,7 @@ class DropGatewayClient {
     final map = await GatewayHttp.getJson(
       GatewayHttp.apiUri(_base, path: '/api/v2/drop/nodes', query: query),
       bearerToken: bearerToken,
+      onUnauthorized: onUnauthorized,
     );
     final nodes = (map['nodes'] as List?) ?? [];
     return nodes
@@ -87,6 +91,7 @@ class DropGatewayClient {
       GatewayHttp.apiUri(_base, path: '/api/v2/drop/uploads'),
       body,
       bearerToken: bearerToken,
+      onUnauthorized: onUnauthorized,
     );
     return DropUploadReservation.fromJson(map);
   }
@@ -108,6 +113,7 @@ class DropGatewayClient {
       contentLength: await file.length(),
       contentType: contentType ?? 'application/octet-stream',
       bearerToken: bearerToken,
+      onUnauthorized: onUnauthorized,
     );
     return DropGatewayFile.fromJson(map);
   }
@@ -144,6 +150,7 @@ class DropGatewayClient {
     final map = await GatewayHttp.getJson(
       GatewayHttp.apiUri(_base, path: '/api/v2/drop/files'),
       bearerToken: bearerToken,
+      onUnauthorized: onUnauthorized,
     );
     final files = (map['files'] as List?) ?? [];
     return files
@@ -157,6 +164,7 @@ class DropGatewayClient {
     final map = await GatewayHttp.getJson(
       GatewayHttp.apiUri(_base, path: '/api/v2/orgs/$orgId/drop/files'),
       bearerToken: bearerToken,
+      onUnauthorized: onUnauthorized,
     );
     final files = (map['files'] as List?) ?? [];
     return files
@@ -197,7 +205,10 @@ class DropGatewayClient {
 
     final directory = await _downloadStagingDirectory();
     await directory.create(recursive: true);
-    final tempFile = await _uniqueStagingFile(directory, _safeName(file.filename));
+    final tempFile = await _uniqueStagingFile(
+      directory,
+      _safeName(file.filename),
+    );
 
     GatewayException? lastError;
     for (var i = 0; i < candidates.length; i++) {
@@ -260,10 +271,7 @@ class DropGatewayClient {
     addRaw(file.gatewayUrl);
     if (file.cid?.isNotEmpty == true) {
       candidates.add(
-        GatewayHttp.apiUri(
-          _ipfsGatewayBase,
-          path: '/ipfs/${file.cid}',
-        ),
+        GatewayHttp.apiUri(_ipfsGatewayBase, path: '/ipfs/${file.cid}'),
       );
     }
     if (file.fileId.isNotEmpty) {
@@ -303,14 +311,27 @@ class DropGatewayClient {
     final client = HttpClient();
     client.connectionTimeout = GatewayHttp.createClient().connectionTimeout;
     try {
-      final request = await client.getUrl(url).timeout(const Duration(seconds: 20));
+      final request = await client
+          .getUrl(url)
+          .timeout(const Duration(seconds: 20));
       if (needsAuth && bearerToken != null && bearerToken!.isNotEmpty) {
-        request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $bearerToken');
+        request.headers.set(
+          HttpHeaders.authorizationHeader,
+          'Bearer $bearerToken',
+        );
       }
-      final response = await request.close().timeout(const Duration(seconds: 60));
+      final response = await request.close().timeout(
+        const Duration(seconds: 60),
+      );
       if (response.statusCode >= 400) {
         final body = await utf8.decoder.bind(response).join();
-        throw GatewayException(GatewayHttp.errorMessage(response.statusCode, body));
+        if (response.statusCode == HttpStatus.unauthorized &&
+            needsAuth &&
+            bearerToken != null &&
+            bearerToken!.isNotEmpty) {
+          await onUnauthorized?.call(bearerToken!);
+        }
+        throw GatewayHttp.responseException(response.statusCode, body);
       }
       final sink = tempFile.openWrite();
       var received = 0;
@@ -335,7 +356,9 @@ class DropGatewayClient {
 
   Future<Directory> _downloadStagingDirectory() async {
     final temp = await getTemporaryDirectory();
-    return Directory('${temp.path}${Platform.pathSeparator}erebrus_drop_downloads');
+    return Directory(
+      '${temp.path}${Platform.pathSeparator}erebrus_drop_downloads',
+    );
   }
 
   Future<File> _uniqueStagingFile(Directory directory, String name) async {
@@ -397,8 +420,9 @@ class DropGatewayClient {
         ..setAll(encryptedBytes.length, tag);
     }
 
-    final cipher = GCMBlockCipher(AESEngine())
-      ..init(false, AEADParameters(KeyParameter(key), 128, nonce, Uint8List(0)));
+    final cipher = GCMBlockCipher(
+      AESEngine(),
+    )..init(false, AEADParameters(KeyParameter(key), 128, nonce, Uint8List(0)));
     try {
       return cipher.process(cipherInput);
     } on ArgumentError catch (e) {

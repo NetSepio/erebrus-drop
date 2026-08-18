@@ -6,12 +6,12 @@
 #   ErebrusDrop-<platform>-vX.X.X.<ext>
 #
 # Examples:
-#   ErebrusDrop-android-playstore-v1.0.7.aab
-#   ErebrusDrop-android-dappstore-v1.0.7.apk
-#   ErebrusDrop-ios-v1.0.7.ipa
-#   ErebrusDrop-macos-v1.0.7.zip
-#   ErebrusDrop-windows-v1.0.7.zip
-#   ErebrusDrop-ubuntu-v1.0.7.tar.gz
+#   ErebrusDrop-android-playstore-v1.0.8.aab
+#   ErebrusDrop-android-dappstore-v1.0.8.apk
+#   ErebrusDrop-ios-v1.0.8.ipa
+#   ErebrusDrop-macos-v1.0.8.zip
+#   ErebrusDrop-windows-v1.0.8.zip
+#   ErebrusDrop-ubuntu-v1.0.8.tar.gz
 #
 # Usage:
 #   ./scripts/build-all-release.sh              # all platforms supported here

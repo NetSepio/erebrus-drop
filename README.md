@@ -1,6 +1,6 @@
 # Erebrus Drop
 
-Current version: `1.0.7+7`
+Current version: `1.0.8+8`
 
 Erebrus Drop is a local-first file and text sharing app for nearby devices. A
 phone can create a temporary Drop Room on the current Wi-Fi network or hotspot,
@@ -32,7 +32,11 @@ or cloud upload.
 - Smart Send: send quick text into a room.
 - Settings and About: app details, privacy, terms, and NetSepio ethos.
 
-## What's New in 1.0.7+7
+## What's New in 1.0.8+8
+
+- **Reliable session expiry handling** — authenticated `401` responses now sign out once, clear persisted credentials, and explain that the session expired, while `403`, network, and server failures remain recoverable; stored sessions are revalidated on launch and resume.
+
+### Previously in 1.0.7+7
 
 - **Live room tray status** — the desktop tray icon is muted while idle and switches to the full adaptive black/white macOS glyph while a Drop Room is live.
 - **Cleaner desktop sign-in** — browser sign-in is now the primary action; clipboard-token recovery appears only when the browser callback does not return automatically.
@@ -59,7 +63,7 @@ or cloud upload.
 Current release version:
 
 ```text
-1.0.7+7
+1.0.8+8
 ```
 
 Android release versioning:
@@ -206,7 +210,7 @@ GitHub Actions:
 
 Release checklist:
 
-1. Bump `version:` in `pubspec.yaml` (e.g. `1.0.7+7`).
+1. Bump `version:` in `pubspec.yaml` (e.g. `1.0.8+8`).
 2. Run `python3 scripts/generate-desktop-assets.py` if brand images changed.
 3. Commit and push to `main`.
 4. **GitHub → Actions → Release → Run workflow**.

@@ -36,7 +36,7 @@ import 'ui/layout/desktop_layout.dart';
 import 'ui/theme/drop_theme.dart';
 import 'ui/widgets/drop_widgets.dart';
 
-const String _appVersion = '1.0.7+7';
+const String _appVersion = '1.0.8+8';
 
 class ErebrusDropApp extends StatefulWidget {
   const ErebrusDropApp({this.skipOnboarding = false, super.key});
@@ -247,6 +247,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     unawaited(_loadIpfsGatewayUrl());
     unawaited(_loadGatewaySession());
     _dropAuthService.selectedOrg.addListener(_onSelectedOrgChanged);
+    _dropAuthService.signedIn.addListener(_onGatewayAuthChanged);
     _shareSubscription = _shareIntakeService.watchIncomingShares().listen(
       (payload) => unawaited(_handleSharedPayload(payload)),
     );
@@ -303,6 +304,29 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     if (!_dropAuthService.isSignedIn || !mounted) return;
     unawaited(_refreshGatewayNodes());
     unawaited(_refreshGatewayFiles());
+  }
+
+  void _onGatewayAuthChanged() {
+    if (!mounted) return;
+    if (!_dropAuthService.isSignedIn) {
+      setState(() {
+        _gatewayNodes = const [];
+        _gatewayFiles = const [];
+        _selectedSendNode = null;
+      });
+      if (_dropAuthService.error.value ==
+          'Your session expired. Please sign in again.') {
+        _snack('Your session expired. Please sign in again.');
+      }
+    } else {
+      setState(() {});
+    }
+  }
+
+  Future<void> _revalidateGatewaySession() async {
+    await _dropAuthService.revalidateSession();
+    if (!mounted || !_dropAuthService.isSignedIn) return;
+    await _refreshGatewayFiles();
   }
 
   Future<void> _refreshGatewayNodes() async {
@@ -452,6 +476,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     WidgetsBinding.instance.removeObserver(this);
     _refreshTimer?.cancel();
     _dropAuthService.selectedOrg.removeListener(_onSelectedOrgChanged);
+    _dropAuthService.signedIn.removeListener(_onGatewayAuthChanged);
     _roomName.dispose();
     _deviceName.dispose();
     _password.dispose();
@@ -484,7 +509,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       }
       unawaited(_loadLibraryFiles());
       unawaited(_refreshNetworkStatus());
-      unawaited(_refreshGatewayFiles());
+      unawaited(_revalidateGatewaySession());
       unawaited(
         _shareIntakeService.consumeInitialShare().then((payload) {
           if (payload != null) {

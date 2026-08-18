@@ -21,10 +21,11 @@ class DropAuthMethods {
 
 /// Wallet/social auth against the Erebrus gateway (v2).
 class DropAuthClient {
-  DropAuthClient({String? gatewayUrl})
-      : _base = GatewayHttp.normalizeBase(gatewayUrl ?? resolveGatewayUrl());
+  DropAuthClient({String? gatewayUrl, this.onUnauthorized})
+    : _base = GatewayHttp.normalizeBase(gatewayUrl ?? resolveGatewayUrl());
 
   final Uri _base;
+  Future<void> Function(String token)? onUnauthorized;
 
   String get baseUrl {
     final port = _base.hasPort ? ':${_base.port}' : '';
@@ -81,6 +82,7 @@ class DropAuthClient {
     final list = await GatewayHttp.getJsonList(
       GatewayHttp.apiUri(_base, path: '/api/v2/orgs'),
       bearerToken: bearerToken,
+      onUnauthorized: onUnauthorized,
     );
     return list
         .whereType<Map<dynamic, dynamic>>()
@@ -99,6 +101,7 @@ class DropAuthClient {
       GatewayHttp.apiUri(_base, path: '/api/v2/orgs'),
       {'name': name.trim(), 'slug': slug.trim().toLowerCase()},
       bearerToken: bearerToken,
+      onUnauthorized: onUnauthorized,
     );
     return DropOrg.fromJson(map);
   }
@@ -169,15 +172,13 @@ class DropAuthClient {
   }
 
   DropAuthSession _identitySession(Map<String, dynamic> map) => DropAuthSession(
-        token: (map['token'] ?? '').toString(),
-        userId: (map['user_id'] ?? '').toString(),
-        role: (map['role'] ?? 'user').toString(),
-        walletAddress: (map['wallet_address'] ??
-                map['wallet'] ??
-                map['public_key'] ??
-                '')
+    token: (map['token'] ?? '').toString(),
+    userId: (map['user_id'] ?? '').toString(),
+    role: (map['role'] ?? 'user').toString(),
+    walletAddress:
+        (map['wallet_address'] ?? map['wallet'] ?? map['public_key'] ?? '')
             .toString(),
-      );
+  );
 }
 
 class DropAuthChallenge {
