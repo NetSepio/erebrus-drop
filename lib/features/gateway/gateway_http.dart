@@ -82,7 +82,50 @@ abstract final class GatewayHttp {
     };
   }
 
-  static Future<dynamic> _get(Uri uri, {String? bearerToken}) async {
+  static String? errorCode(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map) {
+        final code = decoded['error_code'] ?? decoded['code'];
+        if (code != null && code.toString().isNotEmpty) {
+          return code.toString();
+        }
+        final error = decoded['error'];
+        if (error is Map) {
+          final nestedCode = error['code'];
+          if (nestedCode != null && nestedCode.toString().isNotEmpty) {
+            return nestedCode.toString();
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  static GatewayException responseException(int status, String body) =>
+      GatewayException(
+        errorMessage(status, body),
+        statusCode: status,
+        errorCode: errorCode(body),
+      );
+
+  static Future<void> _handleBearerUnauthorized(
+    int status,
+    String? bearerToken,
+    Future<void> Function(String token)? onUnauthorized,
+  ) async {
+    if (status == HttpStatus.unauthorized &&
+        bearerToken != null &&
+        bearerToken.isNotEmpty) {
+      await onUnauthorized?.call(bearerToken);
+    }
+  }
+
+  static Future<dynamic> _get(
+    Uri uri, {
+    String? bearerToken,
+    Future<void> Function(String token)? onUnauthorized,
+  }) async {
     final client = createClient();
     try {
       final req = await client.getUrl(uri).timeout(_requestTimeout);
@@ -90,7 +133,12 @@ abstract final class GatewayHttp {
       final res = await req.close().timeout(_requestTimeout);
       final text = await utf8.decodeStream(res).timeout(_requestTimeout);
       if (res.statusCode < 200 || res.statusCode >= 300) {
-        throw GatewayException(errorMessage(res.statusCode, text));
+        await _handleBearerUnauthorized(
+          res.statusCode,
+          bearerToken,
+          onUnauthorized,
+        );
+        throw responseException(res.statusCode, text);
       }
       if (text.isEmpty) return null;
       return jsonDecode(text);
@@ -106,8 +154,13 @@ abstract final class GatewayHttp {
   static Future<Map<String, dynamic>> getJson(
     Uri uri, {
     String? bearerToken,
+    Future<void> Function(String token)? onUnauthorized,
   }) async {
-    final decoded = await _get(uri, bearerToken: bearerToken);
+    final decoded = await _get(
+      uri,
+      bearerToken: bearerToken,
+      onUnauthorized: onUnauthorized,
+    );
     if (decoded is Map) return Map<String, dynamic>.from(decoded);
     return const {};
   }
@@ -115,8 +168,13 @@ abstract final class GatewayHttp {
   static Future<List<dynamic>> getJsonList(
     Uri uri, {
     String? bearerToken,
+    Future<void> Function(String token)? onUnauthorized,
   }) async {
-    final decoded = await _get(uri, bearerToken: bearerToken);
+    final decoded = await _get(
+      uri,
+      bearerToken: bearerToken,
+      onUnauthorized: onUnauthorized,
+    );
     if (decoded is List) return decoded;
     if (decoded is Map && decoded['items'] is List) {
       return decoded['items'] as List;
@@ -128,16 +186,30 @@ abstract final class GatewayHttp {
     Uri uri,
     Map<String, dynamic> body, {
     String? bearerToken,
+    Future<void> Function(String token)? onUnauthorized,
   }) async {
-    return _request('POST', uri, body: body, bearerToken: bearerToken);
+    return _request(
+      'POST',
+      uri,
+      body: body,
+      bearerToken: bearerToken,
+      onUnauthorized: onUnauthorized,
+    );
   }
 
   static Future<Map<String, dynamic>> putJson(
     Uri uri,
     Map<String, dynamic> body, {
     String? bearerToken,
+    Future<void> Function(String token)? onUnauthorized,
   }) async {
-    return _request('PUT', uri, body: body, bearerToken: bearerToken);
+    return _request(
+      'PUT',
+      uri,
+      body: body,
+      bearerToken: bearerToken,
+      onUnauthorized: onUnauthorized,
+    );
   }
 
   static Future<Map<String, dynamic>> putBytes(
@@ -146,6 +218,7 @@ abstract final class GatewayHttp {
     required int contentLength,
     required String contentType,
     String? bearerToken,
+    Future<void> Function(String token)? onUnauthorized,
   }) async {
     final client = createClient();
     try {
@@ -160,7 +233,12 @@ abstract final class GatewayHttp {
       final res = await req.close().timeout(_requestTimeout);
       final text = await utf8.decodeStream(res).timeout(_requestTimeout);
       if (res.statusCode < 200 || res.statusCode >= 300) {
-        throw GatewayException(errorMessage(res.statusCode, text));
+        await _handleBearerUnauthorized(
+          res.statusCode,
+          bearerToken,
+          onUnauthorized,
+        );
+        throw responseException(res.statusCode, text);
       }
       if (text.isEmpty) return const {};
       final decoded = jsonDecode(text);
@@ -180,6 +258,7 @@ abstract final class GatewayHttp {
     Uri uri, {
     required Map<String, dynamic> body,
     String? bearerToken,
+    Future<void> Function(String token)? onUnauthorized,
   }) async {
     final client = createClient();
     try {
@@ -191,7 +270,12 @@ abstract final class GatewayHttp {
       final res = await req.close().timeout(_requestTimeout);
       final text = await utf8.decodeStream(res).timeout(_requestTimeout);
       if (res.statusCode < 200 || res.statusCode >= 300) {
-        throw GatewayException(errorMessage(res.statusCode, text));
+        await _handleBearerUnauthorized(
+          res.statusCode,
+          bearerToken,
+          onUnauthorized,
+        );
+        throw responseException(res.statusCode, text);
       }
       if (text.isEmpty) return const {};
       final decoded = jsonDecode(text);
@@ -208,8 +292,10 @@ abstract final class GatewayHttp {
 }
 
 class GatewayException implements Exception {
-  GatewayException(this.message);
+  GatewayException(this.message, {this.statusCode, this.errorCode});
   final String message;
+  final int? statusCode;
+  final String? errorCode;
 
   @override
   String toString() => message;
