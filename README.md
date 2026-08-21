@@ -1,6 +1,6 @@
 # Erebrus Drop
 
-Current version: `1.0.8+8`
+Current version: `1.0.9+9`
 
 Erebrus Drop is a local-first file and text sharing app for nearby devices. A
 phone can create a temporary Drop Room on the current Wi-Fi network or hotspot,
@@ -32,7 +32,13 @@ or cloud upload.
 - Smart Send: send quick text into a room.
 - Settings and About: app details, privacy, terms, and NetSepio ethos.
 
-## What's New in 1.0.8+8
+## What's New in 1.0.9+9
+
+- **Burn Mode rooms now auto-expire** — rooms started with Burn Mode enabled shut down automatically at their two-hour deadline (previously the deadline was recorded but never enforced), and the host dashboard shows a live **"Expires in"** countdown. Enforcement also catches rooms whose deadline passed while the app was backgrounded, tearing them down on resume.
+- **Redeem invite codes** — Settings now has an **Invite code** field to redeem a friend's referral code while signed in, crediting them XP for the invite.
+- **Corrected Google sign-in** — updated the Google server client ID used to verify Google sign-in tokens.
+
+### Previously in 1.0.8+8
 
 - **Reliable session expiry handling** — authenticated `401` responses now sign out once, clear persisted credentials, and explain that the session expired, while `403`, network, and server failures remain recoverable; stored sessions are revalidated on launch and resume.
 
@@ -63,7 +69,7 @@ or cloud upload.
 Current release version:
 
 ```text
-1.0.8+8
+1.0.9+9
 ```
 
 Android release versioning:

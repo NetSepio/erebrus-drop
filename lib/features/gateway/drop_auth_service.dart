@@ -589,6 +589,29 @@ class DropAuthService {
     return org;
   }
 
+  /// Redeems an invite code for the signed-in user so the gateway awards the
+  /// inviter XP. Returns a short success message; throws [AuthException] on an
+  /// empty code, an unauthenticated caller, or a gateway rejection.
+  Future<String> redeemReferralCode(String code) async {
+    if (!isSignedIn || _bearerToken == null || _bearerToken!.isEmpty) {
+      throw const AuthException('Sign in first');
+    }
+    final trimmed = code.trim();
+    if (trimmed.isEmpty) {
+      throw const AuthException('Enter an invite code');
+    }
+    try {
+      final result = await _authClient.redeemReferral(
+        bearerToken: _bearerToken!,
+        code: trimmed,
+      );
+      final message = (result['message'] ?? '').toString().trim();
+      return message.isEmpty ? 'Invite code applied' : message;
+    } on GatewayException catch (e) {
+      throw AuthException(e.message);
+    }
+  }
+
   /// Selects the active organization used for Drop discovery and uploads.
   Future<void> selectOrg(DropOrg org) async {
     selectedOrg.value = org;

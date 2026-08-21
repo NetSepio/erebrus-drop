@@ -11,7 +11,7 @@ bool get hasReownProjectId => kReownProjectId.isNotEmpty;
 const kGoogleServerClientId = String.fromEnvironment(
   'GOOGLE_SERVER_CLIENT_ID',
   defaultValue:
-      '743089346496-hughdpru3ucqpui4489i0udke2nvppie.apps.googleusercontent.com',
+      '743089346496-15iub9ug9b4jkqonokg2js80ndjv8nba.apps.googleusercontent.com',
 );
 bool get hasGoogleSignIn => kGoogleServerClientId.isNotEmpty;
 

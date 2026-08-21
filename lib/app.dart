@@ -166,6 +166,9 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     text: 'Native text',
   );
   final TextEditingController _joinTextBody = TextEditingController();
+  final TextEditingController _referralCode = TextEditingController();
+  bool _redeemingReferral = false;
+  bool _stoppingRoom = false;
 
   final String _defaultUploadPath = '/';
   int _tab = 0;
@@ -240,6 +243,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _server.onSessionExpired = _handleRoomExpired;
     _syncWithExistingSession();
     unawaited(_loadDeviceName());
     unawaited(_loadHostFolderSelection());
@@ -256,6 +260,10 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       _syncDesktopTray();
     }
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (_server.isRunning && _server.isExpired) {
+        _handleRoomExpired();
+        return;
+      }
       if (_server.isRunning && _appInForeground) {
         unawaited(_refreshRoomData());
       }
@@ -487,6 +495,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     _joinFolderName.dispose();
     _joinTextTitle.dispose();
     _joinTextBody.dispose();
+    _referralCode.dispose();
     _networkUiVersion.dispose();
     _joinUiVersion.dispose();
     unawaited(_shareSubscription?.cancel());
@@ -502,7 +511,9 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _appInForeground = state == AppLifecycleState.resumed;
     if (_appInForeground) {
-      if (_server.isRunning) {
+      if (_server.isRunning && _server.isExpired) {
+        _handleRoomExpired();
+      } else if (_server.isRunning) {
         unawaited(
           _roomRuntimeService.setKeepAwake(enabled: true).catchError((_) {}),
         );
@@ -2031,6 +2042,10 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           const _Head(title: 'Settings'),
           const SizedBox(height: 16),
           _gatewayAccountCard(),
+          if (_dropAuthService.isSignedIn) ...[
+            const SizedBox(height: 12),
+            _referralCard(),
+          ],
           const SizedBox(height: 12),
           DropCard(
             padding: EdgeInsets.zero,
@@ -2289,6 +2304,85 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         ],
       ),
     );
+  }
+
+  Widget _referralCard() {
+    return DropCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const LeadingTile(
+                icon: Icons.card_giftcard_rounded,
+                accent: DropTheme.orange,
+                size: 42,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Have an invite code?',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Redeem a friend\'s code to credit them XP.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _referralCode,
+                  enabled: !_redeemingReferral,
+                  textCapitalization: TextCapitalization.characters,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => unawaited(_redeemReferral()),
+                  decoration: const InputDecoration(hintText: 'Invite code'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              TonalButton(
+                label: 'APPLY',
+                busy: _redeemingReferral,
+                onPressed: _redeemingReferral
+                    ? null
+                    : () => unawaited(_redeemReferral()),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _redeemReferral() async {
+    final code = _referralCode.text.trim();
+    if (code.isEmpty) {
+      _snack('Enter an invite code');
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    setState(() => _redeemingReferral = true);
+    try {
+      final message = await _dropAuthService.redeemReferralCode(code);
+      if (!mounted) return;
+      _referralCode.clear();
+      _snack(message);
+    } catch (e) {
+      if (mounted) _snack(e.toString());
+    } finally {
+      if (mounted) setState(() => _redeemingReferral = false);
+    }
   }
 
   Future<void> _showOrgSwitcher() async {
@@ -2821,6 +2915,14 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           Expanded(
             child: DropCard(child: _UptimeStat(since: session.createdAt)),
           ),
+          if (session.expiresAt != null) ...[
+            const SizedBox(width: 12),
+            Expanded(
+              child: DropCard(
+                child: _ExpiryCountdownStat(expiresAt: session.expiresAt!),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -3886,20 +3988,36 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     await SystemNavigator.pop();
   }
 
-  Future<void> _stopRoom() async {
-    await _roomRuntimeService.setKeepAwake(enabled: false);
-    await _roomRuntimeService.stopMdnsRoom();
-    await _roomRuntimeService.stopForegroundRoom();
-    await _server.stop();
-    _syncDesktopTray();
-    if (!mounted) return;
-    setState(() {
-      _storage = null;
-      _files = <DropFileItem>[];
-      _libraryPath = '/';
-    });
-    unawaited(_loadLibraryFiles());
-    _snack('Drop Room stopped');
+  Future<void> _stopRoom() => _teardownRoom(message: 'Drop Room stopped');
+
+  /// Auto-expiry teardown for a burn-mode room whose deadline has passed.
+  void _handleRoomExpired() {
+    if (!_server.isRunning) return;
+    unawaited(
+      _teardownRoom(message: 'Drop Room expired — burn mode ended the session'),
+    );
+  }
+
+  Future<void> _teardownRoom({required String message}) async {
+    if (_stoppingRoom) return;
+    _stoppingRoom = true;
+    try {
+      await _roomRuntimeService.setKeepAwake(enabled: false);
+      await _roomRuntimeService.stopMdnsRoom();
+      await _roomRuntimeService.stopForegroundRoom();
+      await _server.stop();
+      _syncDesktopTray();
+      if (!mounted) return;
+      setState(() {
+        _storage = null;
+        _files = <DropFileItem>[];
+        _libraryPath = '/';
+      });
+      unawaited(_loadLibraryFiles());
+      _snack(message);
+    } finally {
+      _stoppingRoom = false;
+    }
   }
 
   Future<void> _refreshRoomData() async {
@@ -5440,6 +5558,53 @@ class _UptimeStatState extends State<_UptimeStat> {
       value: '$h:$m:$s',
       label: 'Uptime',
       mono: true,
+    );
+  }
+}
+
+/// Live "expires in HH:MM:SS" countdown for a burn-mode room. Recomputes from
+/// the absolute [expiresAt] each tick, so it stays accurate across skipped
+/// ticks and clamps to zero once the deadline passes.
+class _ExpiryCountdownStat extends StatefulWidget {
+  const _ExpiryCountdownStat({required this.expiresAt});
+
+  final DateTime expiresAt;
+
+  @override
+  State<_ExpiryCountdownStat> createState() => _ExpiryCountdownStatState();
+}
+
+class _ExpiryCountdownStatState extends State<_ExpiryCountdownStat> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final raw = widget.expiresAt.difference(DateTime.now());
+    final d = raw.isNegative ? Duration.zero : raw;
+    final expiringSoon = d <= const Duration(minutes: 5);
+    final h = d.inHours.toString().padLeft(2, '0');
+    final m = (d.inMinutes % 60).toString().padLeft(2, '0');
+    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
+    return StatBlock(
+      icon: Icons.local_fire_department_rounded,
+      value: '$h:$m:$s',
+      label: 'Expires in',
+      mono: true,
+      valueColor: expiringSoon ? DropTheme.danger : DropTheme.white,
     );
   }
 }

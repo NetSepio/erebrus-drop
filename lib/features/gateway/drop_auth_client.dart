@@ -106,6 +106,26 @@ class DropAuthClient {
     return DropOrg.fromJson(map);
   }
 
+  /// `POST /api/v2/referrals/redeem` — redeem an invite code for the signed-in
+  /// user so the gateway credits the inviter's XP. Returns the gateway response
+  /// (may carry an `xp`/`message` field). Throws [GatewayException] on failure
+  /// (e.g. invalid/expired/already-redeemed code).
+  ///
+  /// NOTE: confirm the exact path and body field with the gateway team — the
+  /// referral redeem endpoint is the one referral surface not yet exercised by
+  /// another client.
+  Future<Map<String, dynamic>> redeemReferral({
+    required String bearerToken,
+    required String code,
+  }) async {
+    return GatewayHttp.postJson(
+      GatewayHttp.apiUri(_base, path: '/api/v2/referrals/redeem'),
+      {'code': code.trim()},
+      bearerToken: bearerToken,
+      onUnauthorized: onUnauthorized,
+    );
+  }
+
   /// `GET /api/v2/auth/methods` — which login methods the gateway supports.
   Future<DropAuthMethods> fetchAuthMethods() async {
     final map = await GatewayHttp.getJson(
