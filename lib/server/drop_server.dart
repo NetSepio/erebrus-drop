@@ -28,7 +28,13 @@ class DropServer {
 
   HttpServer? _server;
   DropRoomSession? _session;
+  Timer? _expiryTimer;
   Directory? _dropDirectory;
+
+  /// Invoked when a burn-mode room reaches its [DropRoomSession.expiresAt].
+  /// The host app performs the actual teardown (which calls [stop]); this is
+  /// only the signal. Fired at most once per session.
+  void Function()? onSessionExpired;
   final HostFolderBridge _hostFolderBridge = HostFolderBridge();
   _PasswordRecord? _passwordRecord;
   StorageSnapshot? _lastStorageSnapshot;
@@ -44,6 +50,14 @@ class DropServer {
 
   bool get isRunning => _server != null;
 
+  /// Whether the running room has passed its burn-mode expiry. Backstop for the
+  /// [_expiryTimer], which does not fire while the OS suspends the app; callers
+  /// re-check this on foreground/resume.
+  bool get isExpired {
+    final expiresAt = _session?.expiresAt;
+    return expiresAt != null && !DateTime.now().isBefore(expiresAt);
+  }
+
   /// Number of currently-valid guest tokens — a live proxy for how many guests
   /// have joined this room (drives the "N joined" pill on the host dashboard).
   /// Expired tokens are pruned on read.
@@ -55,6 +69,7 @@ class DropServer {
 
   Future<DropRoomSession> startForTesting({
     required Directory rootDirectory,
+    Duration? expiry,
   }) async {
     if (_server != null) {
       return _session!;
@@ -63,6 +78,7 @@ class DropServer {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     _server = server;
     final createdAt = DateTime.now();
+    final expiresAt = expiry == null ? null : createdAt.add(expiry);
     _dropDirectory = rootDirectory;
     _passwordRecord = null;
     _session = DropRoomSession(
@@ -75,10 +91,11 @@ class DropServer {
       authRequired: false,
       permission: RoomPermission.fullAccess,
       createdAt: createdAt,
-      expiresAt: null,
+      expiresAt: expiresAt,
       roomDirectory: rootDirectory,
       defaultUploadPath: '/',
     );
+    _scheduleExpiry(expiresAt);
     unawaited(_serve(server));
     return _session!;
   }
@@ -131,12 +148,31 @@ class DropServer {
       hostFolderPlatform: config.hostFolderPlatform,
     );
 
+    _scheduleExpiry(expiresAt);
     _scheduleFolderUsageScan(force: true);
     unawaited(_serve(server));
     return _session!;
   }
 
+  /// Arms the burn-mode auto-expiry. A no-op when the room never expires.
+  void _scheduleExpiry(DateTime? expiresAt) {
+    _expiryTimer?.cancel();
+    _expiryTimer = null;
+    if (expiresAt == null) return;
+    final remaining = expiresAt.difference(DateTime.now());
+    _expiryTimer = Timer(
+      remaining.isNegative ? Duration.zero : remaining,
+      () {
+        _expiryTimer = null;
+        if (_server == null) return; // already stopped
+        onSessionExpired?.call();
+      },
+    );
+  }
+
   Future<void> stop() async {
+    _expiryTimer?.cancel();
+    _expiryTimer = null;
     _tokens.clear();
     final server = _server;
     _server = null;

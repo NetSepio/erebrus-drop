@@ -39,4 +39,41 @@ void main() {
       });
     }
   });
+
+  test('burn-mode room reports expiry and fires onSessionExpired once', () async {
+    final root = await Directory.systemTemp.createTemp('erebrus_drop_expiry_');
+    final server = DropServer();
+    var expiredCalls = 0;
+    server.onSessionExpired = () => expiredCalls++;
+    try {
+      await server.startForTesting(
+        rootDirectory: root,
+        expiry: const Duration(milliseconds: 150),
+      );
+
+      expect(server.isExpired, isFalse);
+      expect(expiredCalls, 0);
+
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+
+      expect(server.isExpired, isTrue);
+      expect(expiredCalls, 1);
+    } finally {
+      server.onSessionExpired = null;
+      await server.stop();
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('non-expiring room never reports expiry', () async {
+    final root = await Directory.systemTemp.createTemp('erebrus_drop_noexp_');
+    final server = DropServer();
+    try {
+      await server.startForTesting(rootDirectory: root);
+      expect(server.isExpired, isFalse);
+    } finally {
+      await server.stop();
+      await root.delete(recursive: true);
+    }
+  });
 }

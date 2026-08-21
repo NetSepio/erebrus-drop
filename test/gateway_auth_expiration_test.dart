@@ -103,6 +103,92 @@ void main() {
       );
     });
   });
+
+  group('DropAuthService referral redeem', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({
+        'erebrus_gateway_token': 'stored-token',
+      });
+    });
+
+    Future<DropAuthService> signedInService(_RedeemAuthClient client) async {
+      final service = DropAuthService(
+        solana: SolanaWalletService(),
+        authClient: client,
+      );
+      await service.loadSession();
+      expect(service.isSignedIn, isTrue);
+      return service;
+    }
+
+    test('forwards a trimmed code and returns the gateway message', () async {
+      final client = _RedeemAuthClient(
+        response: {'message': 'You credited Alice 50 XP'},
+      );
+      final service = await signedInService(client);
+
+      final message = await service.redeemReferralCode('  INV123  ');
+
+      expect(message, 'You credited Alice 50 XP');
+      expect(client.lastCode, 'INV123');
+      expect(client.lastBearer, 'stored-token');
+    });
+
+    test('falls back to a default message when none is returned', () async {
+      final service = await signedInService(_RedeemAuthClient(response: {}));
+      expect(await service.redeemReferralCode('INV123'), 'Invite code applied');
+    });
+
+    test('rejects an empty code without calling the gateway', () async {
+      final client = _RedeemAuthClient(response: {});
+      final service = await signedInService(client);
+
+      expect(
+        () => service.redeemReferralCode('   '),
+        throwsA(isA<AuthException>()),
+      );
+      expect(client.lastCode, isNull);
+    });
+
+    test('surfaces a gateway rejection as an AuthException', () async {
+      final service = await signedInService(
+        _RedeemAuthClient(error: GatewayException('Invalid invite code')),
+      );
+
+      await expectLater(
+        service.redeemReferralCode('BADCODE'),
+        throwsA(
+          isA<AuthException>().having((e) => e.message, 'message', 'Invalid invite code'),
+        ),
+      );
+    });
+  });
+}
+
+class _RedeemAuthClient extends DropAuthClient {
+  _RedeemAuthClient({this.response, this.error});
+
+  final Map<String, dynamic>? response;
+  final GatewayException? error;
+  String? lastCode;
+  String? lastBearer;
+
+  @override
+  Future<DropAuthMethods> fetchAuthMethods() async => DropAuthMethods.unknown;
+
+  @override
+  Future<List<DropOrg>> fetchOrgs(String bearerToken) async => const [];
+
+  @override
+  Future<Map<String, dynamic>> redeemReferral({
+    required String bearerToken,
+    required String code,
+  }) async {
+    lastCode = code;
+    lastBearer = bearerToken;
+    if (error != null) throw error!;
+    return response ?? const {};
+  }
 }
 
 class _ValidationAuthClient extends DropAuthClient {
