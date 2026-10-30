@@ -27,7 +27,8 @@ package_macos() {
 
 package_linux() {
   local bundle
-  bundle="$(find build/linux -maxdepth 2 -type d -name 'bundle' | head -1)"
+  # Flutter writes build/linux/<arch>/release/bundle.
+  bundle="$(find build/linux -mindepth 3 -maxdepth 3 -type d -path '*/release/bundle' | head -1)"
   if [[ -z "${bundle}" ]]; then
     echo "✗ linux bundle not found"
     exit 1
