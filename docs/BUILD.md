@@ -146,4 +146,5 @@ flutter test
 
 CI desktop jobs call `scripts/build-desktop.sh` (macOS/Linux) or
 `scripts/generate-desktop-assets.py` + `flutter build windows` (Windows).
-GitHub Release steps: **Actions → Release → Run workflow** (see README release checklist).
+GitHub Releases publish when a `v{semver}` tag is pushed (see README release checklist);
+`scripts/write-release-manifest.py` adds the manifest and checksums.

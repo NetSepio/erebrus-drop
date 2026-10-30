@@ -3,10 +3,14 @@ import 'dart:io';
 import 'package:erebrus_drop/features/gateway/drop_auth_client.dart';
 import 'package:erebrus_drop/features/gateway/drop_auth_service.dart';
 import 'package:erebrus_drop/features/gateway/gateway_http.dart';
+import 'package:erebrus_drop/features/gateway/gateway_session_repository.dart';
+
 import 'package:erebrus_drop/features/gateway/gateway_models.dart';
 import 'package:erebrus_drop/features/wallet/solana_wallet_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'support/memory_session_store.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -31,21 +35,22 @@ void main() {
       SharedPreferences.setMockInitialValues({tokenKey: 'stored-token'});
     });
 
-    test('expires a restored session on bearer 401', () async {
+    test('keeps a restored session on an unrelated bearer 401', () async {
       final authClient = _ValidationAuthClient(statusCode: 401);
       final service = DropAuthService(
         solana: SolanaWalletService(),
         authClient: authClient,
+        sessionRepository: GatewaySessionRepository(
+          client: authClient,
+          store: MemorySessionStore(),
+        ),
       );
 
       await service.loadSession();
 
-      expect(service.isSignedIn, isFalse);
-      expect(service.bearerToken, isNull);
-      expect(
-        service.error.value,
-        'Your session expired. Please sign in again.',
-      );
+      expect(service.isSignedIn, isTrue);
+      expect(service.bearerToken, 'stored-token');
+      expect(service.error.value, 'Unauthorized');
       expect(
         (await SharedPreferences.getInstance()).containsKey(tokenKey),
         isFalse,
@@ -53,9 +58,14 @@ void main() {
     });
 
     test('keeps a restored session on 403', () async {
+      final client = _ValidationAuthClient(statusCode: 403);
       final service = DropAuthService(
         solana: SolanaWalletService(),
-        authClient: _ValidationAuthClient(statusCode: 403),
+        authClient: client,
+        sessionRepository: GatewaySessionRepository(
+          client: client,
+          store: MemorySessionStore(),
+        ),
       );
 
       await service.loadSession();
@@ -65,14 +75,19 @@ void main() {
       expect(service.error.value, 'Forbidden');
       expect(
         (await SharedPreferences.getInstance()).getString(tokenKey),
-        'stored-token',
+        isNull,
       );
     });
 
     test('keeps a restored session on a recoverable network failure', () async {
+      final client = _ValidationAuthClient(networkFailure: true);
       final service = DropAuthService(
         solana: SolanaWalletService(),
-        authClient: _ValidationAuthClient(networkFailure: true),
+        authClient: client,
+        sessionRepository: GatewaySessionRepository(
+          client: client,
+          store: MemorySessionStore(),
+        ),
       );
 
       await service.loadSession();
@@ -82,14 +97,19 @@ void main() {
       expect(service.error.value, contains('Cannot reach Erebrus'));
       expect(
         (await SharedPreferences.getInstance()).getString(tokenKey),
-        'stored-token',
+        isNull,
       );
     });
 
     test('keeps a restored session on a server failure', () async {
+      final client = _ValidationAuthClient(statusCode: 503);
       final service = DropAuthService(
         solana: SolanaWalletService(),
-        authClient: _ValidationAuthClient(statusCode: 503),
+        authClient: client,
+        sessionRepository: GatewaySessionRepository(
+          client: client,
+          store: MemorySessionStore(),
+        ),
       );
 
       await service.loadSession();
@@ -99,7 +119,7 @@ void main() {
       expect(service.error.value, 'Service unavailable');
       expect(
         (await SharedPreferences.getInstance()).getString(tokenKey),
-        'stored-token',
+        isNull,
       );
     });
   });
@@ -115,6 +135,10 @@ void main() {
       final service = DropAuthService(
         solana: SolanaWalletService(),
         authClient: client,
+        sessionRepository: GatewaySessionRepository(
+          client: client,
+          store: MemorySessionStore(),
+        ),
       );
       await service.loadSession();
       expect(service.isSignedIn, isTrue);
@@ -163,10 +187,7 @@ void main() {
       // Gateway errors are flat `{"error": "..."}`; GatewayHttp lifts the string.
       final service = await signedInService(
         _RedeemAuthClient(
-          error: GatewayException(
-            'invite code not found',
-            statusCode: 404,
-          ),
+          error: GatewayException('invite code not found', statusCode: 404),
         ),
       );
 
@@ -193,6 +214,19 @@ class _RedeemAuthClient extends DropAuthClient {
   String? lastBearer;
 
   @override
+  Future<DropAuthSession> upgradeSession(String bearerToken) async =>
+      DropAuthSession(
+        token: bearerToken,
+        userId: 'user',
+        role: 'user',
+        walletAddress: '',
+        refreshToken: 'refresh',
+        sessionId: 'session',
+        expiresAt: DateTime.now().add(const Duration(hours: 24)),
+        refreshExpiresAt: DateTime.now().add(const Duration(days: 30)),
+      );
+
+  @override
   Future<DropAuthMethods> fetchAuthMethods() async => DropAuthMethods.unknown;
 
   @override
@@ -217,18 +251,25 @@ class _ValidationAuthClient extends DropAuthClient {
   final bool networkFailure;
 
   @override
+  Future<DropAuthSession> upgradeSession(String bearerToken) async =>
+      DropAuthSession(
+        token: bearerToken,
+        userId: 'user',
+        role: 'user',
+        walletAddress: '',
+        refreshToken: 'refresh',
+        sessionId: 'session',
+        expiresAt: DateTime.now().add(const Duration(hours: 24)),
+        refreshExpiresAt: DateTime.now().add(const Duration(days: 30)),
+      );
+
+  @override
   Future<DropAuthMethods> fetchAuthMethods() async => DropAuthMethods.unknown;
 
   @override
   Future<List<DropOrg>> fetchOrgs(String bearerToken) async {
     if (networkFailure) {
       throw GatewayException('Cannot reach Erebrus: offline');
-    }
-    if (statusCode == HttpStatus.unauthorized) {
-      await Future.wait([
-        onUnauthorized!(bearerToken),
-        onUnauthorized!(bearerToken),
-      ]);
     }
     throw GatewayException(
       switch (statusCode) {

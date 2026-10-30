@@ -134,6 +134,16 @@ class DesktopHostFolder {
     );
   }
 
+  /// The file itself, checked to sit inside the selected folder, for serving
+  /// in place without a cache copy.
+  static Future<File> localFile({
+    required String rootUri,
+    required String path,
+  }) async {
+    final root = await _resolveRootDirectory(rootUri);
+    return _resolveHostFile(root: root, path: path);
+  }
+
   static Future<HostFolderCachedFile> copyFileToCache({
     required String rootUri,
     required String path,

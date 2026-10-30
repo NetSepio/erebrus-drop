@@ -15,6 +15,8 @@ import 'core/drop_models.dart';
 import 'core/host_folder_bridge.dart';
 import 'core/platform_capabilities.dart';
 import 'core/platform_network.dart';
+import 'core/storage_guard.dart';
+import 'core/user_error.dart';
 import 'features/gateway/drop_auth_service.dart';
 import 'features/gateway/gateway_config.dart';
 import 'features/gateway/gateway_http.dart';
@@ -265,6 +267,8 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     unawaited(_loadGatewaySession());
     _dropAuthService.selectedOrg.addListener(_onSelectedOrgChanged);
     _dropAuthService.signedIn.addListener(_onGatewayAuthChanged);
+    _dropAuthService.loginRevision.addListener(_onGatewayLoginCompleted);
+    _dropAuthService.error.addListener(_onGatewayAuthChanged);
     _shareSubscription = _shareIntakeService.watchIncomingShares().listen(
       (payload) => unawaited(_handleSharedPayload(payload)),
     );
@@ -344,6 +348,15 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     }
   }
 
+  void _onGatewayLoginCompleted() {
+    if (!mounted) return;
+    setState(() {
+      _gatewayNodes = const [];
+      _gatewayFiles = const [];
+      _selectedSendNode = null;
+    });
+  }
+
   Future<void> _revalidateGatewaySession() async {
     await _dropAuthService.revalidateSession();
     if (!mounted || !_dropAuthService.isSignedIn) return;
@@ -391,13 +404,15 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   }
 
   Future<void> _showGatewayLogin() async {
+    final revision = _dropAuthService.loginRevision.value;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => GatewayLoginScreen(auth: _dropAuthService),
       ),
     );
     if (!mounted) return;
-    if (_dropAuthService.isSignedIn) {
+    if (_dropAuthService.isSignedIn &&
+        _dropAuthService.loginRevision.value != revision) {
       _snack('Signed in to Erebrus');
       setState(() => _tab = 2);
       await _refreshGatewayNodes();
@@ -498,6 +513,9 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     _refreshTimer?.cancel();
     _dropAuthService.selectedOrg.removeListener(_onSelectedOrgChanged);
     _dropAuthService.signedIn.removeListener(_onGatewayAuthChanged);
+    _dropAuthService.loginRevision.removeListener(_onGatewayLoginCompleted);
+    _dropAuthService.error.removeListener(_onGatewayAuthChanged);
+    _dropAuthService.dispose();
     _roomName.dispose();
     _deviceName.dispose();
     _password.dispose();
@@ -571,8 +589,14 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
-        if (_tab == _settingsTabIndex && !useSideRail) {
+        // Back walks to Home first, like other Android apps.
+        if (_tab != 0 && !useSideRail) {
           _selectTab(0);
+          return;
+        }
+        // Nothing to lose when idle on Android: just leave quietly.
+        if (!_server.isRunning && Platform.isAndroid) {
+          unawaited(_moveAppToBackground());
           return;
         }
         unawaited(_handleBackNavigation());
@@ -799,7 +823,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                   ),
                   const SizedBox(height: 2),
                   IconButton(
-                    onPressed: _stopRoom,
+                    onPressed: _confirmStopRoom,
                     tooltip: 'Stop room',
                     visualDensity: VisualDensity.compact,
                     iconSize: 17,
@@ -836,12 +860,6 @@ class _DropHomeScreenState extends State<DropHomeScreen>
               ),
               const SizedBox(height: 22),
               EnterTransition(delayMs: 60, child: _homeHeadline()),
-              const SizedBox(height: 12),
-              Text(
-                'Transfer directly when nearby. Choose Erebrus nodes when '
-                'distance matters.',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
               const SizedBox(height: 24),
               EnterTransition(
                 delayMs: 110,
@@ -849,7 +867,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                   hero: true,
                   icon: Icons.add_rounded,
                   title: 'Start Drop Room',
-                  subtitle: 'Host a local browser room on this network.',
+                  subtitle: 'Share from this device. Others scan to join.',
                   onTap: _showStartRoomSheet,
                 ),
               ),
@@ -858,7 +876,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                 hero: false,
                 icon: Icons.login_rounded,
                 title: 'Join Drop Room',
-                subtitle: 'Enter a local Drop Link and browse after auth.',
+                subtitle: 'Scan a code or pick a room nearby.',
                 onTap: () => setState(() => _tab = 1),
               ),
               const SizedBox(height: 16),
@@ -928,8 +946,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'Nearby rooms transfer directly over your network. Global uses '
-              'a selected Erebrus node only when you choose it.',
+              'Nearby transfers stay on your network. No cloud, no account.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: DropTheme.white,
                 fontWeight: FontWeight.w600,
@@ -1072,8 +1089,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     if (!hasLibrarySource) {
       return _InfoCard(
         title: 'Choose a Drop folder',
-        subtitle:
-            'Library opens your selected device folder even when no room is running.',
+        subtitle: 'Pick where received files are saved.',
         icon: Icons.folder_special_outlined,
         onTap: () => unawaited(_selectHostFolder()),
       );
@@ -1900,7 +1916,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       unawaited(_refreshGatewayFiles());
     } catch (e) {
       if (!mounted) return;
-      _snack('Upload failed: $e');
+      _snack('Upload failed: ${userErrorText(e)}');
     } finally {
       if (mounted) setState(() => _gatewayUploading = false);
     }
@@ -1947,7 +1963,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       setState(() => _hostFolderSelection = null);
     } catch (e) {
       if (!mounted) return;
-      _snack('Download failed: $e');
+      _snack('Download failed: ${userErrorText(e)}');
     }
   }
 
@@ -2227,9 +2243,13 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           ? () async {
               final confirmed = await confirmGatewaySignOut(context);
               if (!confirmed || !mounted) return;
-              await _dropAuthService.signOut();
+              final revoked = await _dropAuthService.signOut();
               if (mounted) {
-                _snack('Signed out');
+                _snack(
+                  revoked
+                      ? 'Signed out'
+                      : 'Signed out on this device. Remote revocation is unconfirmed.',
+                );
                 setState(() {});
               }
             }
@@ -2287,7 +2307,12 @@ class _DropHomeScreenState extends State<DropHomeScreen>
               ),
             ),
             const SizedBox(width: 8),
-            if (org != null)
+            if (_dropAuthService.requiresLogin)
+              TonalButton(
+                label: 'Reconnect',
+                onPressed: () => unawaited(_showGatewayLogin()),
+              )
+            else if (org != null)
               TonalButton(
                 label: 'Switch',
                 onPressed: () => unawaited(_showOrgSwitcher()),
@@ -2438,7 +2463,12 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       authService: _dropAuthService,
     );
     if (result == GatewayOrgSheetResult.changed && mounted) {
-      _snack('Organization updated');
+      _snack(
+        _dropAuthService.error.value ??
+            (_dropAuthService.isSignedIn
+                ? 'Organization updated'
+                : 'Signed out'),
+      );
       unawaited(_refreshGatewayNodes());
       unawaited(_refreshGatewayFiles());
     }
@@ -2593,8 +2623,8 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           const SizedBox(height: 8),
           Text(
             selection == null
-                ? 'Used by Library, uploads, text, and browser drops.'
-                : 'Library, uploads, text, and browser drops use this root.',
+                ? 'Pick where received files are saved.'
+                : 'Received files are saved here.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -2673,7 +2703,14 @@ class _DropHomeScreenState extends State<DropHomeScreen>
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _qrTile(session.baseUrl, 92),
+              Tooltip(
+                message: 'Show larger Drop Code',
+                child: InkWell(
+                  onTap: () => _showQrDialog(session),
+                  borderRadius: BorderRadius.circular(DropTheme.radiusTile),
+                  child: _qrTile(session.baseUrl, 92),
+                ),
+              ),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -2740,7 +2777,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
               DropIconButton(
                 icon: Icons.stop_rounded,
                 tooltip: 'Stop room',
-                onPressed: _stopRoom,
+                onPressed: _confirmStopRoom,
               ),
             ],
           ),
@@ -3295,7 +3332,8 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     } catch (error) {
       if (mounted) {
         _setJoinState(() {
-          _nearbyDiscoveryMessage = 'Could not browse nearby rooms: $error';
+          _nearbyDiscoveryMessage =
+              'Could not browse nearby rooms: ${userErrorText(error)}';
         });
       }
     } finally {
@@ -3633,26 +3671,19 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                           style: Theme.of(context).textTheme.headlineSmall
                               ?.copyWith(fontWeight: FontWeight.w800),
                         ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Guests on the same network can join from the app or a browser.',
+                        const SizedBox(height: 4),
+                        Text(
+                          'Anyone on this Wi-Fi can join.',
+                          style: Theme.of(context).textTheme.bodyMedium,
                         ),
                         const SizedBox(height: 16),
                         _networkPanel(),
                         const SizedBox(height: 12),
-                        TextField(
-                          controller: _roomName,
-                          decoration: const InputDecoration(labelText: 'Room'),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _deviceName,
-                          decoration: const InputDecoration(labelText: 'User'),
-                        ),
-                        const SizedBox(height: 12),
+                        _dropFolderStartCard(setSheetState),
+                        const SizedBox(height: 4),
                         SwitchListTile(
                           contentPadding: EdgeInsets.zero,
-                          title: const Text('Password Room'),
+                          title: const Text('Require password'),
                           value: _usePassword,
                           onChanged: (value) {
                             setSheetState(() => _usePassword = value);
@@ -3666,45 +3697,74 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                             onChanged: (_) => setSheetState(() {}),
                             decoration: const InputDecoration(
                               labelText: 'Room password',
-                              helperText: 'Required for password rooms.',
                             ),
                           ),
-                        const SizedBox(height: 12),
-                        DropdownButtonFormField<RoomPermission>(
-                          initialValue: _permission,
-                          decoration: const InputDecoration(
-                            labelText: 'Permissions',
-                            helperText:
-                                'Drop folder only keeps guests inside the selected folder.',
-                          ),
-                          items: RoomPermission.values
-                              .map(
-                                (permission) => DropdownMenuItem(
-                                  value: permission,
-                                  child: Text(permission.label),
+                        Theme(
+                          data: Theme.of(
+                            context,
+                          ).copyWith(dividerColor: Colors.transparent),
+                          child: ExpansionTile(
+                            tilePadding: EdgeInsets.zero,
+                            childrenPadding: const EdgeInsets.only(bottom: 4),
+                            title: const Text('More options'),
+                            subtitle: Text(
+                              [
+                                _roomName.text.trim().isEmpty
+                                    ? 'Erebrus Drop Room'
+                                    : _roomName.text.trim(),
+                                _permission.label,
+                                if (_burnMode) 'Burn Mode',
+                              ].join(' · '),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            children: [
+                              TextField(
+                                controller: _roomName,
+                                onChanged: (_) => setSheetState(() {}),
+                                decoration: const InputDecoration(
+                                  labelText: 'Room name',
                                 ),
-                              )
-                              .toList(),
-                          onChanged: (value) {
-                            if (value == null) return;
-                            setSheetState(() => _permission = value);
-                            setState(() => _permission = value);
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        _dropFolderStartCard(setSheetState),
-                        const SizedBox(height: 12),
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Burn Mode'),
-                          subtitle: const Text(
-                            'Auto-expire this room after 2 hours.',
+                              ),
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: _deviceName,
+                                decoration: const InputDecoration(
+                                  labelText: 'Your name',
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              DropdownButtonFormField<RoomPermission>(
+                                initialValue: _permission,
+                                decoration: const InputDecoration(
+                                  labelText: 'Guests can',
+                                ),
+                                items: RoomPermission.values
+                                    .map(
+                                      (permission) => DropdownMenuItem(
+                                        value: permission,
+                                        child: Text(permission.label),
+                                      ),
+                                    )
+                                    .toList(),
+                                onChanged: (value) {
+                                  if (value == null) return;
+                                  setSheetState(() => _permission = value);
+                                  setState(() => _permission = value);
+                                },
+                              ),
+                              SwitchListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text('Burn Mode'),
+                                subtitle: const Text('Closes after 2 hours'),
+                                value: _burnMode,
+                                onChanged: (value) {
+                                  setSheetState(() => _burnMode = value);
+                                  setState(() => _burnMode = value);
+                                },
+                              ),
+                            ],
                           ),
-                          value: _burnMode,
-                          onChanged: (value) {
-                            setSheetState(() => _burnMode = value);
-                            setState(() => _burnMode = value);
-                          },
                         ),
                         const SizedBox(height: 12),
                         PrimaryButton(
@@ -3727,7 +3787,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
                         if (passwordRequiredButEmpty) ...[
                           const SizedBox(height: 8),
                           Text(
-                            'Enter a password or turn off Password Room.',
+                            'Enter a password or turn off Require password.',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ] else if (!_networkStatus.isReady) ...[
@@ -3752,7 +3812,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   Future<bool> _startRoom() async {
     final password = _password.text.trim();
     if (_usePassword && password.isEmpty) {
-      _snack('Enter a room password or turn off Password Room.');
+      _snack('Enter a room password or turn off Require password.');
       return false;
     }
     setState(() => _starting = true);
@@ -3780,20 +3840,36 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         ),
       );
       _syncDesktopTray();
-      await _roomRuntimeService.setKeepAwake(enabled: true);
-      await _roomRuntimeService.startForegroundRoom(
-        roomName: session.name,
-        baseUrl: session.baseUrl,
-      );
-      await _roomRuntimeService.publishMdnsRoom(session);
+      // The room is live from here on. The steps below only keep it awake
+      // and discoverable, so a failure is reported without undoing the start.
+      var discoverable = true;
+      try {
+        await _roomRuntimeService.setKeepAwake(enabled: true);
+        await _roomRuntimeService.startForegroundRoom(
+          roomName: session.name,
+          baseUrl: session.baseUrl,
+        );
+      } catch (error) {
+        debugPrint('Keep-alive for room failed: $error');
+      }
+      try {
+        await _roomRuntimeService.publishMdnsRoom(session);
+      } catch (error) {
+        debugPrint('mDNS publish failed: $error');
+        discoverable = false;
+      }
       await _refreshRoomData();
       if (mounted) {
-        _snack('Drop Room is live');
+        _snack(
+          discoverable
+              ? 'Drop Room is live'
+              : 'Drop Room is live. Share the Drop Code so others can join.',
+        );
       }
       return true;
     } catch (error) {
       if (mounted) {
-        _snack('Could not start room: $error');
+        _snack('Could not start room: ${userErrorText(error)}');
       }
       return false;
     } finally {
@@ -3871,15 +3947,13 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         content: Text(
           hosting
               ? Platform.isIOS
-                    ? 'The screen stays awake while this room is active. Keep Erebrus Drop open while guests transfer; iOS pauses local hosting if the app is backgrounded. Closing the app will stop the room.'
+                    ? 'Keep the app open while guests transfer. iOS pauses the room in the background.'
                     : desktopTray
-                    ? 'A Drop Room is active. Minimize to the menu bar tray to keep hosting, or quit to stop the room and disconnect guests.'
-                    : 'A Drop Room is active. You can keep Erebrus Drop running in the background so guests can continue transfers. Closing the app will stop the room and disconnect guests.'
+                    ? 'Minimize to the menu bar to keep hosting. Quitting disconnects guests.'
+                    : 'Guests can keep transferring while the app runs in the background. Quitting disconnects them.'
               : desktopTray
-              ? 'Erebrus Drop can stay in the menu bar tray while hosting or joining. Quit from the tray menu to exit completely.'
-              : Platform.isIOS
-              ? 'Close Erebrus Drop?'
-              : 'You can keep Erebrus Drop in the background or close the app.',
+              ? 'Erebrus Drop keeps running in the menu bar. Quit from there to exit.'
+              : 'Keep Erebrus Drop in the background, or close it.',
         ),
         actions: [
           TextButton(
@@ -3951,6 +4025,37 @@ class _DropHomeScreenState extends State<DropHomeScreen>
 
   Future<void> _stopRoom() => _teardownRoom(message: 'Drop Room stopped');
 
+  /// Stops the room from a button, asking first when guests are connected so
+  /// a stray tap does not cut off their transfers.
+  Future<void> _confirmStopRoom() async {
+    final guests = _server.activeGuestCount;
+    if (guests > 0) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Stop this room?'),
+          content: Text(
+            guests == 1
+                ? '1 guest will be disconnected.'
+                : '$guests guests will be disconnected.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Stop room'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
+    await _stopRoom();
+  }
+
   /// Auto-expiry teardown for a burn-mode room whose deadline has passed.
   void _handleRoomExpired() {
     if (!_server.isRunning) return;
@@ -3963,10 +4068,20 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     if (_stoppingRoom) return;
     _stoppingRoom = true;
     try {
-      await _roomRuntimeService.setKeepAwake(enabled: false);
-      await _roomRuntimeService.stopMdnsRoom();
-      await _roomRuntimeService.stopForegroundRoom();
+      // Stop serving first: if a native cleanup step below fails, guests
+      // must still be cut off rather than left on a room the UI shows closed.
       await _server.stop();
+      for (final step in <Future<void> Function()>[
+        () => _roomRuntimeService.setKeepAwake(enabled: false),
+        _roomRuntimeService.stopMdnsRoom,
+        _roomRuntimeService.stopForegroundRoom,
+      ]) {
+        try {
+          await step();
+        } catch (error) {
+          debugPrint('Room teardown step failed: $error');
+        }
+      }
       _syncDesktopTray();
       if (!mounted) return;
       setState(() {
@@ -4048,7 +4163,8 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       if (!mounted) return;
       setState(() {
         _files = <DropFileItem>[];
-        _libraryError = 'Could not read the selected folder: $error';
+        _libraryError =
+            'Could not read the selected folder: ${userErrorText(error)}';
       });
     } finally {
       if (mounted) {
@@ -4076,23 +4192,28 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       _snack('Paste or type text first');
       return;
     }
-    if (_server.isRunning) {
-      await _server.saveTextSnippet(
-        title: _smartTitle.text,
-        body: _smartText.text,
-      );
-    } else {
-      final selection = _hostFolderSelection;
-      if (selection == null) {
-        _snack('Choose a Drop folder first');
-        return;
+    try {
+      if (_server.isRunning) {
+        await _server.saveTextSnippet(
+          title: _smartTitle.text,
+          body: _smartText.text,
+        );
+      } else {
+        final selection = _hostFolderSelection;
+        if (selection == null) {
+          _snack('Choose a Drop folder first');
+          return;
+        }
+        await _saveTextToHostFolder(
+          selection: selection,
+          title: _smartTitle.text,
+          body: _smartText.text,
+        );
+        await _loadLibraryFiles();
       }
-      await _saveTextToHostFolder(
-        selection: selection,
-        title: _smartTitle.text,
-        body: _smartText.text,
-      );
-      await _loadLibraryFiles();
+    } catch (error) {
+      if (mounted) _snack('Could not save text: ${userErrorText(error)}');
+      return;
     }
     _smartText.clear();
     await _refreshRoomData();
@@ -4133,7 +4254,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         'File opening needs the latest native build. Stop the app and run a fresh build, then try again.',
       );
     } catch (error) {
-      _snack('Could not open ${item.name}: $error');
+      _snack('Could not open ${item.name}: ${userErrorText(error)}');
     }
   }
 
@@ -4161,7 +4282,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         'File sharing needs the latest native build. Stop the app and run a fresh build, then try again.',
       );
     } catch (error) {
-      _snack('Could not share ${item.name}: $error');
+      _snack('Could not share ${item.name}: ${userErrorText(error)}');
     }
   }
 
@@ -4226,7 +4347,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
         'File deletion needs the latest native build. Stop the app and run a fresh build, then try again.',
       );
     } catch (error) {
-      _snack('Could not delete ${item.name}: $error');
+      _snack('Could not delete ${item.name}: ${userErrorText(error)}');
     }
   }
 
@@ -4319,7 +4440,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       });
       _snack('Found ${preview.roomName}');
     } catch (error) {
-      if (mounted) _snack('Could not find room: $error');
+      if (mounted) _snack('Could not find room: ${userErrorText(error)}');
     } finally {
       if (mounted) _setJoinState(() => _joining = false);
     }
@@ -4346,7 +4467,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       await _loadJoinedFiles();
       return true;
     } catch (error) {
-      if (mounted) _snack('Could not join room: $error');
+      if (mounted) _snack('Could not join room: ${userErrorText(error)}');
       return false;
     } finally {
       if (mounted) _setJoinState(() => _joining = false);
@@ -4387,7 +4508,9 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       });
     } catch (error) {
       if (mounted) {
-        _setJoinState(() => _joinActivity = 'Could not load files: $error');
+        _setJoinState(
+          () => _joinActivity = 'Could not load files: ${userErrorText(error)}',
+        );
       }
     }
   }
@@ -4407,7 +4530,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       await _loadJoinedFiles();
       _snack('Folder created');
     } catch (error) {
-      if (mounted) _snack('Could not create folder: $error');
+      if (mounted) _snack('Could not create folder: ${userErrorText(error)}');
     }
   }
 
@@ -4430,14 +4553,43 @@ class _DropHomeScreenState extends State<DropHomeScreen>
       await _loadJoinedFiles();
       _snack('Text sent to joined room');
     } catch (error) {
-      if (mounted) _snack('Could not send text: $error');
+      if (mounted) _snack('Could not send text: ${userErrorText(error)}');
     }
+  }
+
+  /// True (after telling the user) when a joined-room transfer is running;
+  /// transfers run one at a time so progress and storage checks stay honest.
+  bool _joinTransferBusy() {
+    if (_joinTransfer?.isActive != true) return false;
+    _snack('Wait for the current transfer to finish');
+    return true;
   }
 
   Future<void> _downloadJoinedFile(DropFileItem item) async {
     final preview = _joinPreview;
     final joinSession = _joinSession;
-    if (preview == null || joinSession == null) return;
+    if (preview == null || joinSession == null || _joinTransferBusy()) return;
+    final stats = await PlatformNetwork.getStorageStats();
+    final shortfall = StorageGuard.shortfallMessage(
+      requiredBytes: StorageGuard.requiredBytes([item.sizeBytes]),
+      availableBytes: stats['availableBytes'],
+      device: 'This device',
+    );
+    if (shortfall != null) {
+      _snack(shortfall);
+      return;
+    }
+    if (!mounted) return;
+    _setJoinState(
+      () => _joinTransfer = TransferProgress(
+        direction: TransferDirection.download,
+        title: 'Downloading ${item.name}',
+        detail: 'Saving to this device',
+        sentBytes: 0,
+        totalBytes: item.sizeBytes,
+        speedBytesPerSecond: 0,
+      ),
+    );
     final stopwatch = Stopwatch()..start();
     var lastUpdate = DateTime.fromMillisecondsSinceEpoch(0);
     try {
@@ -4481,7 +4633,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     } catch (error) {
       if (mounted) {
         _setJoinState(() => _joinTransfer = null);
-        _snack('Could not download file: $error');
+        _snack('Could not download file: ${userErrorText(error)}');
       }
     }
   }
@@ -4489,7 +4641,30 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   Future<void> _pullJoinedFileIntoRoom(DropFileItem item) async {
     final preview = _joinPreview;
     final joinSession = _joinSession;
-    if (preview == null || joinSession == null || !_server.isRunning) return;
+    if (preview == null ||
+        joinSession == null ||
+        !_server.isRunning ||
+        _joinTransferBusy()) {
+      return;
+    }
+    final shortfall = await _server.uploadShortfall([
+      (name: item.name, size: item.sizeBytes),
+    ]);
+    if (shortfall != null) {
+      _snack(shortfall.replaceFirst('The host device', 'This device'));
+      return;
+    }
+    if (!mounted) return;
+    _setJoinState(
+      () => _joinTransfer = TransferProgress(
+        direction: TransferDirection.download,
+        title: 'Pulling ${item.name}',
+        detail: 'Saving into your live room',
+        sentBytes: 0,
+        totalBytes: item.sizeBytes,
+        speedBytesPerSecond: 0,
+      ),
+    );
     final stopwatch = Stopwatch()..start();
     var lastUpdate = DateTime.fromMillisecondsSinceEpoch(0);
     try {
@@ -4533,7 +4708,7 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     } catch (error) {
       if (mounted) {
         _setJoinState(() => _joinTransfer = null);
-        _snack('Could not pull file: $error');
+        _snack('Could not pull file: ${userErrorText(error)}');
       }
     }
   }
@@ -4541,12 +4716,41 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   Future<void> _pickAndUploadJoinedFiles() async {
     final preview = _joinPreview;
     final joinSession = _joinSession;
-    if (preview == null || joinSession == null) return;
-    final pickedFiles = await _nativeFilePickerService.pickFilesForUpload();
+    if (preview == null || joinSession == null || _joinTransferBusy()) return;
+    final List<PickedUploadFile> pickedFiles;
+    try {
+      pickedFiles = await _nativeFilePickerService.pickFilesForUpload();
+    } catch (error) {
+      _snack(userErrorText(error));
+      return;
+    }
     if (pickedFiles.isEmpty) return;
     final totalBytes = pickedFiles.fold<int>(
       0,
       (sum, file) => sum + file.sizeBytes,
+    );
+    final shortfall = await _joinRoomService.checkUpload(
+      baseUrl: preview.baseUrl,
+      token: joinSession.token,
+      files: [
+        for (final file in pickedFiles) (name: file.name, size: file.sizeBytes),
+      ],
+    );
+    if (shortfall != null) {
+      await _nativeFilePickerService.discard(pickedFiles);
+      _snack(shortfall);
+      return;
+    }
+    if (!mounted) return;
+    _setJoinState(
+      () => _joinTransfer = TransferProgress(
+        direction: TransferDirection.upload,
+        title: 'Uploading ${pickedFiles.length} file(s)',
+        detail: 'Target $_joinPath',
+        sentBytes: 0,
+        totalBytes: totalBytes,
+        speedBytesPerSecond: 0,
+      ),
     );
     final stopwatch = Stopwatch()..start();
     var uploadedBeforeCurrent = 0;
@@ -4603,8 +4807,10 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     } catch (error) {
       if (mounted) {
         _setJoinState(() => _joinTransfer = null);
-        _snack('Could not upload files: $error');
+        _snack('Could not upload files: ${userErrorText(error)}');
       }
+    } finally {
+      await _nativeFilePickerService.discard(pickedFiles);
     }
   }
 
@@ -4641,17 +4847,27 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   }
 
   Future<void> _pickAndAddFiles() async {
-    final picked = await _nativeFilePickerService.pickFilesForUpload();
+    final List<PickedUploadFile> picked;
+    try {
+      picked = await _nativeFilePickerService.pickFilesForUpload();
+    } catch (error) {
+      _snack(userErrorText(error));
+      return;
+    }
     final paths = picked
         .map((file) => file.path)
         .where((path) => path.isNotEmpty)
         .toList();
     if (paths.isEmpty) return;
 
-    if (_smartSendScopeIndex == 1) {
-      await _uploadDroppedFilesToGateway(paths);
-    } else {
-      await _handleSharedPayload(SharedPayload(filePaths: paths));
+    try {
+      if (_smartSendScopeIndex == 1) {
+        await _uploadDroppedFilesToGateway(paths);
+      } else {
+        await _handleSharedPayload(SharedPayload(filePaths: paths));
+      }
+    } finally {
+      await _nativeFilePickerService.discard(picked);
     }
   }
 
@@ -4695,6 +4911,16 @@ class _DropHomeScreenState extends State<DropHomeScreen>
   }
 
   Future<void> _handleSharedPayload(SharedPayload payload) async {
+    try {
+      await _importSharedPayload(payload);
+    } catch (error) {
+      if (mounted) {
+        _snack('Could not add to the Drop folder: ${userErrorText(error)}');
+      }
+    }
+  }
+
+  Future<void> _importSharedPayload(SharedPayload payload) async {
     if (payload.isEmpty || !mounted) return;
     final sharedText = payload.text?.trim();
     if (payload.filePaths.isEmpty &&
@@ -4712,6 +4938,29 @@ class _DropHomeScreenState extends State<DropHomeScreen>
     var importedFiles = 0;
     var importedText = false;
     final selection = _hostFolderSelection;
+    if (payload.filePaths.isNotEmpty &&
+        (_server.isRunning || selection != null)) {
+      final sizes = <int>[];
+      for (final path in payload.filePaths) {
+        try {
+          sizes.add(await File(path).length());
+        } catch (_) {
+          // Missing files are skipped below.
+        }
+      }
+      final stats = await PlatformNetwork.getStorageStats();
+      final shortfall = StorageGuard.shortfallMessage(
+        // Shared files are already staged in the cache; only the final copy
+        // into the Drop folder needs new space.
+        requiredBytes: StorageGuard.requiredBytes(sizes, staged: false),
+        availableBytes: stats['availableBytes'],
+        device: 'This device',
+      );
+      if (shortfall != null) {
+        if (mounted) _snack(shortfall);
+        return;
+      }
+    }
     if (text != null && text.isNotEmpty) {
       _smartTitle.text = 'Shared text';
       _smartText.text = text;
@@ -5221,6 +5470,11 @@ class _JoinedRoomDetailScreen extends StatelessWidget {
             TextField(
               controller: passwordController,
               obscureText: true,
+              autofocus: true,
+              textInputAction: TextInputAction.go,
+              onSubmitted: (_) {
+                if (!joining) unawaited(onJoin());
+              },
               decoration: const InputDecoration(labelText: 'Room password'),
             ),
           ],
@@ -6114,9 +6368,9 @@ class _EncryptionKeyDialogState extends State<_EncryptionKeyDialog> {
       _controller.text = text.trim();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not read key file: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not read key file: ${userErrorText(e)}')),
+      );
     }
   }
 

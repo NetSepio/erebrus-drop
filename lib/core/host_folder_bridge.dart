@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 
 import 'desktop_host_folder.dart';
@@ -77,6 +79,37 @@ class HostFolderBridge {
       {'rootUri': rootUri, 'path': path},
     );
     return HostFolderCachedFile.fromJson(result ?? <Object?, Object?>{});
+  }
+
+  /// On desktop, the selected folder is a plain directory: the file itself.
+  Future<File?> localFile({required String rootUri, required String path}) {
+    if (!isDesktopPlatform) return Future.value();
+    return DesktopHostFolder.localFile(rootUri: rootUri, path: path);
+  }
+
+  /// Opens a file in the selected folder for ranged reads in place (Android),
+  /// or null where only [copyFileToCache] is available.
+  Future<HostFileReader?> openFileReader({
+    required String rootUri,
+    required String path,
+  }) async {
+    if (!Platform.isAndroid) return null;
+    try {
+      final result = await HostFileReader._channel
+          .invokeMapMethod<String, Object?>('open', {
+            'rootUri': rootUri,
+            'path': path,
+          });
+      if (result == null) return null;
+      return HostFileReader._(
+        result['id'] as int,
+        size: (result['size'] as num?)?.toInt() ?? 0,
+        name: result['name']?.toString() ?? 'download',
+        mimeType: result['mimeType']?.toString() ?? 'application/octet-stream',
+      );
+    } on MissingPluginException {
+      return null;
+    }
   }
 
   Future<void> openFile({required String rootUri, required String path}) async {
@@ -220,6 +253,49 @@ class HostFolderItem {
       ),
       mimeType: json['mimeType']?.toString(),
     );
+  }
+}
+
+/// A Drop-folder file held open natively, read in chunks without copying it.
+class HostFileReader {
+  HostFileReader._(
+    this._id, {
+    required this.size,
+    required this.name,
+    required this.mimeType,
+  });
+
+  static const MethodChannel _channel = MethodChannel(
+    'com.erebrus.drop/host_reader',
+  );
+  static const int _chunkBytes = 1024 * 1024;
+
+  final int _id;
+  final int size;
+  final String name;
+  final String mimeType;
+  bool _closed = false;
+
+  /// Bytes in [start, end). Stops early if the listener cancels, so a video
+  /// player seeking away does not keep reading the rest of the file.
+  Stream<List<int>> read(int start, int end) async* {
+    var offset = start;
+    while (offset < end && !_closed) {
+      final chunk = await _channel.invokeMethod<Uint8List>('read', {
+        'id': _id,
+        'offset': offset,
+        'length': (end - offset).clamp(0, _chunkBytes),
+      });
+      if (chunk == null || chunk.isEmpty) break;
+      offset += chunk.length;
+      yield chunk;
+    }
+  }
+
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
+    await _channel.invokeMethod<void>('close', {'id': _id});
   }
 }
 

@@ -133,7 +133,19 @@ class PlatformNetwork {
     return Platform.localHostname;
   }
 
-  static Future<Map<String, int?>> getStorageStats() async {
+  /// Whether macOS/Linux shell out to `df`. Off under `flutter test`, where
+  /// widget tests run in fake async and a child process would never finish.
+  static bool desktopStatsEnabled = !Platform.environment.containsKey(
+    'FLUTTER_TEST',
+  );
+
+  /// Free and total bytes on this device. On macOS and Linux, [path] picks the
+  /// volume to measure (defaults to the system temp folder, where transfers
+  /// are staged).
+  static Future<Map<String, int?>> getStorageStats({String? path}) async {
+    if ((Platform.isMacOS || Platform.isLinux) && desktopStatsEnabled) {
+      return _desktopStorageStats(path ?? Directory.systemTemp.path);
+    }
     try {
       final result = await _channel.invokeMapMethod<String, Object?>(
         'getStorageStats',
@@ -148,6 +160,29 @@ class PlatformNetwork {
       // Return null values when a native platform does not expose stats.
     } on MissingPluginException {
       // Widget tests and desktop runs land here.
+    }
+    return {'availableBytes': null, 'totalBytes': null};
+  }
+
+  static Future<Map<String, int?>> _desktopStorageStats(String path) async {
+    try {
+      // POSIX `df -Pk` prints one line per volume in 1024-byte blocks:
+      // Filesystem 1024-blocks Used Available Capacity Mounted-on
+      final result = await Process.run('df', ['-Pk', path]);
+      final lines = '${result.stdout}'.trim().split('\n');
+      if (result.exitCode == 0 && lines.length >= 2) {
+        final columns = lines.last.trim().split(RegExp(r'\s+'));
+        if (columns.length >= 4) {
+          final total = int.tryParse(columns[1]);
+          final available = int.tryParse(columns[3]);
+          return {
+            'availableBytes': available == null ? null : available * 1024,
+            'totalBytes': total == null ? null : total * 1024,
+          };
+        }
+      }
+    } on ProcessException {
+      // df is missing in some sandboxes; report unknown space.
     }
     return {'availableBytes': null, 'totalBytes': null};
   }

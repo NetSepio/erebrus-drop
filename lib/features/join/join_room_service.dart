@@ -115,7 +115,9 @@ class JoinRoomService {
       final body = await utf8.decoder.bind(response).join();
       final json = _decodeJsonObject(body);
       if (response.statusCode >= 400) {
-        throw StateError(json['error']?.toString() ?? 'Could not join room');
+        throw JoinRoomException(
+          json['error']?.toString() ?? 'Could not join room.',
+        );
       }
       return JoinRoomSession(
         token: json['token']?.toString() ?? '',
@@ -216,11 +218,41 @@ class JoinRoomService {
       final response = await request.close();
       if (response.statusCode >= 400) {
         final body = await utf8.decoder.bind(response).join();
-        throw StateError(body.isEmpty ? 'Upload failed' : body);
+        throw JoinRoomException(_errorFromBody(body, 'Upload failed.'));
       }
       await response.drain<void>();
+    } on SocketException {
+      throw const JoinRoomException(
+        'The upload was interrupted. The host may be out of storage or offline.',
+      );
     } finally {
       client.close(force: true);
+    }
+  }
+
+  /// Asks the host whether [files] fit before any bytes are sent. Returns a
+  /// user-facing reason when they do not, or null when they fit or the host
+  /// predates the check.
+  Future<String?> checkUpload({
+    required String baseUrl,
+    required String token,
+    required List<({String name, int size})> files,
+  }) async {
+    try {
+      final json = await _jsonPost(
+        Uri.parse('$baseUrl/api/files/upload/check'),
+        token: token,
+        body: {
+          'files': [
+            for (final file in files) {'name': file.name, 'size': file.size},
+          ],
+        },
+      );
+      return json['ok'] == false ? json['error']?.toString() : null;
+    } catch (_) {
+      // Older hosts answer 404, and network errors resurface on upload;
+      // the upload itself still enforces the limits.
+      return null;
     }
   }
 
@@ -247,7 +279,7 @@ class JoinRoomService {
       final response = await request.close();
       if (response.statusCode >= 400) {
         final body = await utf8.decoder.bind(response).join();
-        throw StateError(body.isEmpty ? 'Download failed' : body);
+        throw JoinRoomException(_errorFromBody(body, 'Download failed.'));
       }
       final sink = file.openWrite();
       var received = 0;
@@ -285,7 +317,7 @@ class JoinRoomService {
       final body = await utf8.decoder.bind(response).join();
       final json = _decodeJsonObject(body);
       if (response.statusCode >= 400) {
-        throw StateError(json['error']?.toString() ?? 'Request failed');
+        throw JoinRoomException(json['error']?.toString() ?? 'Request failed.');
       }
       return json;
     } on FormatException {
@@ -324,7 +356,7 @@ class JoinRoomService {
           ? <String, Object?>{}
           : _decodeJsonObject(responseBody);
       if (response.statusCode >= 400) {
-        throw StateError(json['error']?.toString() ?? 'Request failed');
+        throw JoinRoomException(json['error']?.toString() ?? 'Request failed.');
       }
       return json;
     } on FormatException {
@@ -411,6 +443,17 @@ class JoinRoomService {
       throw const JoinRoomException('Drop Links must start with http://.');
     }
     return '${uri.scheme}://${uri.authority}';
+  }
+
+  String _errorFromBody(String body, String fallback) {
+    try {
+      final error = _decodeJsonObject(body)['error']?.toString();
+      if (error != null && error.isNotEmpty) return error;
+    } catch (_) {
+      // Plain-text body.
+    }
+    final text = body.trim();
+    return text.isEmpty || text.length > 200 ? fallback : text;
   }
 
   Map<String, Object?> _decodeJsonObject(String body) {

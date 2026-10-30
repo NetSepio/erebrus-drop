@@ -33,12 +33,16 @@ extension RoomPermissionLabel on RoomPermission {
   List<String> get apiValues {
     switch (this) {
       case RoomPermission.dropFolderOnly:
+        // Full access, but only inside the selected Drop folder.
         return [
           'view',
           'upload',
           'download',
           'create_folder',
+          'rename',
+          'delete',
           'text',
+          'streaming',
           'drop_folder_only',
         ];
       case RoomPermission.viewOnly:

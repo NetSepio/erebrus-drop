@@ -1,6 +1,9 @@
 import 'gateway_config.dart';
 import 'gateway_http.dart';
 import 'gateway_models.dart';
+import 'gateway_session.dart';
+
+export 'gateway_session.dart' show DropAuthSession;
 
 /// Login methods the gateway has configured (`GET /api/v2/auth/methods`).
 class DropAuthMethods {
@@ -21,11 +24,13 @@ class DropAuthMethods {
 
 /// Wallet/social auth against the Erebrus gateway (v2).
 class DropAuthClient {
-  DropAuthClient({String? gatewayUrl, this.onUnauthorized})
+  DropAuthClient({String? gatewayUrl, this.authorization})
     : _base = GatewayHttp.normalizeBase(gatewayUrl ?? resolveGatewayUrl());
 
   final Uri _base;
-  Future<void> Function(String token)? onUnauthorized;
+  GatewaySessionAuthorization? authorization;
+
+  String get sessionNamespace => _base.toString();
 
   String get baseUrl {
     final port = _base.hasPort ? ':${_base.port}' : '';
@@ -69,12 +74,7 @@ class DropAuthClient {
       GatewayHttp.apiUri(_base, path: '/api/v2/auth'),
       body,
     );
-    return DropAuthSession(
-      token: (map['token'] ?? '').toString(),
-      userId: (map['user_id'] ?? '').toString(),
-      role: (map['role'] ?? 'user').toString(),
-      walletAddress: publicKey,
-    );
+    return DropAuthSession.fromJson(map, walletAddress: publicKey);
   }
 
   /// `GET /api/v2/orgs` — list organizations the caller belongs to.
@@ -82,7 +82,7 @@ class DropAuthClient {
     final list = await GatewayHttp.getJsonList(
       GatewayHttp.apiUri(_base, path: '/api/v2/orgs'),
       bearerToken: bearerToken,
-      onUnauthorized: onUnauthorized,
+      authorization: authorization,
     );
     return list
         .whereType<Map<dynamic, dynamic>>()
@@ -101,7 +101,7 @@ class DropAuthClient {
       GatewayHttp.apiUri(_base, path: '/api/v2/orgs'),
       {'name': name.trim(), 'slug': slug.trim().toLowerCase()},
       bearerToken: bearerToken,
-      onUnauthorized: onUnauthorized,
+      authorization: authorization,
     );
     return DropOrg.fromJson(map);
   }
@@ -124,7 +124,7 @@ class DropAuthClient {
       GatewayHttp.apiUri(_base, path: '/api/v2/referrals/redeem'),
       {'code': code.trim()},
       bearerToken: bearerToken,
-      onUnauthorized: onUnauthorized,
+      authorization: authorization,
     );
   }
 
@@ -193,31 +193,37 @@ class DropAuthClient {
     return _identitySession(map);
   }
 
-  DropAuthSession _identitySession(Map<String, dynamic> map) => DropAuthSession(
-    token: (map['token'] ?? '').toString(),
-    userId: (map['user_id'] ?? '').toString(),
-    role: (map['role'] ?? 'user').toString(),
-    walletAddress:
-        (map['wallet_address'] ?? map['wallet'] ?? map['public_key'] ?? '')
-            .toString(),
-  );
+  DropAuthSession _identitySession(Map<String, dynamic> map) =>
+      DropAuthSession.fromJson(map);
+
+  // These calls deliberately bypass bearer interception and automatic retries.
+  Future<DropAuthSession> refreshSession(String refreshToken) async =>
+      DropAuthSession.fromJson(
+        await GatewayHttp.postJson(
+          GatewayHttp.apiUri(_base, path: '/api/v2/auth/refresh'),
+          {'refresh_token': refreshToken},
+        ),
+      );
+
+  Future<DropAuthSession> upgradeSession(String bearerToken) async =>
+      DropAuthSession.fromJson(
+        await GatewayHttp.postJson(
+          GatewayHttp.apiUri(_base, path: '/api/v2/auth/session'),
+          const {},
+          bearerToken: bearerToken,
+        ),
+      );
+
+  Future<void> logoutSession(String refreshToken) async {
+    await GatewayHttp.postJson(
+      GatewayHttp.apiUri(_base, path: '/api/v2/auth/logout'),
+      {'refresh_token': refreshToken},
+    );
+  }
 }
 
 class DropAuthChallenge {
   const DropAuthChallenge({required this.challengeId, required this.message});
   final String challengeId;
   final String message;
-}
-
-class DropAuthSession {
-  const DropAuthSession({
-    required this.token,
-    required this.userId,
-    required this.role,
-    required this.walletAddress,
-  });
-  final String token;
-  final String userId;
-  final String role;
-  final String walletAddress;
 }

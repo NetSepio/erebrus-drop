@@ -22,6 +22,8 @@ import 'drop_auth_client.dart';
 import 'drop_gateway_client.dart';
 import 'gateway_http.dart';
 import 'gateway_models.dart';
+import 'gateway_session_broker.dart';
+import 'gateway_session_repository.dart';
 import 'social_login.dart';
 
 /// Auth/session and org state for the Erebrus Drop gateway.
@@ -37,25 +39,33 @@ class DropAuthService {
     required this.solana,
     DropAuthClient? authClient,
     DropGatewayClient? gatewayClient,
+    GatewaySessionRepository? sessionRepository,
   }) : _authClient = authClient ?? DropAuthClient(),
        _gatewayClient = gatewayClient ?? DropGatewayClient() {
-    _authClient.onUnauthorized = _handleBearerUnauthorized;
-    _gatewayClient.onUnauthorized = _handleBearerUnauthorized;
+    _sessions = sessionRepository ?? GatewaySessionBroker.owner(_authClient);
+    _authClient.authorization = _sessions;
+    _gatewayClient.authorization = _sessions;
+    _sessions.current.addListener(_syncSession);
+    _sessions.message.addListener(_syncSessionMessage);
   }
 
   final SolanaWalletService solana;
   final DropAuthClient _authClient;
   final DropGatewayClient _gatewayClient;
+  late final GatewaySessionRepository _sessions;
 
   String? _bearerToken;
   String? _walletAddress;
   String? _userId;
   String? _authMethod;
   String? _mwaAuthToken;
+  String? _identityGeneration;
   ReownAppKitModal? _appKitModal;
   Future<void>? _reownInitFuture;
-  Future<void>? _expirationFuture;
   Future<bool>? _revalidationFuture;
+  int? _pendingWebGeneration;
+  StreamSubscription<Uri>? _deepLinkSubscription;
+  bool _disposed = false;
 
   final ValueNotifier<List<DropOrg>> orgs = ValueNotifier<List<DropOrg>>(
     const [],
@@ -71,6 +81,7 @@ class DropAuthService {
   final ValueNotifier<DropAuthMethods> authMethods =
       ValueNotifier<DropAuthMethods>(DropAuthMethods.unknown);
 
+  final ValueNotifier<int> loginRevision = ValueNotifier<int>(0);
   final ValueNotifier<bool> signedIn = ValueNotifier<bool>(false);
 
   String? get bearerToken => _bearerToken;
@@ -78,11 +89,15 @@ class DropAuthService {
   String? get userId => _userId;
   String? get authMethod => _authMethod;
   bool get isSignedIn => signedIn.value;
+  bool get requiresLogin =>
+      _sessions.current.value?.loginRequired == true ||
+      _sessions.current.value?.rotationPending == true;
   DropGatewayClient get gatewayClient => _gatewayClient;
 
   /// Combined [Listenable] for UI state observers.
   Listenable get state => Listenable.merge([
     signedIn,
+    loginRevision,
     isAuthenticating,
     error,
     reownReady,
@@ -99,37 +114,30 @@ class DropAuthService {
   bool get appleLoginAvailable =>
       authMethods.value.apple && appleDeviceReady.value;
 
-  static const String _kToken = 'erebrus_gateway_token';
-  static const String _kWallet = 'erebrus_gateway_wallet';
-  static const String _kUserId = 'erebrus_gateway_user_id';
-  static const String _kAuthMethod = 'erebrus_gateway_auth_method';
-  static const String _kMwaToken = 'erebrus_gateway_mwa_token';
   static const String _kSelectedOrgId = 'erebrus_selected_org_id';
   static const String _kSelectedOrgSlug = 'erebrus_selected_org_slug';
   static const String _kSelectedOrgName = 'erebrus_selected_org_name';
 
   /// Restores session and starts deep-link + auth-method discovery.
   Future<void> loadSession() async {
+    try {
+      await _sessions.restore();
+      _syncSession();
+      final prefs = await SharedPreferences.getInstance();
+      if (isSignedIn) await _restoreSelectedOrg(prefs);
+    } catch (_) {
+      error.value =
+          'Secure session storage is unavailable. Try again after unlocking your device.';
+    }
     await _detectDevice();
     await _loadAuthMethods();
+    if (_disposed) return;
     await _listenDeepLinks();
-
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString(_kToken);
-    if (token == null || token.isEmpty) return;
-
-    _mwaAuthToken = prefs.getString(_kMwaToken);
-    _restoreSession(token);
-    _walletAddress = prefs.getString(_kWallet);
-    _userId = prefs.getString(_kUserId);
-    _authMethod = prefs.getString(_kAuthMethod);
-
     await revalidateSession();
-    if (isSignedIn) await _restoreSelectedOrg(prefs);
   }
 
   /// Checks the current bearer session against an authenticated endpoint.
-  /// A 401 expires the session; all other failures leave it recoverable.
+  /// Renewal failures preserve the session unless explicitly revoked.
   Future<bool> revalidateSession() {
     final active = _revalidationFuture;
     if (active != null) return active;
@@ -142,20 +150,19 @@ class DropAuthService {
   }
 
   Future<bool> _runSessionRevalidation() async {
-    if (!isSignedIn || _bearerToken == null || _bearerToken!.isEmpty) {
-      return false;
-    }
     try {
+      await _sessions.restore();
+      _syncSession();
+      if (!isSignedIn) return false;
+      await _sessions.authorize();
       await _loadOrgs();
       error.value = null;
       return true;
     } on GatewayException catch (e) {
-      if (e.statusCode != HttpStatus.unauthorized) {
-        error.value = e.message;
-      }
+      error.value = e.message;
       return isSignedIn;
-    } catch (e) {
-      error.value = e.toString();
+    } catch (_) {
+      error.value = 'Session validation is unavailable. Try again later.';
       return isSignedIn;
     }
   }
@@ -312,6 +319,9 @@ class DropAuthService {
 
   /// Cancels an in-flight sign-in attempt and dismisses any open wallet modal.
   void cancelAuthentication() {
+    final generation = _sessions.beginLogin();
+    _sessions.finishLogin(generation);
+    DesktopWebAuth.clearPendingState();
     isAuthenticating.value = false;
     awaitingWebCallback.value = false;
     try {
@@ -327,6 +337,7 @@ class DropAuthService {
     if (isAuthenticating.value || awaitingWebCallback.value) return;
     error.value = null;
     awaitingWebCallback.value = true;
+    _pendingWebGeneration = _sessions.generation;
     try {
       final url = DesktopWebAuth.buildLoginUrl();
       final uri = Uri.parse(url);
@@ -347,7 +358,9 @@ class DropAuthService {
   /// Handles an `erebrusdrop://auth?token=...` callback from the browser.
   Future<void> handleWebAuthCallback(String url) async {
     if (!DesktopWebAuth.isAuthCallback(url)) return;
+    if (_pendingWebGeneration != _sessions.generation) return;
     awaitingWebCallback.value = false;
+    final generation = _sessions.beginLogin();
     isAuthenticating.value = true;
     error.value = null;
     try {
@@ -363,15 +376,16 @@ class DropAuthService {
         role: callback.role,
         walletAddress: callback.walletAddress,
       );
-      await _persistSession(session, method: 'web');
+      await _persistSession(session, generation: generation, method: 'web');
       DesktopWebAuth.clearPendingState();
       await _loadOrgs();
     } on DesktopWebAuthException catch (e) {
-      error.value = e.message;
+      if (generation == _sessions.generation) error.value = e.message;
     } catch (e) {
-      error.value = e.toString();
+      if (generation == _sessions.generation) error.value = e.toString();
     } finally {
-      isAuthenticating.value = false;
+      _sessions.finishLogin(generation);
+      if (generation == _sessions.generation) isAuthenticating.value = false;
     }
   }
 
@@ -387,6 +401,7 @@ class DropAuthService {
   }
 
   Future<void> signInWithPastedCredential(String input) async {
+    final generation = _sessions.beginLogin();
     isAuthenticating.value = true;
     awaitingWebCallback.value = false;
     error.value = null;
@@ -405,13 +420,18 @@ class DropAuthService {
             ? 'imported'
             : callback.walletAddress,
       );
-      await _persistSession(session, method: 'manual_paste');
+      await _persistSession(
+        session,
+        generation: generation,
+        method: 'manual_paste',
+      );
       DesktopWebAuth.clearPendingState();
       await _loadOrgs();
     } catch (e) {
-      error.value = e.toString();
+      if (generation == _sessions.generation) error.value = e.toString();
     } finally {
-      isAuthenticating.value = false;
+      _sessions.finishLogin(generation);
+      if (generation == _sessions.generation) isAuthenticating.value = false;
     }
   }
 
@@ -424,6 +444,7 @@ class DropAuthService {
     }
     if (isAuthenticating.value) return;
 
+    final generation = _sessions.beginLogin();
     isAuthenticating.value = true;
     error.value = null;
     try {
@@ -464,43 +485,47 @@ class DropAuthService {
         publicKey: address,
       );
 
-      _mwaAuthToken = authToken;
       await _persistSession(
         session,
+        generation: generation,
         method: 'solana_mobile',
         mwaToken: authToken,
       );
       await _loadOrgs();
     } catch (e) {
-      error.value = e.toString();
+      if (generation == _sessions.generation) error.value = e.toString();
     } finally {
-      isAuthenticating.value = false;
+      _sessions.finishLogin(generation);
+      if (generation == _sessions.generation) isAuthenticating.value = false;
     }
   }
 
   Future<void> signInWithGoogle() async {
     if (isAuthenticating.value || !googleLoginAvailable) return;
+    final generation = _sessions.beginLogin();
     isAuthenticating.value = true;
     error.value = null;
     try {
       final idToken = await googleIdToken();
       if (idToken == null) return;
       final session = await _authClient.googleLogin(idToken);
-      await _persistSession(session, method: 'google');
+      await _persistSession(session, generation: generation, method: 'google');
       await _loadOrgs();
     } on AuthException catch (e) {
-      error.value = e.message;
+      if (generation == _sessions.generation) error.value = e.message;
     } on SocialLoginException catch (e) {
-      error.value = e.message;
+      if (generation == _sessions.generation) error.value = e.message;
     } catch (e) {
-      error.value = e.toString();
+      if (generation == _sessions.generation) error.value = e.toString();
     } finally {
-      isAuthenticating.value = false;
+      _sessions.finishLogin(generation);
+      if (generation == _sessions.generation) isAuthenticating.value = false;
     }
   }
 
   Future<void> signInWithApple() async {
     if (isAuthenticating.value || !appleLoginAvailable) return;
+    final generation = _sessions.beginLogin();
     isAuthenticating.value = true;
     error.value = null;
     try {
@@ -512,16 +537,17 @@ class DropAuthService {
         nonce: credential.nonce,
         state: credential.state,
       );
-      await _persistSession(session, method: 'apple');
+      await _persistSession(session, generation: generation, method: 'apple');
       await _loadOrgs();
     } on AuthException catch (e) {
-      error.value = e.message;
+      if (generation == _sessions.generation) error.value = e.message;
     } on SocialLoginException catch (e) {
-      error.value = e.message;
+      if (generation == _sessions.generation) error.value = e.message;
     } catch (e) {
-      error.value = e.toString();
+      if (generation == _sessions.generation) error.value = e.toString();
     } finally {
-      isAuthenticating.value = false;
+      _sessions.finishLogin(generation);
+      if (generation == _sessions.generation) isAuthenticating.value = false;
     }
   }
 
@@ -547,6 +573,7 @@ class DropAuthService {
       error.value = 'Enter the full code from your email';
       return;
     }
+    final generation = _sessions.beginLogin();
     isAuthenticating.value = true;
     error.value = null;
     try {
@@ -558,16 +585,19 @@ class DropAuthService {
         error.value = 'Sign-in succeeded but no session token was returned';
         return;
       }
-      await _persistSession(session, method: 'email');
+      await _persistSession(session, generation: generation, method: 'email');
       await _loadOrgs();
     } on AuthException catch (e) {
-      error.value = e.message;
+      if (generation == _sessions.generation) error.value = e.message;
     } on TimeoutException {
-      error.value = 'Sign-in timed out — check your connection and try again';
+      if (generation == _sessions.generation) {
+        error.value = 'Sign-in timed out — check your connection and try again';
+      }
     } catch (e) {
-      error.value = e.toString();
+      if (generation == _sessions.generation) error.value = e.toString();
     } finally {
-      isAuthenticating.value = false;
+      _sessions.finishLogin(generation);
+      if (generation == _sessions.generation) isAuthenticating.value = false;
     }
   }
 
@@ -627,73 +657,46 @@ class DropAuthService {
     await prefs.setString(_kSelectedOrgName, org.name);
   }
 
-  /// Clears the signed-in session.
-  Future<void> signOut() async {
+  /// Local logout always clears auth; false means remote revoke is unconfirmed.
+  Future<bool> signOut() async {
     final mwaToken = _mwaAuthToken;
-    _bearerToken = null;
-    _walletAddress = null;
-    _userId = null;
-    _authMethod = null;
-    _mwaAuthToken = null;
-    orgs.value = const [];
-    selectedOrg.value = null;
-    _gatewayClient.token = null;
-    signedIn.value = false;
-    error.value = null;
-
+    DesktopWebAuth.clearPendingState();
+    _pendingWebGeneration = null;
+    awaitingWebCallback.value = false;
+    isAuthenticating.value = false;
+    final logout = _sessions.logout();
+    _syncSession();
     unawaited(googleSignOut());
-    if (mwaToken != null) {
-      unawaited(_disconnectSolanaMobile(mwaToken));
-    }
+    if (mwaToken != null) unawaited(_disconnectSolanaMobile(mwaToken));
     try {
       await _appKitModal?.disconnect();
-    } catch (e) {
-      debugPrint('[Auth] Reown disconnect: $e');
+    } catch (_) {}
+    return logout;
+  }
+
+  void _syncSession() {
+    final record = _sessions.current.value;
+    _bearerToken = record?.session.token;
+    _walletAddress = record?.session.walletAddress;
+    _userId = record?.session.userId;
+    _authMethod = record?.method;
+    _mwaAuthToken = record?.mwaToken;
+    _gatewayClient.token = _bearerToken;
+    if (record == null || record.generation != _identityGeneration) {
+      orgs.value = const [];
+      selectedOrg.value = null;
     }
-
-    await _removePersistedSession();
+    _identityGeneration = record?.generation;
+    signedIn.value = record != null;
   }
 
-  Future<void> _handleBearerUnauthorized(String rejectedToken) {
-    if (_bearerToken != rejectedToken) return Future<void>.value();
-    final active = _expirationFuture;
-    if (active != null) return active;
+  void _syncSessionMessage() => error.value = _sessions.message.value;
 
-    // Clear in-memory auth before the first await so concurrent failures cannot
-    // start another expiry operation or issue more authenticated requests.
-    _bearerToken = null;
-    _walletAddress = null;
-    _userId = null;
-    _authMethod = null;
-    _mwaAuthToken = null;
-    orgs.value = const [];
-    selectedOrg.value = null;
-    _gatewayClient.token = null;
-    error.value = 'Your session expired. Please sign in again.';
-    signedIn.value = false;
-
-    late final Future<void> future;
-    future = _removePersistedSession()
-        .catchError((Object e) {
-          debugPrint('[Auth] could not clear expired persisted session: $e');
-        })
-        .whenComplete(() {
-          if (identical(_expirationFuture, future)) _expirationFuture = null;
-        });
-    _expirationFuture = future;
-    return future;
-  }
-
-  Future<void> _removePersistedSession() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_kToken);
-    await prefs.remove(_kWallet);
-    await prefs.remove(_kUserId);
-    await prefs.remove(_kAuthMethod);
-    await prefs.remove(_kMwaToken);
-    await prefs.remove(_kSelectedOrgId);
-    await prefs.remove(_kSelectedOrgSlug);
-    await prefs.remove(_kSelectedOrgName);
+  void dispose() {
+    _disposed = true;
+    _sessions.current.removeListener(_syncSession);
+    _sessions.message.removeListener(_syncSessionMessage);
+    unawaited(_deepLinkSubscription?.cancel());
   }
 
   Future<void> _loadAuthMethods() async {
@@ -718,9 +721,12 @@ class DropAuthService {
   }
 
   Future<void> _listenDeepLinks() async {
+    if (_disposed) return;
     try {
       final appLinks = AppLinks();
-      appLinks.uriLinkStream.listen((uri) {
+      await _deepLinkSubscription?.cancel();
+      if (_disposed) return;
+      _deepLinkSubscription = appLinks.uriLinkStream.listen((uri) {
         final url = uri.toString();
         if (DesktopWebAuth.isAuthCallback(url)) {
           unawaited(handleWebAuthCallback(url));
@@ -768,6 +774,7 @@ class DropAuthService {
       return;
     }
 
+    final generation = _sessions.beginLogin();
     isAuthenticating.value = true;
     error.value = null;
     try {
@@ -784,15 +791,16 @@ class DropAuthService {
         signature: signature,
         publicKey: address,
       );
-      await _persistSession(session, method: 'reown');
+      await _persistSession(session, generation: generation, method: 'reown');
       await _loadOrgs();
       if (modal.isOpen) modal.closeModal();
     } on AuthException catch (e) {
-      error.value = e.message;
+      if (generation == _sessions.generation) error.value = e.message;
     } catch (e) {
-      error.value = e.toString();
+      if (generation == _sessions.generation) error.value = e.toString();
     } finally {
-      isAuthenticating.value = false;
+      _sessions.finishLogin(generation);
+      if (generation == _sessions.generation) isAuthenticating.value = false;
     }
   }
 
@@ -894,33 +902,26 @@ class DropAuthService {
     }
   }
 
-  void _restoreSession(String token) {
-    _bearerToken = token;
-    _gatewayClient.token = token;
-    signedIn.value = true;
-  }
-
   Future<void> _persistSession(
     DropAuthSession session, {
+    required int generation,
     required String method,
     String? mwaToken,
   }) async {
-    _bearerToken = session.token;
-    _walletAddress = session.walletAddress;
-    _userId = session.userId;
-    _authMethod = method;
-    if (mwaToken != null) _mwaAuthToken = mwaToken;
-    _gatewayClient.token = session.token;
-    signedIn.value = true;
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kToken, session.token);
-    await prefs.setString(_kWallet, session.walletAddress);
-    await prefs.setString(_kUserId, session.userId);
-    await prefs.setString(_kAuthMethod, method);
-    if (mwaToken != null && mwaToken.isNotEmpty) {
-      await prefs.setString(_kMwaToken, mwaToken);
+    await _sessions.install(
+      session,
+      expectedGeneration: generation,
+      method: method,
+      mwaToken: mwaToken,
+    );
+    if (generation != _sessions.generation) {
+      throw const AuthException('Sign-in cancelled');
     }
+    DesktopWebAuth.clearPendingState();
+    _pendingWebGeneration = null;
+    // Notify navigation about successful reauthentication without discarding
+    // the recoverable account state during an ordinary refresh failure.
+    loginRevision.value++;
   }
 
   Future<void> _loadOrgs() async {
@@ -928,15 +929,21 @@ class DropAuthService {
       orgs.value = const [];
       return;
     }
-    try {
-      final list = await _authClient.fetchOrgs(_bearerToken!);
-      orgs.value = list;
-      if (selectedOrg.value == null && list.isNotEmpty) {
-        await selectOrg(list.first);
-      }
-    } catch (e) {
-      orgs.value = const [];
-      rethrow;
+    final generation = _sessions.generation;
+    await _sessions.authorize();
+    final list = await _authClient.fetchOrgs(_bearerToken!);
+    if (generation != _sessions.generation || !isSignedIn) return;
+    orgs.value = list;
+    if (list.isNotEmpty) {
+      final selectedId = selectedOrg.value?.id;
+      await selectOrg(
+        list.firstWhere(
+          (org) => org.id == selectedId,
+          orElse: () => list.first,
+        ),
+      );
+    } else {
+      selectedOrg.value = null;
     }
   }
 
@@ -946,6 +953,14 @@ class DropAuthService {
       if (orgs.value.isNotEmpty) {
         await selectOrg(orgs.value.first);
       }
+      return;
+    }
+    if (orgs.value.isEmpty) {
+      selectedOrg.value = DropOrg(
+        id: id,
+        name: prefs.getString(_kSelectedOrgName) ?? '',
+        slug: prefs.getString(_kSelectedOrgSlug) ?? '',
+      );
       return;
     }
     final match = orgs.value.firstWhere(

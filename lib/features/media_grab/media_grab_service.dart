@@ -3,6 +3,9 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
+import '../../core/platform_network.dart';
+import '../../core/storage_guard.dart';
+
 import 'extractors/bluesky_extractor.dart';
 import 'extractors/extractor.dart';
 import 'extractors/generic_extractor.dart';
@@ -365,6 +368,17 @@ class MediaGrabService {
       if (length > 0) total = length;
       bytes = opened.response;
     }
+    if (total != null && total > 0) {
+      // The raw download, ffmpeg's output and the copy into the Drop folder
+      // can all exist at once, so budget roughly three times the size.
+      final stats = await PlatformNetwork.getStorageStats();
+      final shortfall = StorageGuard.shortfallMessage(
+        requiredBytes: StorageGuard.requiredBytes([total, total]),
+        availableBytes: stats['availableBytes'],
+        device: 'This device',
+      );
+      if (shortfall != null) throw GrabException(shortfall);
+    }
     final sink = target.openWrite();
     var received = 0;
     try {
@@ -387,8 +401,17 @@ class MediaGrabService {
       throw GrabException('Download interrupted: ${e.message}');
     } on HttpException catch (e) {
       throw GrabException('Download interrupted: ${e.message}');
+    } on FileSystemException catch (e) {
+      if (!StorageGuard.isOutOfSpace(e)) rethrow;
+      throw const GrabException(
+        'This device ran out of storage. Free up space and try again.',
+      );
     } finally {
-      await sink.close();
+      try {
+        await sink.close();
+      } catch (_) {
+        // The write error was already reported above.
+      }
     }
   }
 

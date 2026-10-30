@@ -1,16 +1,61 @@
 name: Release
 
+# Push a tag that matches pubspec.yaml (version: 1.1.0+11 -> tag v1.1.0) to
+# build every platform and publish a GitHub Release with a manifest and
+# checksums. A manual run builds the same artifacts without publishing.
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: release-${{ github.workflow }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
+# Build-time values for scripts/write-ci-env.sh. Each reads an Actions secret,
+# falling back to a repo variable of the same name. They are compiled into the
+# app, so they are configuration rather than credentials; signing secrets stay
+# scoped to the steps that use them.
+env:
+  REOWN_PROJECT_ID: ${{ secrets.REOWN_PROJECT_ID || vars.REOWN_PROJECT_ID }}
+  GATEWAY_URL: ${{ secrets.GATEWAY_URL || vars.GATEWAY_URL }}
+  IPFS_GATEWAY_URL: ${{ secrets.IPFS_GATEWAY_URL || vars.IPFS_GATEWAY_URL }}
+  GOOGLE_SERVER_CLIENT_ID: ${{ secrets.GOOGLE_SERVER_CLIENT_ID || vars.GOOGLE_SERVER_CLIENT_ID }}
+  APPLE_SERVICE_ID: ${{ secrets.APPLE_SERVICE_ID || vars.APPLE_SERVICE_ID }}
+  APPLE_REDIRECT_URI: ${{ secrets.APPLE_REDIRECT_URI || vars.APPLE_REDIRECT_URI }}
+  EREBRUS_WEB_ORIGIN: ${{ secrets.EREBRUS_WEB_ORIGIN || vars.EREBRUS_WEB_ORIGIN }}
+  REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID || vars.REDDIT_CLIENT_ID }}
+
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version_name: ${{ steps.version.outputs.version_name }}
+      version_code: ${{ steps.version.outputs.version_code }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version and check the tag
+        id: version
+        run: |
+          VERSION_LINE="$(grep '^version:' pubspec.yaml | awk '{print $2}')"
+          VERSION_NAME="${VERSION_LINE%%+*}"
+          VERSION_CODE="${VERSION_LINE##*+}"
+          TAG="v${VERSION_NAME}"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" != "${TAG}" ]]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match pubspec.yaml version ${VERSION_LINE} (expected ${TAG})."
+            exit 1
+          fi
+          echo "version_name=${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "version_code=${VERSION_CODE}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -27,13 +72,14 @@ jobs:
       - run: flutter test
 
   build-android:
-    needs: verify
+    needs: [prepare, verify]
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
     outputs:
-      version_name: ${{ steps.version.outputs.version_name }}
-      version_code: ${{ steps.version.outputs.version_code }}
-      tag: ${{ steps.version.outputs.tag }}
+      playstore_cert: ${{ steps.signing.outputs.playstore }}
+      dappstore_cert: ${{ steps.signing.outputs.dappstore }}
     steps:
       - uses: actions/checkout@v4
 
@@ -47,41 +93,84 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Read version
-        id: version
+      - name: Check signing secrets
+        env:
+          PLAYSTORE_KEYSTORE_BASE64: ${{ secrets.PLAYSTORE_KEYSTORE_BASE64 }}
+          PLAYSTORE_STORE_PASSWORD: ${{ secrets.PLAYSTORE_STORE_PASSWORD }}
+          PLAYSTORE_KEY_ALIAS: ${{ secrets.PLAYSTORE_KEY_ALIAS }}
+          PLAYSTORE_KEY_PASSWORD: ${{ secrets.PLAYSTORE_KEY_PASSWORD }}
+          DAPPSTORE_KEYSTORE_BASE64: ${{ secrets.DAPPSTORE_KEYSTORE_BASE64 }}
+          DAPPSTORE_STORE_PASSWORD: ${{ secrets.DAPPSTORE_STORE_PASSWORD }}
+          DAPPSTORE_KEY_ALIAS: ${{ secrets.DAPPSTORE_KEY_ALIAS }}
+          DAPPSTORE_KEY_PASSWORD: ${{ secrets.DAPPSTORE_KEY_PASSWORD }}
         run: |
-          VERSION_LINE="$(grep '^version:' pubspec.yaml | awk '{print $2}')"
-          VERSION_NAME="${VERSION_LINE%%+*}"
-          VERSION_CODE="${VERSION_LINE##*+}"
-          echo "version_name=${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
-          echo "version_code=${VERSION_CODE}" >> "${GITHUB_OUTPUT}"
-          echo "tag=v${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
+          set -euo pipefail
+          missing=()
+          for name in \
+            PLAYSTORE_KEYSTORE_BASE64 PLAYSTORE_STORE_PASSWORD PLAYSTORE_KEY_ALIAS PLAYSTORE_KEY_PASSWORD \
+            DAPPSTORE_KEYSTORE_BASE64 DAPPSTORE_STORE_PASSWORD DAPPSTORE_KEY_ALIAS DAPPSTORE_KEY_PASSWORD \
+            REOWN_PROJECT_ID
+          do
+            if [[ -z "${!name}" ]]; then
+              missing+=("${name}")
+            fi
+          done
+          if [[ "${#missing[@]}" -gt 0 ]]; then
+            echo "::error::Missing Actions secrets: ${missing[*]}"
+            exit 1
+          fi
 
-      - name: Configure ephemeral signing (sideload builds only)
+      # Play and the Solana dApp Store must use different keys, so each flavor
+      # gets its own keystore and we refuse to build if they resolve to the
+      # same certificate.
+      - name: Configure release signing
+        id: signing
+        env:
+          PLAYSTORE_KEYSTORE_BASE64: ${{ secrets.PLAYSTORE_KEYSTORE_BASE64 }}
+          PLAYSTORE_STORE_PASSWORD: ${{ secrets.PLAYSTORE_STORE_PASSWORD }}
+          PLAYSTORE_KEY_ALIAS: ${{ secrets.PLAYSTORE_KEY_ALIAS }}
+          PLAYSTORE_KEY_PASSWORD: ${{ secrets.PLAYSTORE_KEY_PASSWORD }}
+          DAPPSTORE_KEYSTORE_BASE64: ${{ secrets.DAPPSTORE_KEYSTORE_BASE64 }}
+          DAPPSTORE_STORE_PASSWORD: ${{ secrets.DAPPSTORE_STORE_PASSWORD }}
+          DAPPSTORE_KEY_ALIAS: ${{ secrets.DAPPSTORE_KEY_ALIAS }}
+          DAPPSTORE_KEY_PASSWORD: ${{ secrets.DAPPSTORE_KEY_PASSWORD }}
         run: |
+          set -euo pipefail
+          umask 077
           mkdir -p android/release-keys
-          cat > android/key.properties <<'EOF'
-          playstore.storeFile=../release-keys/erebrus-drop-playstore.jks
-          playstore.storePassword=ci-sideload
-          playstore.keyAlias=erebrus-drop-playstore
-          playstore.keyPassword=ci-sideload
-          dappstore.storeFile=../release-keys/erebrus-drop-dappstore.jks
-          dappstore.storePassword=ci-sideload
-          dappstore.keyAlias=erebrus-drop-dappstore
-          dappstore.keyPassword=ci-sideload
-          EOF
-          keytool -genkeypair -v \
-            -keystore android/release-keys/erebrus-drop-playstore.jks \
-            -alias erebrus-drop-playstore \
-            -keyalg RSA -keysize 2048 -validity 1 \
-            -storepass ci-sideload -keypass ci-sideload \
-            -dname "CN=Erebrus Drop CI, OU=Sideload, O=NetSepio, L=CI, ST=CI, C=US"
-          keytool -genkeypair -v \
-            -keystore android/release-keys/erebrus-drop-dappstore.jks \
-            -alias erebrus-drop-dappstore \
-            -keyalg RSA -keysize 2048 -validity 1 \
-            -storepass ci-sideload -keypass ci-sideload \
-            -dname "CN=Erebrus Drop CI, OU=Sideload, O=NetSepio, L=CI, ST=CI, C=US"
+          printf '%s' "${PLAYSTORE_KEYSTORE_BASE64}" | tr -d '[:space:]' | base64 --decode > android/release-keys/erebrus-drop-playstore.jks
+          printf '%s' "${DAPPSTORE_KEYSTORE_BASE64}" | tr -d '[:space:]' | base64 --decode > android/release-keys/erebrus-drop-dappstore.jks
+          test -s android/release-keys/erebrus-drop-playstore.jks
+          test -s android/release-keys/erebrus-drop-dappstore.jks
+
+          fingerprint() {
+            keytool -exportcert -keystore "$1" -alias "$2" -storepass:env "$3" | sha256sum | awk '{ print $1 }'
+          }
+          playstore=$(fingerprint android/release-keys/erebrus-drop-playstore.jks "${PLAYSTORE_KEY_ALIAS}" PLAYSTORE_STORE_PASSWORD)
+          dappstore=$(fingerprint android/release-keys/erebrus-drop-dappstore.jks "${DAPPSTORE_KEY_ALIAS}" DAPPSTORE_STORE_PASSWORD)
+          echo "playstore keystore certificate SHA-256: ${playstore}"
+          echo "dappstore keystore certificate SHA-256: ${dappstore}"
+          if [[ "${playstore}" == "${dappstore}" ]]; then
+            echo "::error::The playstore and dappstore secrets select the same certificate. Check the keystore and alias secrets."
+            exit 1
+          fi
+          echo "playstore=${playstore}" >> "${GITHUB_OUTPUT}"
+          echo "dappstore=${dappstore}" >> "${GITHUB_OUTPUT}"
+
+          # key.properties is a Java properties file: backslashes need escaping.
+          esc() { printf '%s' "${1//\\/\\\\}"; }
+          {
+            echo "playstore.storeFile=../release-keys/erebrus-drop-playstore.jks"
+            echo "playstore.storePassword=$(esc "${PLAYSTORE_STORE_PASSWORD}")"
+            echo "playstore.keyAlias=$(esc "${PLAYSTORE_KEY_ALIAS}")"
+            echo "playstore.keyPassword=$(esc "${PLAYSTORE_KEY_PASSWORD}")"
+            echo "dappstore.storeFile=../release-keys/erebrus-drop-dappstore.jks"
+            echo "dappstore.storePassword=$(esc "${DAPPSTORE_STORE_PASSWORD}")"
+            echo "dappstore.keyAlias=$(esc "${DAPPSTORE_KEY_ALIAS}")"
+            echo "dappstore.keyPassword=$(esc "${DAPPSTORE_KEY_PASSWORD}")"
+          } > android/key.properties
+
+      - run: scripts/write-ci-env.sh
 
       - run: flutter pub get
 
@@ -90,62 +179,93 @@ jobs:
           scripts/build.sh build-apk --flavor playstore --release
           scripts/build.sh build-apk --flavor dappstore --release
 
-      - name: Package sideload artifacts
+      - name: Package and verify signatures
+        env:
+          EXPECTED_PLAYSTORE_SHA256: ${{ steps.signing.outputs.playstore }}
+          EXPECTED_DAPPSTORE_SHA256: ${{ steps.signing.outputs.dappstore }}
         run: |
+          set -euo pipefail
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-playstore-release.apk \
-            "dist/erebrus-drop-playstore-${{ steps.version.outputs.tag }}.apk"
-          cp build/app/outputs/flutter-apk/app-dappstore-release.apk \
-            "dist/erebrus-drop-dappstore-${{ steps.version.outputs.tag }}.apk"
-          cat > dist/README-android.txt <<EOF
-          Erebrus Drop Android sideload builds (${{ steps.version.outputs.version_name }}+${{ steps.version.outputs.version_code }})
+          cp build/app/outputs/flutter-apk/app-playstore-release.apk "dist/erebrus-drop-playstore-${TAG}.apk"
+          cp build/app/outputs/flutter-apk/app-dappstore-release.apk "dist/erebrus-drop-dappstore-${TAG}.apk"
 
-          These APKs are built in CI with an ephemeral signing key for testing only.
-          They are not signed for Google Play or the Solana dApp Store.
-
-          - erebrus-drop-playstore-*.apk  -> general Android / Google Play flavor
-          - erebrus-drop-dappstore-*.apk  -> Solana dApp Store flavor
-          EOF
+          bt=$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          apk_cert() {
+            "${bt}/apksigner" verify --print-certs "$1" | awk '/certificate SHA-256 digest/ { print $NF; exit }'
+          }
+          playstore=$(apk_cert "dist/erebrus-drop-playstore-${TAG}.apk")
+          dappstore=$(apk_cert "dist/erebrus-drop-dappstore-${TAG}.apk")
+          echo "playstore APK certificate SHA-256: ${playstore}"
+          echo "dappstore APK certificate SHA-256: ${dappstore}"
+          if [[ "${playstore}" != "${EXPECTED_PLAYSTORE_SHA256}" || "${dappstore}" != "${EXPECTED_DAPPSTORE_SHA256}" ]]; then
+            echo "::error::An APK is not signed with its flavor's keystore. Check the Gradle signing configuration."
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: android-sideload-${{ steps.version.outputs.tag }}
+          name: android-${{ env.TAG }}
           if-no-files-found: error
           path: dist/*
 
   build-macos:
-    needs: verify
+    needs: [prepare, verify]
     runs-on: macos-latest
     timeout-minutes: 45
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
     steps:
+      # The Runner target signs with NetSepio's Apple Developer team
+      # (76KW3AMAW5) and Sign in with Apple, which CI has no certificate for.
+      # Until it does, skip the build (job stays green) instead of failing.
+      # Set the repo variable ENABLE_MACOS_BUILD=true once signing is set up.
+      - name: Check macOS signing availability
+        id: gate
+        env:
+          ENABLED: ${{ vars.ENABLE_MACOS_BUILD }}
+        run: |
+          if [[ "${ENABLED}" == "true" ]]; then
+            echo "enabled=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "enabled=false" >> "${GITHUB_OUTPUT}"
+            echo "::notice::macOS build skipped — needs Apple Developer signing for team 76KW3AMAW5. Set repo variable ENABLE_MACOS_BUILD=true once it is configured."
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.gate.outputs.enabled == 'true'
 
       - uses: subosito/flutter-action@v2
+        if: steps.gate.outputs.enabled == 'true'
         with:
           channel: stable
           cache: true
 
-      - name: Read version tag
-        id: version
-        run: |
-          VERSION_LINE="$(grep '^version:' pubspec.yaml | awk '{print $2}')"
-          VERSION_NAME="${VERSION_LINE%%+*}"
-          echo "tag=v${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
-
-      - run: pip install pillow
-      - run: chmod +x scripts/build-desktop.sh
-      - run: ./scripts/build-desktop.sh macos
+      # One interpreter for install and run: the runner's bare `pip` targets a
+      # different Python than the `python3` build-desktop.sh calls.
+      - uses: actions/setup-python@v5
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          python-version: "3.12"
+      - if: steps.gate.outputs.enabled == 'true'
+        run: python -m pip install pillow
+      - if: steps.gate.outputs.enabled == 'true'
+        run: scripts/write-ci-env.sh
+      - if: steps.gate.outputs.enabled == 'true'
+        run: chmod +x scripts/build-desktop.sh && ./scripts/build-desktop.sh macos
 
       - uses: actions/upload-artifact@v4
+        if: steps.gate.outputs.enabled == 'true'
         with:
-          name: macos-${{ steps.version.outputs.tag }}
+          name: macos-${{ env.TAG }}
           if-no-files-found: error
           path: dist/*
 
   build-linux:
-    needs: verify
+    needs: [prepare, verify]
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -157,29 +277,32 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev
 
-      - name: Read version tag
-        id: version
-        run: |
-          VERSION_LINE="$(grep '^version:' pubspec.yaml | awk '{print $2}')"
-          VERSION_NAME="${VERSION_LINE%%+*}"
-          echo "tag=v${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
-
-      - run: pip install pillow
-      - run: chmod +x scripts/build-desktop.sh
-      - run: ./scripts/build-desktop.sh linux
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pillow
+      - run: scripts/write-ci-env.sh
+      - run: chmod +x scripts/build-desktop.sh && ./scripts/build-desktop.sh linux
 
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-${{ steps.version.outputs.tag }}
+          name: linux-${{ env.TAG }}
           if-no-files-found: error
           path: dist/*
 
   build-windows:
-    needs: verify
+    needs: [prepare, verify]
     runs-on: windows-latest
     timeout-minutes: 45
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+    # The runner default is PowerShell, which hands `scripts/*.sh` to the file
+    # association instead of running it, so the build silently does nothing.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -188,80 +311,65 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Read version tag
-        id: version
-        shell: bash
-        run: |
-          VERSION_LINE="$(grep '^version:' pubspec.yaml | awk '{print $2}')"
-          VERSION_NAME="${VERSION_LINE%%+*}"
-          echo "tag=v${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
-
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pillow
+      - run: scripts/write-ci-env.sh
       - run: flutter pub get
-      - run: pip install pillow
-      - run: python3 scripts/generate-desktop-assets.py
+      - run: python scripts/generate-desktop-assets.py
       - run: scripts/build.sh build-windows --release
       - name: Package Windows artifact
-        shell: bash
         run: |
-          TAG="${{ steps.version.outputs.tag }}"
           mkdir -p dist
           powershell -Command "Compress-Archive -Path 'build/windows/x64/runner/Release/*' -DestinationPath 'dist/erebrus-drop-windows-${TAG}.zip'"
+          test -s "dist/erebrus-drop-windows-${TAG}.zip"
           echo "Packaged dist/erebrus-drop-windows-${TAG}.zip"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-${{ steps.version.outputs.tag }}
+          name: windows-${{ env.TAG }}
           if-no-files-found: error
           path: dist/*
 
   github-release:
-    needs: [build-android, build-macos, build-linux, build-windows]
+    if: github.ref_type == 'tag'
+    needs: [prepare, build-android, build-macos, build-linux, build-windows]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Read version
-        id: version
-        run: |
-          VERSION_LINE="$(grep '^version:' pubspec.yaml | awk '{print $2}')"
-          VERSION_NAME="${VERSION_LINE%%+*}"
-          VERSION_CODE="${VERSION_LINE##*+}"
-          echo "version_name=${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
-          echo "version_code=${VERSION_CODE}" >> "${GITHUB_OUTPUT}"
-          echo "tag=v${VERSION_NAME}" >> "${GITHUB_OUTPUT}"
-
-      - name: Create and push tag
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -fa "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
-          git push origin "${{ steps.version.outputs.tag }}" --force
 
       - uses: actions/download-artifact@v4
         with:
-          pattern: "*-${{ steps.version.outputs.tag }}"
+          pattern: "*-${{ env.TAG }}"
           merge-multiple: true
           path: dist
 
+      - name: Write manifest, checksums and notes
+        env:
+          VERSION_NAME: ${{ needs.prepare.outputs.version_name }}
+          VERSION_CODE: ${{ needs.prepare.outputs.version_code }}
+          PLAYSTORE_CERT: ${{ needs.build-android.outputs.playstore_cert }}
+          DAPPSTORE_CERT: ${{ needs.build-android.outputs.dappstore_cert }}
+        run: |
+          python3 scripts/write-release-manifest.py \
+            --dist dist --tag "${TAG}" --version "${VERSION_NAME}" --build "${VERSION_CODE}" \
+            --commit "${GITHUB_SHA}" --repo "${GITHUB_REPOSITORY}" \
+            --playstore-cert "${PLAYSTORE_CERT}" --dappstore-cert "${DAPPSTORE_CERT}" \
+            --notes notes.md
+          ls -l dist
+
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: Erebrus Drop ${{ steps.version.outputs.version_name }}
+          tag_name: ${{ env.TAG }}
+          name: Erebrus Drop ${{ needs.prepare.outputs.version_name }}
+          body_path: notes.md
           generate_release_notes: true
-          body: |
-            Sideload builds for testing. Android APKs are not signed with production store keys.
-
-            Version: `${{ steps.version.outputs.version_name }}+${{ steps.version.outputs.version_code }}`
-
-            | Artifact | Platform |
-            |----------|----------|
-            | `erebrus-drop-playstore-*.apk` | Android (Google Play flavor) |
-            | `erebrus-drop-dappstore-*.apk` | Android (Solana dApp Store) |
-            | `erebrus-drop-macos-*.zip` | macOS `.app` |
-            | `erebrus-drop-windows-*.zip` | Windows |
-            | `erebrus-drop-linux-*.tar.gz` | Linux bundle |
+          make_latest: true
+          fail_on_unmatched_files: true
           files: dist/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

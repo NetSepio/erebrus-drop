@@ -9,6 +9,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   desktop_drop
   ffmpeg_kit_flutter_new_full
   file_selector_windows
+  flutter_secure_storage_windows
   screen_retriever_windows
   tray_manager
   url_launcher_windows

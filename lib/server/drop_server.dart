@@ -7,11 +7,14 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
+import 'package:mime/mime.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../core/drop_models.dart';
 import '../core/host_folder_bridge.dart';
 import '../core/platform_network.dart';
+import '../core/storage_guard.dart';
+import 'host_file_cache.dart';
 
 class DropServer {
   static final DropServer _instance = DropServer._internal();
@@ -36,6 +39,7 @@ class DropServer {
   /// only the signal. Fired at most once per session.
   void Function()? onSessionExpired;
   final HostFolderBridge _hostFolderBridge = HostFolderBridge();
+  final HostFileCache _hostFileCache = HostFileCache();
   _PasswordRecord? _passwordRecord;
   StorageSnapshot? _lastStorageSnapshot;
   DateTime? _lastStorageSnapshotAt;
@@ -70,6 +74,8 @@ class DropServer {
   Future<DropRoomSession> startForTesting({
     required Directory rootDirectory,
     Duration? expiry,
+    RoomPermission permission = RoomPermission.fullAccess,
+    String? hostFolderUri,
   }) async {
     if (_server != null) {
       return _session!;
@@ -89,11 +95,13 @@ class DropServer {
       localIp: server.address.address,
       port: server.port,
       authRequired: false,
-      permission: RoomPermission.fullAccess,
+      permission: permission,
       createdAt: createdAt,
       expiresAt: expiresAt,
       roomDirectory: rootDirectory,
       defaultUploadPath: '/',
+      hostFolderUri: hostFolderUri,
+      hostFolderName: hostFolderUri == null ? null : 'Test folder',
     );
     _scheduleExpiry(expiresAt);
     unawaited(_serve(server));
@@ -160,14 +168,11 @@ class DropServer {
     _expiryTimer = null;
     if (expiresAt == null) return;
     final remaining = expiresAt.difference(DateTime.now());
-    _expiryTimer = Timer(
-      remaining.isNegative ? Duration.zero : remaining,
-      () {
-        _expiryTimer = null;
-        if (_server == null) return; // already stopped
-        onSessionExpired?.call();
-      },
-    );
+    _expiryTimer = Timer(remaining.isNegative ? Duration.zero : remaining, () {
+      _expiryTimer = null;
+      if (_server == null) return; // already stopped
+      onSessionExpired?.call();
+    });
   }
 
   Future<void> stop() async {
@@ -185,6 +190,7 @@ class DropServer {
     _folderUsageCache = null;
     _folderUsageRescanRequested = false;
     await server?.close(force: true);
+    await _hostFileCache.clear();
   }
 
   Future<void> updateHostFolder({
@@ -439,6 +445,32 @@ class DropServer {
     }
   }
 
+  /// Why files of [sizes] bytes cannot be received right now (too large for
+  /// the room or not enough free space), or null when they fit.
+  Future<String?> uploadShortfall(List<({String name, int size})> files) async {
+    final oversize = StorageGuard.oversizeMessage(
+      files: files,
+      maxUploadBytes: defaultMaxUploadBytes,
+    );
+    if (oversize != null) return oversize;
+    _invalidateStorageSnapshot();
+    final snapshot = await storageSnapshot();
+    return StorageGuard.shortfallMessage(
+      requiredBytes: StorageGuard.requiredBytes(files.map((f) => f.size)),
+      availableBytes: snapshot.availableBytes,
+    );
+  }
+
+  /// A path on the volume that receives uploads, for desktop free-space stats.
+  String? _storageProbePath() {
+    final session = _session;
+    final uri = session?.hostFolderUri;
+    if (uri != null && (Platform.isMacOS || Platform.isLinux)) {
+      return uri.startsWith('file://') ? Uri.parse(uri).toFilePath() : uri;
+    }
+    return session?.roomDirectory.path ?? _dropDirectory?.path;
+  }
+
   Future<StorageSnapshot> storageSnapshot() async {
     final cached = _lastStorageSnapshot;
     final cachedAt = _lastStorageSnapshotAt;
@@ -469,7 +501,9 @@ class DropServer {
     final dropDirectory = _dropDirectory;
     final session = _session;
     final roomDirectory = session?.roomDirectory;
-    final storageStats = await PlatformNetwork.getStorageStats();
+    final storageStats = await PlatformNetwork.getStorageStats(
+      path: _storageProbePath(),
+    );
     final external = session?.usesExternalHostFolder == true;
     final folderUsage = external ? _folderUsageCacheFor(session!) : null;
     if (external) {
@@ -816,6 +850,7 @@ class DropServer {
           await _unauthorized(request);
           return;
         }
+        if (!await _permits(request, 'view')) return;
         final roomPath = request.uri.queryParameters['path'] ?? '/';
         final guestPath = _guestPathForRequest(roomPath);
         await _json(request, {
@@ -831,6 +866,7 @@ class DropServer {
           await _unauthorized(request);
           return;
         }
+        if (!await _permits(request, 'create_folder')) return;
         final body = await _readJson(request);
         final folderPath = body['path']?.toString() ?? '/New Folder';
         final session = _requireSession();
@@ -854,6 +890,7 @@ class DropServer {
           await _unauthorized(request);
           return;
         }
+        if (!await _permits(request, 'text')) return;
         final body = await _readJson(request);
         final session = _requireSession();
         final file = await saveTextSnippet(
@@ -870,11 +907,21 @@ class DropServer {
         });
         return;
       }
+      if (path == '/api/files/upload/check' && request.method == 'POST') {
+        if (!_isAuthorized(request)) {
+          await _unauthorized(request);
+          return;
+        }
+        if (!await _permits(request, 'upload')) return;
+        await _uploadCheck(request);
+        return;
+      }
       if (path == '/api/files/upload' && request.method == 'POST') {
         if (!_isAuthorized(request)) {
           await _unauthorized(request);
           return;
         }
+        if (!await _permits(request, 'upload')) return;
         await _uploadFile(request);
         return;
       }
@@ -883,6 +930,7 @@ class DropServer {
           await _unauthorized(request);
           return;
         }
+        if (!await _permits(request, 'download')) return;
         await _downloadBundle(request);
         return;
       }
@@ -891,6 +939,7 @@ class DropServer {
           await _unauthorized(request);
           return;
         }
+        if (!await _permits(request, 'upload')) return;
         await _serverPull(request);
         return;
       }
@@ -899,6 +948,7 @@ class DropServer {
           await _unauthorized(request);
           return;
         }
+        if (!await _permits(request, 'download')) return;
         await _serverPush(request);
         return;
       }
@@ -913,6 +963,7 @@ class DropServer {
             await _unauthorized(request);
             return;
           }
+          if (!await _permits(request, 'download')) return;
           await _downloadFile(request, id, asAttachment: true);
           return;
         }
@@ -922,6 +973,7 @@ class DropServer {
             await _unauthorized(request);
             return;
           }
+          if (!await _permits(request, 'streaming')) return;
           await _downloadFile(request, id, asAttachment: false);
           return;
         }
@@ -930,6 +982,7 @@ class DropServer {
             await _unauthorized(request);
             return;
           }
+          if (!await _permits(request, 'download')) return;
           await _downloadBundle(request, ids: <String>[id]);
           return;
         }
@@ -943,6 +996,7 @@ class DropServer {
             await _unauthorized(request);
             return;
           }
+          if (!await _permits(request, 'delete')) return;
           if (_requireSession().usesExternalHostFolder) {
             await _json(request, {
               'error':
@@ -964,6 +1018,7 @@ class DropServer {
             await _unauthorized(request);
             return;
           }
+          if (!await _permits(request, 'rename')) return;
           if (_requireSession().usesExternalHostFolder) {
             await _json(request, {
               'error':
@@ -976,17 +1031,107 @@ class DropServer {
         }
       }
       await _notFound(request);
-    } on FileSystemException catch (error) {
-      await _json(request, {
-        'error': 'That path is outside the allowed Drop Room folder.',
-        'detail': error.message,
-      }, statusCode: HttpStatus.forbidden);
+    } on _UploadTooLargeException {
+      await _respondSafely(request, {
+        'error': 'This file is larger than the room upload limit.',
+      }, statusCode: HttpStatus.requestEntityTooLarge);
     } catch (error) {
-      await _json(request, {
+      if (StorageGuard.isOutOfSpace(error)) {
+        _invalidateStorageSnapshot();
+        await _respondSafely(request, {
+          'error':
+              'The host device ran out of storage. Free up space and try again.',
+        }, statusCode: HttpStatus.insufficientStorage);
+        return;
+      }
+      if (error is FileSystemException) {
+        await _respondSafely(
+          request,
+          {
+            'error': error.osError == null
+                ? error.message
+                : 'That file or folder could not be accessed.',
+            'detail': error.message,
+          },
+          statusCode: _isScopeViolation(error)
+              ? HttpStatus.forbidden
+              : HttpStatus.badRequest,
+        );
+        return;
+      }
+      await _respondSafely(request, {
         'error': 'Something went wrong in this Drop Room.',
         'detail': '$error',
       }, statusCode: HttpStatus.internalServerError);
     }
+  }
+
+  /// Error replies can race a half-sent response (e.g. a download that failed
+  /// mid-stream); writing headers twice would throw out of the handler.
+  Future<void> _respondSafely(
+    HttpRequest request,
+    Map<String, Object?> body, {
+    required int statusCode,
+  }) async {
+    try {
+      await _json(request, body, statusCode: statusCode);
+    } catch (_) {
+      try {
+        await request.response.close();
+      } catch (_) {}
+    }
+  }
+
+  /// Answers an upload that will not be accepted and drops the connection,
+  /// so the client stops streaming a body nobody will read.
+  Future<void> _rejectUpload(
+    HttpRequest request,
+    String message,
+    int statusCode,
+  ) async {
+    final body = utf8.encode(jsonEncode({'error': message}));
+    request.response
+      ..statusCode = statusCode
+      ..persistentConnection = false
+      ..contentLength = body.length
+      ..headers.contentType = ContentType.json
+      ..headers.set(HttpHeaders.cacheControlHeader, 'no-store');
+    final socket = await request.response.detachSocket();
+    try {
+      socket.add(body);
+      await socket.flush();
+    } finally {
+      socket.destroy();
+    }
+  }
+
+  bool _isScopeViolation(FileSystemException error) {
+    final message = error.message;
+    return message.startsWith('Path is outside') ||
+        message.startsWith('Guests can only') ||
+        message.startsWith('WebDAV path');
+  }
+
+  Future<void> _uploadCheck(HttpRequest request) async {
+    final body = await _readJson(request);
+    final files = (body['files'] as List? ?? const [])
+        .whereType<Map>()
+        .map(
+          (file) => (
+            name: file['name']?.toString() ?? 'file',
+            size: (file['size'] as num?)?.toInt() ?? 0,
+          ),
+        )
+        .toList();
+    final shortfall = await uploadShortfall(files);
+    final snapshot = await storageSnapshot();
+    await _json(request, {
+      'ok': shortfall == null,
+      'error': ?shortfall,
+      'availableBytes': snapshot.availableBytes,
+      'maxUploadBytes': defaultMaxUploadBytes,
+      'requiredBytes': StorageGuard.requiredBytes(files.map((f) => f.size)),
+    });
   }
 
   Future<void> _serveIndex(HttpRequest request) async {
@@ -1035,24 +1180,33 @@ class DropServer {
         request.uri.queryParameters['path'] ??
         _requireSession().defaultUploadPath;
     final contentType = request.headers.contentType;
-    if (contentType?.mimeType == 'multipart/form-data') {
-      await _uploadMultipart(request, destinationPath);
-      return;
-    }
     final name = _sanitizeName(
       request.uri.queryParameters['name'] ??
           'upload-${DateTime.now().millisecondsSinceEpoch}',
     );
     final contentLength = request.contentLength;
-    if (contentLength > defaultMaxUploadBytes) {
-      await _json(request, {
-        'error': 'This file is larger than the room upload limit.',
-      }, statusCode: HttpStatus.requestEntityTooLarge);
+    if (contentLength > 0) {
+      final shortfall = await uploadShortfall([
+        (name: name, size: contentLength),
+      ]);
+      if (shortfall != null) {
+        await _rejectUpload(
+          request,
+          shortfall,
+          contentLength > defaultMaxUploadBytes
+              ? HttpStatus.requestEntityTooLarge
+              : HttpStatus.insufficientStorage,
+        );
+        return;
+      }
+    }
+    if (contentType?.mimeType == 'multipart/form-data') {
+      await _uploadMultipart(request, destinationPath);
       return;
     }
     final temp = await _tempUploadFile(name);
     try {
-      await _writeRequestToFile(request, temp);
+      await _writeStreamToFile(request, temp);
       final item = await importLocalFile(
         file: temp,
         name: name,
@@ -1083,26 +1237,20 @@ class DropServer {
       return;
     }
 
+    // Parts are streamed straight to temp files; holding a multi-gigabyte
+    // body in memory would crash a phone.
     var received = 0;
-    final builder = BytesBuilder(copy: false);
-    await for (final chunk in request) {
-      received += chunk.length;
-      if (received > defaultMaxUploadBytes) {
-        await _json(request, {
-          'error': 'Multipart upload exceeds the room upload limit.',
-        }, statusCode: HttpStatus.requestEntityTooLarge);
-        return;
-      }
-      builder.add(chunk);
-    }
-
     final items = <Map<String, Object?>>[];
-    final parts = _parseMultipartBody(builder.takeBytes(), boundary);
-    for (final part in parts) {
-      final disposition = _multipartHeader(part.headers, 'content-disposition');
-      final parameters = _headerParameters(disposition);
+    final destination =
+        request.uri.queryParameters['path'] ?? fallbackDestinationPath;
+    final parts = request.cast<List<int>>().transform(
+      MimeMultipartTransformer(boundary),
+    );
+    await for (final part in parts) {
+      final parameters = _headerParameters(part.headers['content-disposition']);
       final partName = parameters['name'];
       if (partName != 'file' && partName != 'files' && partName != 'upload') {
+        await part.drain<void>();
         continue;
       }
       final rawName =
@@ -1111,15 +1259,16 @@ class DropServer {
       final name = _sanitizeName(rawName);
       final temp = await _tempUploadFile(name);
       try {
-        await temp.writeAsBytes(part.body, flush: true);
+        received += await _writeStreamToFile(
+          part,
+          temp,
+          limit: defaultMaxUploadBytes - received,
+        );
         final item = await importLocalFile(
           file: temp,
           name: name,
-          folderPath:
-              request.uri.queryParameters['path'] ?? fallbackDestinationPath,
-          mimeType:
-              _multipartHeader(part.headers, HttpHeaders.contentTypeHeader) ??
-              _mimeType(name),
+          folderPath: destination,
+          mimeType: part.headers['content-type'] ?? _mimeType(name),
         );
         items.add(item.toJson());
       } finally {
@@ -1148,25 +1297,11 @@ class DropServer {
     final session = _requireSession();
     if (session.usesExternalHostFolder) {
       final path = _decodeId(id);
-      _guestPathForRequest(path);
-      final cached = await _hostFolderBridge.copyFileToCache(
-        rootUri: session.hostFolderUri!,
-        path: path,
+      await _sendHostFolderFile(
+        request,
+        _guestPathForRequest(path),
+        asAttachment: asAttachment,
       );
-      final file = File(cached.path);
-      try {
-        await _downloadLocalFile(
-          request,
-          file,
-          mimeType: cached.mimeType,
-          fileName: cached.name,
-          asAttachment: asAttachment,
-        );
-      } finally {
-        if (await file.exists()) {
-          await file.delete();
-        }
-      }
       return;
     }
     final entity = _entityFromId(id, enforceGuestScope: true);
@@ -1239,6 +1374,20 @@ class DropServer {
         await _webDavError(request, HttpStatus.unauthorized);
         return;
       }
+      final capability = switch (request.method) {
+        'OPTIONS' || 'LOCK' || 'UNLOCK' => null,
+        'PROPFIND' => 'view',
+        'GET' || 'HEAD' => 'download',
+        'PUT' => 'upload',
+        'MKCOL' => 'create_folder',
+        'DELETE' => 'delete',
+        'MOVE' => 'rename',
+        _ => null,
+      };
+      if (capability != null && !_allows(capability)) {
+        await _webDavError(request, HttpStatus.forbidden);
+        return;
+      }
       switch (request.method) {
         case 'OPTIONS':
           await _webDavOptions(request);
@@ -1263,10 +1412,20 @@ class DropServer {
         default:
           await _webDavError(request, HttpStatus.methodNotAllowed);
       }
-    } on FileSystemException {
-      await _webDavError(request, HttpStatus.forbidden);
+    } on _UploadTooLargeException {
+      await _webDavError(request, HttpStatus.requestEntityTooLarge);
+    } on FileSystemException catch (error) {
+      await _webDavError(
+        request,
+        StorageGuard.isOutOfSpace(error)
+            ? HttpStatus.insufficientStorage
+            : HttpStatus.forbidden,
+      );
     } on FormatException {
       await _webDavError(request, HttpStatus.forbidden);
+    } catch (error) {
+      if (!StorageGuard.isOutOfSpace(error)) rethrow;
+      await _webDavError(request, HttpStatus.insufficientStorage);
     }
   }
 
@@ -1336,9 +1495,15 @@ class DropServer {
     final existing = await _webDavItem(path);
     final parent = _parentRoomPath(path);
     final name = path.split('/').where((part) => part.isNotEmpty).last;
+    if (request.contentLength > 0 &&
+        await uploadShortfall([(name: name, size: request.contentLength)]) !=
+            null) {
+      await _webDavError(request, HttpStatus.insufficientStorage);
+      return;
+    }
     final temp = await _tempUploadFile(name);
     try {
-      await _writeRequestToFile(request, temp);
+      await _writeStreamToFile(request, temp);
       await importLocalFile(
         file: temp,
         name: name,
@@ -1641,24 +1806,7 @@ class DropServer {
     final session = _requireSession();
     final guestPath = _guestPathForRequest(path);
     if (session.usesExternalHostFolder) {
-      final cached = await _hostFolderBridge.copyFileToCache(
-        rootUri: session.hostFolderUri!,
-        path: guestPath,
-      );
-      final file = File(cached.path);
-      try {
-        await _downloadLocalFile(
-          request,
-          file,
-          mimeType: cached.mimeType,
-          fileName: cached.name,
-          asAttachment: asAttachment,
-        );
-      } finally {
-        if (await file.exists()) {
-          await file.delete();
-        }
-      }
+      await _sendHostFolderFile(request, guestPath, asAttachment: asAttachment);
       return;
     }
     final entity = _entityFromId(_encodeId(guestPath), enforceGuestScope: true);
@@ -1985,7 +2133,92 @@ class DropServer {
     required String fileName,
     required bool asAttachment,
   }) async {
-    final stat = await entity.stat();
+    await _sendRanged(
+      request,
+      size: (await entity.stat()).size,
+      mimeType: mimeType,
+      fileName: fileName,
+      asAttachment: asAttachment,
+      open: entity.openRead,
+    );
+  }
+
+  /// Serves a file from the selected Drop folder without copying it where the
+  /// platform allows: desktop reads it in place and Android reads byte ranges
+  /// natively. Elsewhere one cached copy is shared by every range request, so
+  /// seeking in a video does not copy the whole file again each time.
+  Future<void> _sendHostFolderFile(
+    HttpRequest request,
+    String path, {
+    required bool asAttachment,
+  }) async {
+    final rootUri = _requireSession().hostFolderUri!;
+    final local = await _hostFolderBridge.localFile(
+      rootUri: rootUri,
+      path: path,
+    );
+    if (local != null) {
+      await _downloadLocalFile(
+        request,
+        local,
+        mimeType: _mimeType(local.path),
+        fileName: _entityName(local),
+        asAttachment: asAttachment,
+      );
+      return;
+    }
+    HostFileReader? reader;
+    try {
+      reader = await _hostFolderBridge.openFileReader(
+        rootUri: rootUri,
+        path: path,
+      );
+    } on PlatformException {
+      reader = null; // Not a seekable document; use the cached copy below.
+    }
+    if (reader != null) {
+      try {
+        await _sendRanged(
+          request,
+          size: reader.size,
+          mimeType: reader.mimeType,
+          fileName: reader.name,
+          asAttachment: asAttachment,
+          open: reader.read,
+        );
+      } finally {
+        await reader.close();
+      }
+      return;
+    }
+    final cached = await _hostFileCache.acquire(
+      key: '$rootUri|$path',
+      copy: () =>
+          _hostFolderBridge.copyFileToCache(rootUri: rootUri, path: path),
+    );
+    try {
+      await _downloadLocalFile(
+        request,
+        File(cached.path),
+        mimeType: cached.mimeType,
+        fileName: cached.name,
+        asAttachment: asAttachment,
+      );
+    } finally {
+      _hostFileCache.release('$rootUri|$path');
+    }
+  }
+
+  /// Writes [size] bytes from [open] honoring a single HTTP Range header,
+  /// including suffix ranges (`bytes=-500`). Unsatisfiable ranges get 416.
+  Future<void> _sendRanged(
+    HttpRequest request, {
+    required int size,
+    required String mimeType,
+    required String fileName,
+    required bool asAttachment,
+    required Stream<List<int>> Function(int start, int end) open,
+  }) async {
     final range = request.headers.value(HttpHeaders.rangeHeader);
     final response = request.response;
     response.headers
@@ -1995,38 +2228,48 @@ class DropServer {
     if (asAttachment) {
       response.headers.set(
         HttpHeaders.contentDisposition,
-        'attachment; filename="$fileName"',
+        'attachment; filename="${fileName.replaceAll('"', '')}"',
       );
     }
 
     var start = 0;
-    var end = stat.size - 1;
-    if (range != null && range.startsWith('bytes=')) {
-      final parts = range.substring(6).split('-');
-      start = int.tryParse(parts.first) ?? 0;
-      if (parts.length > 1 && parts[1].isNotEmpty) {
-        end = int.tryParse(parts[1]) ?? end;
+    var end = size - 1;
+    final match = range == null
+        ? null
+        : RegExp(r'^bytes=(\d*)-(\d*)$').firstMatch(range.trim());
+    if (match != null) {
+      final first = match.group(1)!;
+      final last = match.group(2)!;
+      if (first.isEmpty && last.isNotEmpty) {
+        start = max(0, size - int.parse(last));
+      } else if (first.isNotEmpty) {
+        start = int.parse(first);
+        if (last.isNotEmpty) end = min(int.parse(last), size - 1);
       }
-      end = min(end, stat.size - 1);
+      if (start >= size || start > end || (first.isEmpty && last.isEmpty)) {
+        response
+          ..statusCode = HttpStatus.requestedRangeNotSatisfiable
+          ..headers.set(HttpHeaders.contentRangeHeader, 'bytes */$size')
+          ..contentLength = 0;
+        await response.close();
+        return;
+      }
       response
         ..statusCode = HttpStatus.partialContent
         ..headers.set(
           HttpHeaders.contentRangeHeader,
-          'bytes $start-$end/${stat.size}',
+          'bytes $start-$end/$size',
         );
     } else {
       response.statusCode = HttpStatus.ok;
     }
 
-    final length = max(0, end - start + 1);
-    response.contentLength = length;
-    if (request.method == 'HEAD') {
+    response.contentLength = max(0, end - start + 1);
+    if (request.method == 'HEAD' || size == 0) {
       await response.close();
       return;
     }
-
-    final stream = entity.openRead(start, end + 1);
-    await response.addStream(stream);
+    await response.addStream(open(start, end + 1));
     await response.close();
   }
 
@@ -2060,7 +2303,7 @@ class DropServer {
       'deviceType': Platform.isAndroid || Platform.isIOS ? 'phone' : 'desktop',
       'authRequired': session.authRequired,
       'permissions': session.permission.apiValues,
-      'serverVersion': '1.0.0',
+      'serverVersion': '1.1.0',
       'baseUrl': session.baseUrl,
       'defaultUploadPath': session.defaultUploadPath,
       'hostFolderName': session.hostFolderName,
@@ -2099,6 +2342,37 @@ class DropServer {
       'scopePath': session.permission == RoomPermission.dropFolderOnly
           ? session.defaultUploadPath
           : '/',
+    };
+  }
+
+  /// Whether the room's permission preset grants [capability]. Streaming is
+  /// also allowed wherever downloads are, since it reads the same bytes.
+  bool _allows(String capability) {
+    final granted = _requireSession().permission.apiValues;
+    if (granted.contains(capability)) return true;
+    return capability == 'streaming' && granted.contains('download');
+  }
+
+  /// Answers 403 and returns false when the room does not grant [capability].
+  Future<bool> _permits(HttpRequest request, String capability) async {
+    if (_allows(capability)) return true;
+    await _json(request, {
+      'error': _forbiddenMessage(capability),
+    }, statusCode: HttpStatus.forbidden);
+    return false;
+  }
+
+  String _forbiddenMessage(String capability) {
+    return switch (capability) {
+      'view' => 'The host turned off browsing in this room.',
+      'upload' => 'The host turned off uploads in this room.',
+      'download' ||
+      'streaming' => 'The host turned off downloads in this room.',
+      'create_folder' => 'The host turned off new folders in this room.',
+      'text' => 'The host turned off text notes in this room.',
+      'delete' => 'The host turned off deleting in this room.',
+      'rename' => 'The host turned off renaming in this room.',
+      _ => 'The host does not allow that in this room.',
     };
   }
 
@@ -2257,7 +2531,7 @@ class DropServer {
   }
 
   Future<File> _tempUploadFile(String name) async {
-    final tempDirectory = await getTemporaryDirectory();
+    final tempDirectory = await _stagingDirectory();
     final tempUploadDirectory = Directory(
       '${tempDirectory.path}/ErebrusDropUploads',
     );
@@ -2268,75 +2542,51 @@ class DropServer {
     );
   }
 
-  Future<void> _writeRequestToFile(HttpRequest request, File target) async {
+  /// The app temp folder, or the system one where path_provider is not
+  /// available (headless tests).
+  Future<Directory> _stagingDirectory() async {
+    try {
+      return await getTemporaryDirectory();
+    } catch (_) {
+      return Directory.systemTemp;
+    }
+  }
+
+  /// Writes [source] to [target], returning the byte count. Throws
+  /// [_UploadTooLargeException] past [limit] bytes.
+  Future<int> _writeStreamToFile(
+    Stream<List<int>> source,
+    File target, {
+    int limit = defaultMaxUploadBytes,
+  }) async {
+    // Flushing every few MiB keeps memory flat and surfaces a full disk while
+    // the upload is still running instead of after the last byte arrives.
+    const flushEvery = 8 * 1024 * 1024;
     var received = 0;
+    var unflushed = 0;
     final sink = target.openWrite();
     try {
-      await for (final chunk in request) {
+      await for (final chunk in source) {
         received += chunk.length;
-        if (received > defaultMaxUploadBytes) {
-          throw const FileSystemException('Upload exceeds max room size');
+        if (received > limit) {
+          throw const _UploadTooLargeException();
         }
         sink.add(chunk);
+        unflushed += chunk.length;
+        if (unflushed >= flushEvery) {
+          unflushed = 0;
+          await sink.flush();
+        }
       }
+      await sink.flush();
     } finally {
-      await sink.close();
+      try {
+        await sink.close();
+      } catch (_) {
+        // The flush above already reported the write failure.
+      }
     }
-  }
-
-  List<_MultipartPart> _parseMultipartBody(Uint8List body, String boundary) {
-    final marker = utf8.encode('--$boundary');
-    final parts = <_MultipartPart>[];
-    var index = _indexOfBytes(body, marker, 0);
-    while (index >= 0) {
-      var partStart = index + marker.length;
-      if (partStart + 1 < body.length &&
-          body[partStart] == 45 &&
-          body[partStart + 1] == 45) {
-        break;
-      }
-      if (partStart + 1 < body.length &&
-          body[partStart] == 13 &&
-          body[partStart + 1] == 10) {
-        partStart += 2;
-      }
-      final next = _indexOfBytes(body, marker, partStart);
-      if (next < 0) break;
-      var partEnd = next;
-      if (partEnd >= 2 && body[partEnd - 2] == 13 && body[partEnd - 1] == 10) {
-        partEnd -= 2;
-      }
-      final separator = _indexOfBytes(body, const [13, 10, 13, 10], partStart);
-      if (separator >= 0 && separator < partEnd) {
-        final headerBytes = body.sublist(partStart, separator);
-        final dataStart = separator + 4;
-        final headers = _parseMultipartHeaders(latin1.decode(headerBytes));
-        parts.add(
-          _MultipartPart(
-            headers: headers,
-            body: body.sublist(dataStart, partEnd),
-          ),
-        );
-      }
-      index = next;
-    }
-    return parts;
-  }
-
-  Map<String, String> _parseMultipartHeaders(String rawHeaders) {
-    final headers = <String, String>{};
-    for (final line in rawHeaders.split('\r\n')) {
-      final separator = line.indexOf(':');
-      if (separator <= 0) continue;
-      headers[line.substring(0, separator).trim().toLowerCase()] = line
-          .substring(separator + 1)
-          .trim();
-    }
-    return headers;
-  }
-
-  String? _multipartHeader(Map<String, String> headers, String name) {
-    return headers[name.toLowerCase()];
+    return received;
   }
 
   Map<String, String> _headerParameters(String? header) {
@@ -2353,21 +2603,6 @@ class DropServer {
       parameters[key] = value;
     }
     return parameters;
-  }
-
-  int _indexOfBytes(List<int> haystack, List<int> needle, int start) {
-    if (needle.isEmpty || haystack.length < needle.length) return -1;
-    for (var index = start; index <= haystack.length - needle.length; index++) {
-      var matched = true;
-      for (var offset = 0; offset < needle.length; offset++) {
-        if (haystack[index + offset] != needle[offset]) {
-          matched = false;
-          break;
-        }
-      }
-      if (matched) return index;
-    }
-    return -1;
   }
 
   Future<File> _uniqueFile(Directory directory, String requestedName) async {
@@ -2541,18 +2776,15 @@ class DropServer {
   }
 }
 
+class _UploadTooLargeException implements Exception {
+  const _UploadTooLargeException();
+}
+
 class _ZipEntry {
   const _ZipEntry({required this.path, required this.file});
 
   final String path;
   final File file;
-}
-
-class _MultipartPart {
-  const _MultipartPart({required this.headers, required this.body});
-
-  final Map<String, String> headers;
-  final Uint8List body;
 }
 
 class _ZipCentralRecord {

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -22,6 +24,16 @@ class PickedUploadFile {
       sizeBytes: json['sizeBytes'] is int ? json['sizeBytes'] as int : 0,
     );
   }
+}
+
+/// Thrown when the phone lacks room to stage the picked files for upload.
+class PickStorageException implements Exception {
+  const PickStorageException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
 }
 
 class NativeFilePickerService {
@@ -60,7 +72,17 @@ class NativeFilePickerService {
       );
     }
 
-    final result = await _channel.invokeMethod<Object?>('pickFilesForUpload');
+    final Object? result;
+    try {
+      result = await _channel.invokeMethod<Object?>('pickFilesForUpload');
+    } on PlatformException catch (error) {
+      if (error.code == 'INSUFFICIENT_STORAGE') {
+        throw PickStorageException(
+          error.message ?? 'Not enough free space on this phone.',
+        );
+      }
+      rethrow;
+    }
     if (result is List) {
       return result
           .whereType<Map<Object?, Object?>>()
@@ -72,5 +94,19 @@ class NativeFilePickerService {
       return [PickedUploadFile.fromJson(result)];
     }
     return <PickedUploadFile>[];
+  }
+
+  /// Deletes the cache copies Android makes of picked files once they have
+  /// been sent. Desktop picks point at the user's own files and are kept.
+  Future<void> discard(Iterable<PickedUploadFile> files) async {
+    if (kIsWeb || isDesktopPlatform) return;
+    for (final file in files) {
+      if (!file.path.contains('/picked_uploads/')) continue;
+      try {
+        await File(file.path).delete();
+      } catch (_) {
+        // Already gone, or the OS will clear the cache later.
+      }
+    }
   }
 }

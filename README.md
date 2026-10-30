@@ -1,6 +1,6 @@
 # Erebrus Drop
 
-Current version: `1.0.10+10`
+Current version: `1.1.0+11`
 
 Erebrus Drop is a local-first file and text sharing app for nearby devices. A
 phone can create a temporary Drop Room on the current Wi-Fi network or hotspot,
@@ -47,7 +47,16 @@ or cloud upload.
   `REDDIT_CLIENT_ID` to use Reddit's official app-only OAuth instead.
 - `integration_test/media_grab_test.dart` exercises the full pipeline on a device (network).
 
-## What's New in 1.0.10+10
+## What's New in 1.1.0+11
+
+- **Phone-friendly browser room** — on phones the browser client now has a bottom tab bar, a one-tap **Upload** button that opens the file picker directly (no separate "choose, then upload" step), a per-file queue with **Cancel**, and a free-space chip in the header. Rows show type and size, tapping a file selects it, and a **Save** bar downloads the selection. Desktop browsers can drop files anywhere on the page.
+- **Storage checks before transfers** — uploads, joined-room downloads, pulls into a live room, share-sheet imports and Grab downloads check free space first and explain the shortfall ("only 1.2 GB free, this needs 3.4 GB") instead of starting and stalling when the disk fills. Files over the room's 2 GB limit are named up front. The host rejects oversized or over-capacity uploads before reading the body and closes the connection, flushes uploads to disk as they arrive so a full disk fails fast, and reports a full disk as such (HTTP 507) rather than as an access error.
+- **Room permissions are enforced** — the "Guests can" choice (View only, Download only, Upload only, Media streaming only, Upload and download) is now enforced by the host for the browser API, WebDAV and room-to-room pull/push; previously it was only advertised. The browser client hides actions the room does not allow. "Drop folder only" keeps full access inside the selected folder.
+- **Smooth streaming from the Drop folder** — on Android, files in the selected Drop folder are now served in place through a native ranged reader instead of being copied to the cache for every request, so seeking in a video is instant and never fills storage; desktop hosts read the folder directly, and other hosts reuse one cached copy across range requests. Suffix and out-of-range `Range` headers are now handled correctly (206/416), and multipart uploads stream to disk instead of being held in memory.
+- **Simpler flows** — Start Room shows only the essentials (network, Drop folder, password) with name, access and Burn Mode under **More options**; Back returns to Home before leaving the app and only asks for confirmation while a room is live; stopping a room with guests connected asks first; tapping the room QR enlarges it; shorter copy across Home and Library.
+- **Fixes** — Android file picking no longer copies large files on the UI thread and cleans up its cache copies; joined-room transfers run one at a time; errors read as plain sentences instead of `Bad state: {"error": …}`; a failed Smart Send save, share-sheet import or mDNS publish is reported instead of silently failing; stopping a room always stops the server even if a native cleanup step fails; the browser client handles expired sessions, escapes file and folder names, and can no longer send empty notes.
+
+### Previously in 1.0.10+10
 
 - **Grab: save media from public links** — a new Grab tab downloads videos, audio and photos from YouTube, X, TikTok, Reddit, Bluesky, Vimeo, SoundCloud and direct/HLS links, entirely on-device (no NetSepio or third-party backend). Choose Video, Audio (MP3 or original) or Muted, from 360p up to 4K; 1080p and below are always H.264 MP4, and 1440p/4K are labelled WebM. Files land in the Drop folder or the live room, audio is tagged with title and artist, and links shared into the app from supported sites open in Grab automatically. DRM-protected streams are refused, not decrypted.
 - **Settings moved behind a gear** — Settings now opens from the gear on Home (full screen with a back arrow) to make room for Grab in the bottom bar; desktop keeps it in the side rail, reachable with Cmd/Ctrl+, or Cmd/Ctrl+6 (Cmd/Ctrl+5 now opens Grab).
@@ -92,7 +101,7 @@ or cloud upload.
 Current release version:
 
 ```text
-1.0.10+10
+1.1.0+11
 ```
 
 Android release versioning:
@@ -161,6 +170,12 @@ python3 scripts/generate-desktop-assets.py
 
 This runs tray icon generation and `dart run flutter_launcher_icons` for
 macOS/Windows/Android/iOS launcher icons from `assets/images/erebrus-glossy.png`.
+
+Linux builds require `libsecret-1-dev`; installed apps need `libsecret-1-0`
+and an unlocked Secret Service keyring (GNOME Keyring or KWallet).
+
+Persistent gateway authentication and recovery behavior are described in
+[Gateway sessions](docs/gateway-sessions.md).
 
 **Dev:**
 
@@ -233,16 +248,25 @@ flutter test
 GitHub Actions:
 
 - **CI** — `flutter analyze` and `flutter test` on every PR and `main` push
-- **Release** — manual workflow: tags `v{semver}` from `pubspec.yaml`, uploads
-  Android sideload APKs plus macOS `.zip`, Windows `.zip`, and Linux `.tar.gz`
-  desktop bundles
+- **Release** — runs when a `v{semver}` tag matching `pubspec.yaml` is pushed.
+  Builds Android APKs signed with the Play Store and dApp Store keys, plus
+  Windows `.zip` and Linux `.tar.gz` bundles (macOS `.zip` once the repo
+  variable `ENABLE_MACOS_BUILD=true` and Apple signing are set up), and
+  publishes a GitHub Release with `erebrus-drop-manifest-<tag>.json` (asset
+  sizes, SHA-256, signing certificates) and `erebrus-drop-sha256sums-<tag>.txt`.
+  A manual **Run workflow** builds the same artifacts without publishing.
+
+Release secrets (Actions): `PLAYSTORE_KEYSTORE_BASE64`, `PLAYSTORE_STORE_PASSWORD`,
+`PLAYSTORE_KEY_ALIAS`, `PLAYSTORE_KEY_PASSWORD`, the same four `DAPPSTORE_*`
+values, and `REOWN_PROJECT_ID`. The other `.env` keys in `env.example` are read
+from secrets or repo variables of the same name when set.
 
 Release checklist:
 
-1. Bump `version:` in `pubspec.yaml` (e.g. `1.0.8+8`).
+1. Bump `version:` in `pubspec.yaml` (e.g. `1.1.0+11`).
 2. Run `python3 scripts/generate-desktop-assets.py` if brand images changed.
 3. Commit and push to `main`.
-4. **GitHub → Actions → Release → Run workflow**.
+4. Tag and push: `git tag -a v1.1.0 -m "Erebrus Drop 1.1.0" && git push origin v1.1.0`.
 5. Download artifacts from **GitHub → Releases** when the run finishes.
 
 See [docs/BUILD.md](docs/BUILD.md).

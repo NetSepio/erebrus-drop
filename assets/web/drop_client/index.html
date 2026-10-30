@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#050505">
   <title>Erebrus Drop</title>
   <style>
     :root {
@@ -22,6 +23,8 @@
       --amber: #ffb14a;
       --red: #f25b5b;
       --shadow: 0 22px 70px rgba(0, 0, 0, 0.42);
+      --nav-h: 64px;
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
     }
 
     * { box-sizing: border-box; }
@@ -34,26 +37,38 @@
         linear-gradient(150deg, rgba(255, 106, 42, 0.12) 0%, rgba(255, 106, 42, 0.035) 28%, transparent 58%),
         #050505;
       color: var(--text);
+      -webkit-text-size-adjust: 100%;
     }
 
-    body { min-height: 100vh; }
+    body { min-height: 100vh; min-height: 100dvh; }
     button, input, textarea { font: inherit; }
-    button, a { -webkit-tap-highlight-color: transparent; }
+    button, a, label { -webkit-tap-highlight-color: transparent; }
     a { color: inherit; text-decoration: none; }
 
-    button {
+    button, .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
       border: 0;
-      border-radius: 8px;
-      min-height: 42px;
+      border-radius: 10px;
+      min-height: 44px;
       padding: 0 14px;
       background: var(--panel-soft);
       color: var(--text);
       cursor: pointer;
-      transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
+      font-weight: 650;
+      transition: transform 140ms ease, background 140ms ease, border-color 140ms ease, opacity 140ms ease;
+      user-select: none;
     }
 
-    button:hover { background: var(--panel-hover); transform: translateY(-1px); }
+    @media (hover: hover) {
+      button:hover, .btn:hover { background: var(--panel-hover); }
+      .primary:hover { background: linear-gradient(135deg, #ff7a40, var(--accent-deep)); }
+    }
+    button:active, .btn:active { transform: scale(0.97); }
     button:disabled { cursor: not-allowed; opacity: 0.45; transform: none; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
     .primary {
       background: linear-gradient(135deg, var(--accent), var(--accent-deep));
@@ -61,13 +76,12 @@
       font-weight: 800;
     }
 
+    .ghost { background: transparent; border: 1px solid var(--line-soft); }
     .danger { background: rgba(242, 91, 91, 0.16); color: #ffbaba; }
 
     .icon-btn {
-      display: inline-grid;
-      place-items: center;
-      width: 42px;
-      min-width: 42px;
+      width: 44px;
+      min-width: 44px;
       padding: 0;
       border: 1px solid var(--line-soft);
     }
@@ -77,11 +91,12 @@
     input, textarea {
       width: 100%;
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 10px;
       background: #141414;
       color: var(--text);
       padding: 12px 13px;
       outline: none;
+      font-size: 16px; /* keeps iOS Safari from zooming on focus */
     }
 
     input:focus, textarea:focus {
@@ -89,31 +104,32 @@
       box-shadow: 0 0 0 3px rgba(255, 106, 42, 0.16);
     }
 
-    textarea { min-height: 150px; resize: vertical; }
+    textarea { min-height: 170px; resize: vertical; }
     h1, h2, h3, p { margin-top: 0; }
-    h1 { font-size: clamp(30px, 4vw, 48px); line-height: 1.02; letter-spacing: 0; }
-    h2 { font-size: clamp(24px, 3vw, 34px); margin-bottom: 4px; letter-spacing: 0; }
-    h3 { font-size: 14px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0; }
+    h1 { font-size: clamp(30px, 4vw, 44px); line-height: 1.05; letter-spacing: 0; margin-bottom: 6px; }
+    h2 { font-size: clamp(24px, 3vw, 32px); margin-bottom: 2px; letter-spacing: 0; }
+    h3 { font-size: 13px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0; }
     .muted { color: var(--muted); }
     .faint { color: var(--faint); }
     .hidden { display: none !important; }
     .error { color: #ffbaba; }
-    .success { color: #a8ffd0; }
 
+    /* ---------- Login ---------- */
     .login-shell {
       min-height: 100vh;
+      min-height: 100dvh;
       display: grid;
       place-items: center;
-      padding: 28px;
+      padding: 20px;
     }
 
     .login {
-      width: min(460px, 100%);
+      width: min(440px, 100%);
       border: 1px solid var(--line-soft);
-      border-radius: 8px;
+      border-radius: 14px;
       background: rgba(17, 17, 17, 0.9);
       box-shadow: var(--shadow);
-      padding: 26px;
+      padding: 24px;
     }
 
     .brand {
@@ -123,9 +139,15 @@
       min-width: 0;
     }
 
+    .brand-text { min-width: 0; }
+    .brand-text strong, .brand-text div {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .mark {
-      display: grid;
-      place-items: center;
       width: 44px;
       height: 44px;
       border-radius: 12px;
@@ -134,10 +156,11 @@
       flex: 0 0 auto;
     }
 
+    /* ---------- Shell ---------- */
     .shell {
       min-height: 100vh;
       display: grid;
-      grid-template-columns: 268px minmax(0, 1fr) 312px;
+      grid-template-columns: 256px minmax(0, 1fr) 300px;
     }
 
     .sidebar, .inspector {
@@ -147,23 +170,19 @@
     }
 
     .sidebar { border-right: 1px solid var(--line-soft); }
-    .inspector { border-left: 1px solid var(--line-soft); }
+    .inspector { border-left: 1px solid var(--line-soft); display: grid; gap: 14px; align-content: start; }
     main { padding: 24px; min-width: 0; }
 
-    .tabs {
-      display: grid;
-      gap: 8px;
-      margin-top: 26px;
-    }
+    .tabs { display: grid; gap: 6px; margin-top: 26px; }
 
     .tab {
-      display: flex;
-      align-items: center;
       justify-content: flex-start;
       gap: 10px;
       text-align: left;
       padding: 0 12px;
       border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
     }
 
     .tab.active {
@@ -172,67 +191,58 @@
       color: var(--accent);
     }
 
-    .folder-list {
-      display: grid;
-      gap: 4px;
-      margin-top: 24px;
-    }
+    .folder-list { display: grid; gap: 4px; margin-top: 24px; }
+    .folder-list h3 { margin-bottom: 6px; }
 
     .folder-link {
-      display: flex;
-      align-items: center;
+      justify-content: flex-start;
       gap: 9px;
-      min-height: 34px;
+      min-height: 38px;
       padding: 0 8px;
-      border-radius: 8px;
+      background: transparent;
       color: var(--muted);
-      cursor: pointer;
+      font-weight: 600;
     }
 
-    .folder-link:hover { background: rgba(255, 255, 255, 0.05); color: var(--text); }
+    .mobile-bar, .bottom-nav, .fab { display: none; }
 
-    .topbar {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 16px;
-      align-items: start;
-      margin-bottom: 18px;
-    }
-
-    .headline {
-      display: grid;
-      gap: 8px;
-      min-width: 0;
+    .view-head {
+      display: flex;
+      gap: 12px;
+      align-items: flex-end;
+      justify-content: space-between;
+      flex-wrap: wrap;
     }
 
     .breadcrumbs {
       display: flex;
       align-items: center;
-      flex-wrap: wrap;
       gap: 6px;
-      color: var(--muted);
-      min-height: 32px;
+      color: var(--faint);
+      min-height: 36px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      white-space: nowrap;
     }
+    .breadcrumbs::-webkit-scrollbar { display: none; }
 
     .crumb-button {
-      min-height: 30px;
-      padding: 0 9px;
+      flex: 0 0 auto;
+      min-height: 32px;
+      padding: 0 10px;
       background: transparent;
       color: var(--accent);
       border: 1px solid rgba(255, 106, 42, 0.28);
+      font-weight: 650;
     }
 
-    .toolbar {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
+    .crumb-button.current { color: var(--text); border-color: var(--line-soft); }
+
+    .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
     .panel {
       border: 1px solid var(--line-soft);
-      border-radius: 8px;
+      border-radius: 12px;
       background: rgba(17, 17, 17, 0.82);
       box-shadow: 0 10px 40px rgba(0, 0, 0, 0.16);
       overflow: hidden;
@@ -243,16 +253,12 @@
     .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     .split { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
 
-    .file-table {
-      display: grid;
-      width: 100%;
-    }
-
+    /* ---------- File list ---------- */
     .file-row {
       display: grid;
-      grid-template-columns: 36px minmax(220px, 1fr) 112px 90px 98px;
+      grid-template-columns: 36px minmax(0, 1fr) 100px 90px 104px;
       align-items: center;
-      min-height: 68px;
+      min-height: 64px;
       gap: 12px;
       padding: 10px 14px;
       border-bottom: 1px solid var(--line-soft);
@@ -266,18 +272,20 @@
       text-transform: uppercase;
     }
 
-    .file-row:not(.header):hover { background: rgba(255, 106, 42, 0.07); }
+    .file-row[data-row] { cursor: pointer; }
+    @media (hover: hover) {
+      .file-row[data-row]:hover { background: rgba(255, 106, 42, 0.07); }
+    }
     .file-row.selected { background: rgba(255, 106, 42, 0.12); }
     .file-row:last-child { border-bottom: 0; }
 
     .select-btn {
-      display: inline-grid;
-      place-items: center;
       width: 28px;
       min-width: 28px;
       height: 28px;
       min-height: 28px;
       padding: 0;
+      border-radius: 8px;
       border: 1px solid var(--line);
       background: rgba(255, 255, 255, 0.025);
     }
@@ -288,29 +296,22 @@
       color: #050505;
     }
 
-    .select-placeholder {
-      width: 28px;
-      height: 28px;
-      display: block;
-    }
+    .select-placeholder { width: 28px; height: 28px; display: block; }
 
-    .file-main {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      min-width: 0;
-    }
+    .file-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
 
     .file-icon {
       display: grid;
       place-items: center;
       width: 42px;
       height: 42px;
-      border-radius: 8px;
+      border-radius: 10px;
       background: rgba(255, 106, 42, 0.13);
       color: var(--accent);
       flex: 0 0 auto;
     }
+
+    .file-icon.folder { background: rgba(255, 177, 74, 0.13); color: var(--amber); }
 
     .file-meta { min-width: 0; }
     .file-title {
@@ -319,12 +320,7 @@
       text-overflow: ellipsis;
       white-space: nowrap;
       color: var(--text);
-      font-weight: 750;
-      background: transparent;
-      padding: 0;
-      min-height: 0;
-      border-radius: 0;
-      text-align: left;
+      font-weight: 700;
     }
 
     .file-subtitle {
@@ -340,21 +336,24 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      gap: 6px;
       min-height: 28px;
-      padding: 0 9px;
+      padding: 0 10px;
       border-radius: 999px;
       border: 1px solid var(--line-soft);
       color: var(--muted);
       background: rgba(255, 255, 255, 0.035);
       font-size: 13px;
+      font-weight: 600;
       width: max-content;
+      max-width: 100%;
+      white-space: nowrap;
     }
 
-    .actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 7px;
-    }
+    .pill.warn { color: var(--amber); border-color: rgba(255, 177, 74, 0.4); }
+    .pill.bad { color: #ffbaba; border-color: rgba(242, 91, 91, 0.4); }
+
+    .actions { display: flex; justify-content: flex-end; gap: 7px; }
 
     .selection-bar {
       display: flex;
@@ -362,35 +361,88 @@
       justify-content: space-between;
       gap: 12px;
       border: 1px solid rgba(255, 106, 42, 0.34);
-      border-radius: 8px;
-      background: rgba(255, 106, 42, 0.1);
+      border-radius: 12px;
+      background: rgba(30, 16, 10, 0.96);
       padding: 10px 12px;
     }
 
+    .new-folder { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; }
+
+    .empty {
+      display: grid;
+      place-items: center;
+      gap: 12px;
+      min-height: 240px;
+      text-align: center;
+      color: var(--muted);
+      padding: 28px;
+    }
+
+    /* ---------- Upload ---------- */
+    .pick-card {
+      display: grid;
+      place-items: center;
+      gap: 10px;
+      min-height: 220px;
+      border: 1.5px dashed rgba(255, 106, 42, 0.55);
+      border-radius: 16px;
+      background: rgba(255, 106, 42, 0.07);
+      padding: 28px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+    }
+
+    .pick-card:active { transform: scale(0.99); }
+    @media (hover: hover) { .pick-card:hover { background: rgba(255, 106, 42, 0.11); } }
+    .pick-card.dragging, body.dragging .pick-card { border-color: var(--green); background: rgba(32, 210, 123, 0.09); }
+    .pick-card.busy { opacity: 0.55; pointer-events: none; }
+
+    .pick-icon {
+      display: grid;
+      place-items: center;
+      width: 64px;
+      height: 64px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+      color: #050505;
+    }
+
+    .pick-icon svg { width: 28px; height: 28px; stroke-width: 2.4; }
+    .pick-title { font-size: 20px; font-weight: 800; }
+
+    .target-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--muted); }
+    .target-chip { min-height: 34px; padding: 0 12px; border: 1px solid var(--line-soft); font-weight: 650; max-width: 100%; }
+    .target-chip span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .notice {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      border-radius: 12px;
+      padding: 12px 14px;
+      border: 1px solid var(--line-soft);
+      background: rgba(255, 255, 255, 0.04);
+      line-height: 1.4;
+    }
+
+    .notice svg { flex: 0 0 auto; margin-top: 1px; }
+    .notice.bad { border-color: rgba(242, 91, 91, 0.45); background: rgba(242, 91, 91, 0.1); color: #ffd1d1; }
+    .notice.good { border-color: rgba(63, 212, 117, 0.4); background: rgba(63, 212, 117, 0.08); color: #c8f7d8; }
+
     .transfer-card {
       border: 1px solid rgba(255, 106, 42, 0.34);
-      border-radius: 8px;
+      border-radius: 12px;
       background: rgba(255, 106, 42, 0.1);
-      padding: 12px;
+      padding: 14px;
       display: grid;
-      gap: 8px;
+      gap: 10px;
     }
 
-    .transfer-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      font-weight: 800;
-    }
+    .transfer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 800; }
+    .transfer-head span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-    .progress-track {
-      height: 10px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.08);
-      overflow: hidden;
-    }
-
+    .progress-track { height: 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
     .progress-fill {
       width: 0%;
       height: 100%;
@@ -399,63 +451,50 @@
       transition: width 160ms ease;
     }
 
-    .empty {
+    .queue { display: grid; gap: 6px; }
+    .queue-item {
       display: grid;
-      place-items: center;
-      min-height: 260px;
-      text-align: center;
-      color: var(--muted);
-      padding: 28px;
+      grid-template-columns: 22px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--line-soft);
+      font-size: 14px;
     }
 
-    .upload-zone {
-      display: grid;
-      place-items: center;
-      gap: 12px;
-      min-height: 260px;
-      border: 1px dashed rgba(255, 106, 42, 0.48);
-      border-radius: 8px;
-      background: rgba(255, 106, 42, 0.07);
-      padding: 28px;
-      text-align: center;
-    }
+    .queue-item .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .queue-item.done { color: var(--muted); }
+    .queue-item.done svg { color: var(--green); }
+    .queue-item.failed svg { color: var(--red); }
+    .queue-item.active svg { color: var(--accent); animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
-    .upload-zone.dragging {
-      border-color: var(--green);
-      background: rgba(32, 210, 123, 0.09);
-    }
-
-    .media-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-      gap: 12px;
-    }
+    /* ---------- Media ---------- */
+    .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
 
     .media-card {
       border: 1px solid var(--line-soft);
-      border-radius: 8px;
+      border-radius: 12px;
       background: rgba(17, 17, 17, 0.82);
-      padding: 14px;
+      padding: 12px;
       display: grid;
-      gap: 14px;
-      min-height: 170px;
+      gap: 10px;
+      min-width: 0;
     }
 
-    .media-art {
-      display: grid;
-      place-items: center;
-      height: 78px;
-      border-radius: 8px;
-      background: linear-gradient(135deg, rgba(255, 106, 42, 0.16), rgba(201, 62, 22, 0.12));
-      color: var(--accent);
-    }
+    .media-card video { width: 100%; max-height: 260px; border-radius: 8px; background: #000; }
+    .media-card audio { width: 100%; }
+    .media-card strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+    /* ---------- Inspector ---------- */
     .storage-ring {
       --pct: 0deg;
-      width: 154px;
-      height: 154px;
+      width: 140px;
+      height: 140px;
       border-radius: 50%;
-      margin: 4px auto 10px;
+      margin: 4px auto 6px;
       display: grid;
       place-items: center;
       background:
@@ -464,42 +503,53 @@
       border: 1px solid var(--line-soft);
     }
 
-    .storage-number {
-      display: grid;
-      text-align: center;
-      font-weight: 900;
-      font-size: 24px;
-    }
-
-    .stat-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-    }
-
-    .stat {
-      border: 1px solid var(--line-soft);
-      border-radius: 8px;
-      padding: 10px;
-      background: rgba(255, 255, 255, 0.035);
-    }
-
+    .storage-number { display: grid; text-align: center; font-weight: 900; font-size: 22px; }
+    .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .stat { border: 1px solid var(--line-soft); border-radius: 10px; padding: 10px; background: rgba(255, 255, 255, 0.035); min-width: 0; }
     .stat b { display: block; margin-bottom: 2px; }
-    .activity {
-      display: grid;
-      gap: 10px;
-      margin-top: 6px;
-    }
-
-    .activity-item {
-      display: flex;
-      gap: 9px;
-      align-items: center;
-      color: var(--muted);
-      font-size: 13px;
-    }
+    .stat span { font-size: 13px; }
+    .activity { display: grid; gap: 10px; }
+    .activity-item { display: flex; gap: 9px; align-items: center; color: var(--muted); font-size: 13px; }
+    .activity-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     .view { min-width: 0; }
+
+    /* ---------- Toast & drop overlay ---------- */
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 24px;
+      transform: translate(-50%, 20px);
+      max-width: min(92vw, 460px);
+      padding: 12px 16px;
+      border-radius: 12px;
+      background: #1f1f1f;
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      font-weight: 650;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 180ms ease, transform 180ms ease;
+      z-index: 50;
+    }
+
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+    .toast.bad { border-color: rgba(242, 91, 91, 0.5); color: #ffd1d1; }
+
+    .drop-overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      place-items: center;
+      background: rgba(5, 5, 5, 0.78);
+      border: 3px dashed var(--green);
+      z-index: 40;
+      font-size: 22px;
+      font-weight: 800;
+      pointer-events: none;
+    }
+
+    body.dragging .drop-overlay { display: grid; }
 
     svg {
       width: 20px;
@@ -509,96 +559,140 @@
       stroke-linecap: round;
       stroke-linejoin: round;
       fill: none;
+      flex: 0 0 auto;
     }
 
-    @media (max-width: 1040px) {
-      .shell { grid-template-columns: 228px minmax(0, 1fr); }
+    @media (max-width: 1080px) {
+      .shell { grid-template-columns: 220px minmax(0, 1fr); }
       .inspector {
         grid-column: 1 / -1;
         border-left: 0;
         border-top: 1px solid var(--line-soft);
-        display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 12px;
       }
     }
 
+    /* ---------- Phones ---------- */
     @media (max-width: 780px) {
-      .shell { display: block; }
-      .sidebar {
-        border-right: 0;
+      .shell { display: block; padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 16px); }
+      .sidebar, .inspector, .file-row.header, .desktop-only { display: none !important; }
+
+      .mobile-bar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 16px;
+        padding-top: max(10px, env(safe-area-inset-top, 0px));
+        background: rgba(8, 8, 8, 0.88);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
         border-bottom: 1px solid var(--line-soft);
       }
-      .brand .muted { font-size: 13px; }
-      .tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-      .tab {
-        justify-content: center;
-        min-height: 48px;
-        padding: 0 8px;
-      }
-      .tab span:last-child { display: none; }
-      .folder-list {
-        display: flex;
-        gap: 8px;
-        margin-top: 16px;
-        overflow-x: auto;
-        padding-bottom: 4px;
-      }
-      .folder-list h3 { display: none; }
-      .folder-link {
-        flex: 0 0 auto;
-        min-height: 40px;
-        padding: 0 12px;
-        border: 1px solid var(--line-soft);
-        background: rgba(255, 255, 255, 0.03);
-      }
-      main, .sidebar, .inspector { padding: 16px; }
-      .topbar { grid-template-columns: 1fr; }
-      .toolbar { justify-content: flex-start; }
-      h2 { font-size: 28px; }
-      .selection-bar {
+
+      .mobile-bar .mark { width: 36px; height: 36px; border-radius: 10px; }
+      .mobile-bar .brand-text div { font-size: 12px; }
+      .mobile-bar .icon-btn { width: 40px; min-width: 40px; min-height: 40px; }
+
+      main { padding: 16px; }
+      h2 { font-size: 26px; }
+
+      .bottom-nav {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 30;
         display: grid;
-        grid-template-columns: 1fr;
-        align-items: start;
+        grid-auto-flow: column;
+        grid-auto-columns: 1fr;
+        height: calc(var(--nav-h) + var(--safe-bottom));
+        padding-bottom: var(--safe-bottom);
+        background: rgba(10, 10, 10, 0.94);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+        border-top: 1px solid var(--line-soft);
       }
-      .panel.file-table {
-        border: 0;
-        background: transparent;
-        box-shadow: none;
-      }
-      .file-row {
-        grid-template-columns: 32px minmax(0, 1fr) auto;
-        gap: 8px;
-        align-items: start;
+
+      .bottom-nav button {
+        flex-direction: column;
+        gap: 3px;
         min-height: 0;
-        margin-bottom: 10px;
+        height: var(--nav-h);
+        border-radius: 0;
+        background: transparent;
+        color: var(--faint);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .bottom-nav button.active { color: var(--accent); }
+      .bottom-nav svg { width: 22px; height: 22px; }
+
+      .fab {
+        position: fixed;
+        right: 16px;
+        bottom: calc(var(--nav-h) + var(--safe-bottom) + 14px);
+        z-index: 25;
+        display: inline-flex;
+        min-height: 54px;
+        padding: 0 22px;
+        border-radius: 999px;
+        font-size: 16px;
+        box-shadow: 0 12px 30px rgba(255, 106, 42, 0.35);
+      }
+
+      body:not(.on-files) .fab, body.has-selection .fab { display: none; }
+
+      .selection-bar {
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        bottom: calc(var(--nav-h) + var(--safe-bottom) + 12px);
+        z-index: 26;
+        box-shadow: var(--shadow);
+      }
+
+      .selection-bar .label-text { display: none; }
+
+      .file-table.panel { border: 0; background: transparent; box-shadow: none; display: grid; gap: 8px; }
+      .file-row {
+        grid-template-columns: 28px minmax(0, 1fr) auto;
+        gap: 10px;
+        min-height: 64px;
         border: 1px solid var(--line-soft);
-        border-radius: 8px;
+        border-radius: 12px;
         background: rgba(17, 17, 17, 0.82);
-        padding: 12px;
+        padding: 10px 10px 10px 12px;
       }
-      .file-row.header {
-        display: none;
-      }
-      .file-row > div:nth-child(3),
-      .file-row > div:nth-child(4) {
-        grid-column: 2;
-      }
-      .file-main { gap: 10px; }
-      .file-icon {
-        width: 36px;
-        height: 36px;
-      }
-      .file-title { font-size: 16px; }
+      .file-row:last-child { border-bottom: 1px solid var(--line-soft); }
+      .file-row .col-type, .file-row .col-size { display: none; }
+      .file-icon { width: 38px; height: 38px; }
+      .file-title { font-size: 15px; }
       .file-subtitle { font-size: 12px; }
-      .actions {
-        grid-column: 3;
-        grid-row: 1 / span 3;
-        justify-content: flex-end;
-        align-self: center;
-      }
-      .inspector { display: grid; grid-template-columns: 1fr; }
-      .split { grid-template-columns: 1fr; }
+
+      .pick-card { min-height: 200px; }
+      .toast { bottom: calc(var(--nav-h) + var(--safe-bottom) + 16px); }
+      .drop-hint { display: none; }
+    }
+
+    @media (min-width: 781px) {
+      .mobile-only { display: none !important; }
+    }
+
+    /* Hide actions the host's permission preset does not allow. */
+    body.no-view .needs-view,
+    body.no-upload .needs-upload,
+    body.no-download .needs-download,
+    body.no-create_folder .needs-create_folder,
+    body.no-text .needs-text,
+    body.no-streaming .needs-streaming { display: none !important; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition: none !important; animation: none !important; }
     }
   </style>
 </head>
@@ -607,103 +701,87 @@
     <div class="login stack">
       <div class="brand">
         <img class="mark" src="/logo.png" alt="" aria-hidden="true">
-        <div>
+        <div class="brand-text">
           <strong>Erebrus Drop</strong>
           <div class="muted" id="login-room">Private Drop Room</div>
         </div>
       </div>
       <div>
-        <h1>Join Drop Room</h1>
-        <p class="muted" id="host-line">Ask the host for the password.</p>
+        <h1>Join room</h1>
+        <p class="muted" id="host-line">Enter the room password.</p>
       </div>
       <form id="login-form" class="stack">
-        <input id="password" type="password" autocomplete="current-password" placeholder="Room password">
-        <button class="primary" type="submit">Join Room</button>
-        <div id="login-message" class="error"></div>
+        <input id="password" type="password" autocomplete="current-password" placeholder="Room password" enterkeyhint="go">
+        <button class="primary" type="submit" id="login-button">Join</button>
+        <div id="login-message" class="error" role="alert"></div>
       </form>
     </div>
   </section>
 
   <section id="app" class="shell hidden">
+    <header class="mobile-bar">
+      <div class="brand">
+        <img class="mark" src="/logo.png" alt="" aria-hidden="true">
+        <div class="brand-text">
+          <strong id="mobile-room-name">Erebrus Drop</strong>
+          <div class="muted" id="mobile-device-name"></div>
+        </div>
+      </div>
+      <div class="row" style="flex-wrap: nowrap; gap: 8px;">
+        <span class="pill" id="mobile-free" title="Free space on the host">--</span>
+        <button class="icon-btn ghost" id="mobile-logout" title="Leave room" aria-label="Leave room">
+          <span data-icon="logout"></span>
+        </button>
+      </div>
+    </header>
+
     <aside class="sidebar">
       <div class="brand">
         <img class="mark" src="/logo.png" alt="" aria-hidden="true">
-        <div style="min-width: 0;">
+        <div class="brand-text">
           <strong id="room-name">Erebrus Drop</strong>
           <div class="muted" id="device-name"></div>
         </div>
       </div>
 
       <div class="tabs" role="tablist" aria-label="Drop Room sections">
-        <button class="tab active" data-tab="files" title="Files">
-          <span data-icon="folder"></span><span>Files</span>
-        </button>
-        <button class="tab" data-tab="upload" title="Upload">
-          <span data-icon="upload"></span><span>Upload</span>
-        </button>
-        <button class="tab" data-tab="text" title="Text">
-          <span data-icon="text"></span><span>Text</span>
-        </button>
-        <button class="tab" data-tab="media" title="Media">
-          <span data-icon="play"></span><span>Media</span>
-        </button>
+        <button class="tab active needs-view" data-tab="files"><span data-icon="folder"></span><span>Files</span></button>
+        <button class="tab needs-upload" data-tab="upload"><span data-icon="upload"></span><span>Upload</span></button>
+        <button class="tab needs-text" data-tab="text"><span data-icon="text"></span><span>Text</span></button>
+        <button class="tab needs-streaming needs-view" data-tab="media"><span data-icon="play"></span><span>Media</span></button>
       </div>
 
-      <div class="folder-list" id="folder-shortcuts">
-        <h3>Folders</h3>
-      </div>
+      <div class="folder-list" id="folder-shortcuts"></div>
     </aside>
 
     <main>
       <section id="view-files" class="view stack">
-        <div class="topbar">
-          <div class="headline">
-            <div>
-              <h2>Files</h2>
-              <div class="muted">Browse, download, and organize this private room.</div>
-            </div>
-            <div class="breadcrumbs" id="breadcrumbs"></div>
-          </div>
+        <div class="view-head">
+          <h2>Files</h2>
           <div class="toolbar">
-            <button class="icon-btn" id="up-folder" title="Parent folder" aria-label="Parent folder">
-              <span data-icon="arrow-up"></span>
-            </button>
-            <button class="icon-btn" id="refresh-files" title="Refresh" aria-label="Refresh files">
-              <span data-icon="refresh"></span>
-            </button>
-            <button class="icon-btn" id="select-visible" title="Select all files" aria-label="Select all files">
-              <span data-icon="files"></span>
-            </button>
-            <button class="icon-btn primary" id="quick-upload" title="Upload" aria-label="Upload files">
-              <span data-icon="upload"></span>
-            </button>
+            <button class="icon-btn" id="up-folder" title="Up one folder" aria-label="Up one folder"><span data-icon="arrow-up"></span></button>
+            <button class="icon-btn" id="refresh-files" title="Refresh" aria-label="Refresh"><span data-icon="refresh"></span></button>
+            <button class="icon-btn needs-download" id="select-visible" title="Select all files" aria-label="Select all files"><span data-icon="check-all"></span></button>
+            <button class="icon-btn needs-create_folder" id="show-new-folder" title="New folder" aria-label="New folder"><span data-icon="folder-plus"></span></button>
+            <label class="btn primary desktop-only needs-upload" for="upload-file"><span data-icon="upload"></span><span>Upload</span></label>
           </div>
         </div>
+        <div class="breadcrumbs" id="breadcrumbs"></div>
 
-        <div class="panel panel-pad">
-          <div class="split">
-            <input id="folder-name" placeholder="New folder name">
-            <button id="create-folder" title="Create folder">
-              <span data-icon="folder-plus"></span>
-              <span>Create</span>
-            </button>
-          </div>
-        </div>
+        <form class="new-folder hidden" id="new-folder-form">
+          <input id="folder-name" placeholder="Folder name" autocomplete="off" enterkeyhint="done">
+          <button class="primary" type="submit">Create</button>
+          <button class="icon-btn" type="button" id="cancel-new-folder" aria-label="Cancel"><span data-icon="x"></span></button>
+        </form>
 
         <div class="selection-bar hidden" id="selection-bar">
           <div>
             <strong id="selection-count">0 selected</strong>
             <span class="muted" id="selection-size"></span>
           </div>
-          <div class="row">
-            <button id="download-selected" class="primary" title="Download selected files">
-              <span data-icon="download"></span>
-              <span>Download</span>
-            </button>
-            <button id="clear-selection" title="Clear selection">
-              <span data-icon="x"></span>
-              <span>Clear</span>
-            </button>
+          <div class="row" style="flex-wrap: nowrap; gap: 8px;">
+            <button id="download-selected" class="primary"><span data-icon="download"></span><span class="label-text">Download</span><span class="mobile-only">Save</span></button>
+            <button id="clear-selection" class="icon-btn" title="Clear selection" aria-label="Clear selection"><span data-icon="x"></span></button>
           </div>
         </div>
 
@@ -715,68 +793,50 @@
             <div>Size</div>
             <div></div>
           </div>
-          <div id="files"></div>
+          <div id="files" style="display: contents;"></div>
         </div>
       </section>
 
       <section id="view-upload" class="view stack hidden">
-        <div>
-          <h2>Upload</h2>
-          <div class="muted">Send one or many files into the shown target folder.</div>
+        <h2>Upload</h2>
+        <label class="pick-card" for="upload-file" id="drop-zone">
+          <span class="pick-icon"><span data-icon="upload"></span></span>
+          <span class="pick-title">Choose files</span>
+          <span class="muted drop-hint">or drop them here</span>
+        </label>
+        <div class="target-line">
+          <span>Saving to</span>
+          <button class="target-chip" id="open-upload-target" title="Open this folder">
+            <span data-icon="folder"></span><span id="upload-target">/</span>
+          </button>
+          <span class="pill" id="upload-free">-- free</span>
         </div>
-        <div class="panel panel-pad stack">
-          <h3>Upload target</h3>
-          <div class="row">
-            <span class="pill" id="upload-target">Default folder</span>
-            <button id="open-upload-target" title="Open upload target">
-              <span data-icon="folder"></span>
-              <span>Open target</span>
-            </button>
+        <div id="upload-status" class="notice hidden" role="status"></div>
+        <div class="transfer-card hidden" id="upload-progress">
+          <div class="transfer-head">
+            <span id="upload-progress-title">Uploading</span>
+            <span id="upload-progress-percent">0%</span>
           </div>
-          <div class="muted" id="upload-target-help"></div>
-        </div>
-        <div class="upload-zone" id="drop-zone">
-          <div class="file-icon" style="width: 58px; height: 58px;">
-            <span data-icon="upload"></span>
-          </div>
-          <div>
-            <strong>Drop files here</strong>
-            <div class="muted">or choose files from this device</div>
-          </div>
-          <input id="upload-file" type="file" multiple>
-          <button id="upload-button" class="primary">Upload Files</button>
-          <div class="transfer-card hidden" id="upload-progress">
-            <div class="transfer-head">
-              <span id="upload-progress-title">Uploading</span>
-              <span id="upload-progress-percent">0%</span>
-            </div>
-            <div class="progress-track">
-              <div class="progress-fill" id="upload-progress-fill"></div>
-            </div>
+          <div class="progress-track"><div class="progress-fill" id="upload-progress-fill"></div></div>
+          <div class="split" style="align-items: center;">
             <div class="muted" id="upload-progress-detail">Preparing...</div>
+            <button class="danger" id="cancel-upload">Cancel</button>
           </div>
-          <div id="upload-message" class="muted"></div>
         </div>
+        <div class="queue" id="upload-queue"></div>
       </section>
 
       <section id="view-text" class="view stack hidden">
-        <div>
-          <h2>Text</h2>
-          <div class="muted">Paste notes, links, copied SMS text, or snippets.</div>
-        </div>
-        <div class="panel panel-pad stack">
-          <input id="text-title" placeholder="Title">
-          <textarea id="text-body" placeholder="Paste text, links, SMS copy, or notes"></textarea>
-          <button id="send-text" class="primary">Send Text</button>
-          <div id="text-message" class="muted"></div>
-        </div>
+        <h2>Text</h2>
+        <form class="panel panel-pad stack" id="text-form">
+          <input id="text-title" placeholder="Title (optional)" autocomplete="off">
+          <textarea id="text-body" placeholder="Paste a note, link or message"></textarea>
+          <button id="send-text" class="primary" type="submit" disabled><span data-icon="send"></span><span>Send to room</span></button>
+        </form>
       </section>
 
       <section id="view-media" class="view stack hidden">
-        <div>
-          <h2>Media</h2>
-          <div class="muted">Stream local audio and video without downloading first.</div>
-        </div>
+        <h2>Media</h2>
         <div class="media-grid" id="media"></div>
       </section>
     </main>
@@ -784,43 +844,63 @@
     <section class="inspector">
       <div class="panel panel-pad stack">
         <h3>Storage</h3>
-          <div class="storage-ring" id="storage-ring">
-            <div class="storage-number">
-              <span id="storage-percent">0%</span>
-              <small class="muted" id="storage-ring-label">room used</small>
-            </div>
+        <div class="storage-ring" id="storage-ring">
+          <div class="storage-number">
+            <span id="storage-percent">--</span>
+            <small class="muted" id="storage-ring-label">free</small>
           </div>
-          <div class="stat-grid">
-            <div class="stat"><b id="room-used">0 B</b><span class="muted" id="room-used-label">Room</span></div>
-            <div class="stat"><b id="drop-used">0 B</b><span class="muted" id="drop-used-label">Drop</span></div>
-          <div class="stat"><b id="free-space">Unavailable</b><span class="muted">Transfer capacity</span></div>
-          <div class="stat"><b id="max-upload">Unavailable</b><span class="muted">Upload cap</span></div>
         </div>
-        <div class="muted" id="storage-text">Loading storage...</div>
+        <div class="stat-grid">
+          <div class="stat"><b id="free-space">--</b><span class="muted">Free on host</span></div>
+          <div class="stat"><b id="max-upload">--</b><span class="muted">Max file size</span></div>
+          <div class="stat"><b id="room-used">--</b><span class="muted" id="room-used-label">In room</span></div>
+          <div class="stat"><b id="total-space">--</b><span class="muted">Host disk</span></div>
+        </div>
+        <div class="muted" id="storage-text" style="font-size: 13px;"></div>
       </div>
 
       <div class="panel panel-pad stack">
         <h3>Session</h3>
-        <div class="muted" id="session-text"></div>
+        <div class="muted" id="session-text" style="font-size: 14px;"></div>
         <div class="activity" id="activity"></div>
-        <button id="logout" class="danger">Logout</button>
+        <button id="logout" class="danger"><span data-icon="logout"></span><span>Leave room</span></button>
       </div>
     </section>
+
+    <nav class="bottom-nav" aria-label="Drop Room sections">
+      <button class="active needs-view" data-tab="files"><span data-icon="folder"></span><span>Files</span></button>
+      <button class="needs-upload" data-tab="upload"><span data-icon="upload"></span><span>Upload</span></button>
+      <button class="needs-text" data-tab="text"><span data-icon="text"></span><span>Text</span></button>
+      <button class="needs-streaming needs-view" data-tab="media"><span data-icon="play"></span><span>Media</span></button>
+    </nav>
+
+    <label class="btn primary fab needs-upload" for="upload-file"><span data-icon="plus"></span><span>Upload</span></label>
+    <input id="upload-file" type="file" multiple class="hidden">
   </section>
+
+  <div class="drop-overlay">Drop to upload</div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script>
     const icons = {
       'arrow-up': '<svg viewBox="0 0 24 24"><path d="m12 19 0-14"></path><path d="m5 12 7-7 7 7"></path></svg>',
+      alert: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v5"></path><path d="M12 16h.01"></path></svg>',
       check: '<svg viewBox="0 0 24 24"><path d="m20 6-11 11-5-5"></path></svg>',
+      'check-all': '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"></rect><path d="m8 12 3 3 5-6"></path></svg>',
+      'check-circle': '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="m8 12 3 3 5-6"></path></svg>',
+      clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M12 7v5l3 2"></path></svg>',
       download: '<svg viewBox="0 0 24 24"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>',
       file: '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg>',
-      files: '<svg viewBox="0 0 24 24"><path d="M8 7h10a2 2 0 0 1 2 2v11"></path><path d="M4 3h10a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"></path></svg>',
       folder: '<svg viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>',
       'folder-plus': '<svg viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><path d="M12 11v6"></path><path d="M9 14h6"></path></svg>',
       image: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="8" cy="10" r="2"></circle><path d="m21 15-5-5L5 19"></path></svg>',
+      loader: '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.2-8.6"></path></svg>',
       lock: '<svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg>',
+      logout: '<svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><path d="m16 17 5-5-5-5"></path><path d="M21 12H9"></path></svg>',
       play: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="m10 8 6 4-6 4z"></path></svg>',
+      plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>',
       refresh: '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2"></path><path d="M3 12A9 9 0 0 1 18.5 5.8"></path><path d="M3 20v-6h6"></path><path d="M21 4v6h-6"></path></svg>',
+      send: '<svg viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4z"></path><path d="M22 2 11 13"></path></svg>',
       text: '<svg viewBox="0 0 24 24"><path d="M4 7V4h16v3"></path><path d="M9 20h6"></path><path d="M12 4v16"></path></svg>',
       upload: '<svg viewBox="0 0 24 24"><path d="M12 21V9"></path><path d="m7 14 5-5 5 5"></path><path d="M5 3h14"></path></svg>',
       video: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="14" height="14" rx="2"></rect><path d="m17 9 4-2v10l-4-2"></path></svg>',
@@ -833,20 +913,26 @@
       { id: 'demo-image', name: 'receipt-photo.png', type: 'file', path: '/receipt-photo.png', sizeBytes: 1284200, mimeType: 'image/png', streamable: false },
       { id: 'demo-video', name: 'local-movie.mp4', type: 'file', path: '/local-movie.mp4', sizeBytes: 104857600, mimeType: 'video/mp4', streamable: true }
     ];
+    const DEMO_FREE_BYTES = 3 * 1024 * 1024 * 1024;
 
     const state = {
       room: null,
-      token: sessionStorage.getItem('dropToken') || '',
+      token: '',
       path: '/',
       items: [],
       demo: false,
-      selectedIds: new Set()
+      selectedIds: new Set(),
+      storage: null,
+      upload: null,
+      tab: 'files'
     };
+    try { state.token = sessionStorage.getItem('dropToken') || ''; } catch (_) {}
     let storagePollTimer = null;
+    let toastTimer = null;
 
     const $ = (id) => document.getElementById(id);
     const authHeaders = () => state.token ? { Authorization: `Bearer ${state.token}` } : {};
-    const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({
+    const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     }[char]));
 
@@ -857,11 +943,12 @@
     function installIcons(root = document) {
       root.querySelectorAll('[data-icon]').forEach((node) => {
         node.innerHTML = icon(node.dataset.icon);
+        node.style.display = 'inline-flex';
       });
     }
 
     function fmt(bytes) {
-      if (bytes === null || bytes === undefined || bytes < 0) return 'Unavailable';
+      if (bytes === null || bytes === undefined || bytes < 0 || !Number.isFinite(Number(bytes))) return '--';
       const units = ['B', 'KB', 'MB', 'GB', 'TB'];
       let size = Number(bytes);
       let unit = 0;
@@ -870,15 +957,15 @@
     }
 
     function fmtEta(seconds) {
-      if (!Number.isFinite(seconds) || seconds < 0) return 'ETA unavailable';
-      if (seconds < 1) return 'ETA now';
+      if (!Number.isFinite(seconds) || seconds < 0) return '';
+      if (seconds < 1) return 'almost done';
       const total = Math.ceil(seconds);
       const hours = Math.floor(total / 3600);
       const minutes = Math.floor((total % 3600) / 60);
       const secs = total % 60;
-      if (hours > 0) return `ETA ${hours}h ${minutes}m`;
-      if (minutes > 0) return `ETA ${minutes}m ${secs}s`;
-      return `ETA ${secs}s`;
+      if (hours > 0) return `${hours}h ${minutes}m left`;
+      if (minutes > 0) return `${minutes}m ${secs}s left`;
+      return `${secs}s left`;
     }
 
     function relativeTime(isoValue) {
@@ -889,21 +976,30 @@
       if (seconds < 60) return `${seconds}s ago`;
       const minutes = Math.round(seconds / 60);
       if (minutes < 60) return `${minutes}m ago`;
-      const hours = Math.round(minutes / 60);
-      return `${hours}h ago`;
+      return `${Math.round(minutes / 60)}h ago`;
+    }
+
+    function toast(message, { bad = false } = {}) {
+      const node = $('toast');
+      node.textContent = message;
+      node.classList.toggle('bad', bad);
+      node.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => node.classList.remove('show'), bad ? 5200 : 2600);
+    }
+
+    function setNotice(kind, message) {
+      const node = $('upload-status');
+      if (!message) {
+        node.classList.add('hidden');
+        return;
+      }
+      node.className = `notice ${kind}`;
+      node.innerHTML = `${icon(kind === 'good' ? 'check-circle' : 'alert')}<span>${escapeHtml(message)}</span>`;
     }
 
     function isFolderScanActive(status) {
       return status === 'queued' || status === 'scanning';
-    }
-
-    function scanLabel(status) {
-      if (status === 'queued') return 'Queued';
-      if (status === 'scanning') return 'Scanning';
-      if (status === 'partial') return 'Partial';
-      if (status === 'ready') return 'Ready';
-      if (status === 'error') return 'Issue';
-      return 'Not started';
     }
 
     function scheduleStoragePoll(active) {
@@ -914,29 +1010,34 @@
       if (!active) return;
       storagePollTimer = setTimeout(() => {
         storagePollTimer = null;
-        loadStorage().catch((error) => addActivity(error.message));
+        loadStorage().catch(() => {});
       }, 2800);
     }
 
-    function setUploadProgress({ title, sent, total, speed, done = false }) {
-      const progress = total > 0 ? Math.min(100, Math.round((sent / total) * 100)) : 0;
-      const eta = done || total <= 0 || speed <= 0 ? (done ? 'Done' : 'ETA unavailable') : fmtEta((total - sent) / speed);
-      $('upload-progress').classList.remove('hidden');
-      $('upload-progress-title').textContent = title;
-      $('upload-progress-percent').textContent = total > 0 ? `${progress}%` : '--';
-      $('upload-progress-fill').style.width = total > 0 ? `${progress}%` : '18%';
-      $('upload-progress-detail').textContent = `${fmt(sent)} / ${fmt(total)} · ${speed > 0 ? `${fmt(speed)}/s` : 'Calculating...'} · ${eta}`;
+    class RequestError extends Error {
+      constructor(message, status) {
+        super(message);
+        this.status = status;
+      }
     }
 
     async function request(url, options = {}) {
       if (state.demo) return demoRequest(url, options);
-      const response = await fetch(url, {
-        ...options,
-        headers: { ...(options.headers || {}), ...authHeaders() }
-      });
+      let response;
+      try {
+        response = await fetch(url, {
+          ...options,
+          headers: { ...(options.headers || {}), ...authHeaders() }
+        });
+      } catch (_) {
+        throw new RequestError('Lost connection to the room. Check Wi-Fi and that the host app is open.', 0);
+      }
       const contentType = response.headers.get('content-type') || '';
       const data = contentType.includes('application/json') ? await response.json() : await response.text();
-      if (!response.ok) throw new Error(data.error || 'Request failed');
+      if (response.status === 401 && state.room && !url.includes('/api/auth/login')) {
+        sessionExpired();
+      }
+      if (!response.ok) throw new RequestError(data.error || 'Request failed', response.status);
       return data;
     }
 
@@ -946,23 +1047,28 @@
         return {
           dropUsedBytes: 167772160,
           roomUsedBytes: 107479040,
-          availableBytes: 21474836480,
+          availableBytes: DEMO_FREE_BYTES,
           totalBytes: 128849018880,
           maxUploadBytes: 2147483648,
           folderUsedBytes: 107479040,
           folderScanStatus: 'ready',
           folderScannedAt: new Date(Date.now() - 95000).toISOString(),
           folderScanMessage: 'Scanned 12 files in 4 folders.',
-          folderScannedFileCount: 12,
-          folderScannedFolderCount: 4,
           lowStorage: false
         };
+      }
+      if (url.includes('/api/files/upload/check')) {
+        const files = JSON.parse(options.body || '{}').files || [];
+        const total = files.reduce((sum, file) => sum + file.size, 0);
+        return total > DEMO_FREE_BYTES
+          ? { ok: false, error: `The host device has only ${fmt(DEMO_FREE_BYTES)} free. This needs ${fmt(total)}. Free up space or pick fewer files.` }
+          : { ok: true };
       }
       if (url.includes('/api/files?')) {
         const requested = state.path === '/' && inScopedMode() ? scopeRoot() : state.path;
         const visible = requested === '/'
-          ? demoItems
-          : demoItems.filter((item) => item.path.startsWith(`${requested}/`) && item.path !== requested);
+          ? demoItems.filter((item) => item.path.split('/').length === 2)
+          : demoItems.filter((item) => item.path.startsWith(`${requested}/`));
         return { path: requested, items: visible };
       }
       if (url.includes('/api/folders')) {
@@ -971,26 +1077,29 @@
         demoItems.unshift({ id: `demo-${Date.now()}`, name, type: 'folder', path: body.path, sizeBytes: 0, mimeType: null, streamable: false });
         return { ok: true };
       }
-      if (url.includes('/api/text')) return { ok: true };
-      if (url.includes('/api/files/upload')) return { ok: true };
-      return {};
+      return { ok: true };
     }
 
     async function boot() {
       try {
-        state.room = await request('/api/room');
+        const response = await fetch('/api/room');
+        if (!response.ok) throw new Error('not a room');
+        state.room = await response.json();
+        if (!state.room || !state.room.roomId) throw new Error('not a room');
       } catch (_) {
         startDemoMode();
         return;
       }
       $('login-room').textContent = state.room.roomName;
       $('host-line').textContent = state.room.authRequired
-        ? `Hosted by ${state.room.deviceName}. Ask the host for the password.`
+        ? `Hosted by ${state.room.deviceName}. Enter the room password.`
         : `Hosted by ${state.room.deviceName}.`;
       if (!state.room.authRequired) {
         await login('');
       } else if (state.token) {
         showApp();
+      } else {
+        $('password').focus();
       }
     }
 
@@ -999,7 +1108,7 @@
       state.token = 'demo-token';
       state.room = {
         roomName: 'Preview Drop Room',
-        deviceName: 'Sites preview',
+        deviceName: 'Preview',
         authRequired: false,
         defaultUploadPath: '/',
         scopedToDefaultFolder: true,
@@ -1008,7 +1117,7 @@
         hostFolderName: 'ErebrusDrop'
       };
       showApp();
-      addActivity('Preview mode is showing sample room data.');
+      addActivity('Preview mode with sample files.');
     }
 
     async function login(password) {
@@ -1018,26 +1127,62 @@
         body: JSON.stringify({ password })
       });
       state.token = data.token;
-      sessionStorage.setItem('dropToken', data.token);
+      try { sessionStorage.setItem('dropToken', data.token); } catch (_) {}
       showApp();
     }
 
+    function sessionExpired() {
+      if (!state.token) return;
+      state.token = '';
+      try { sessionStorage.removeItem('dropToken'); } catch (_) {}
+      if (!state.room.authRequired) {
+        login('').catch(() => location.reload());
+        return;
+      }
+      $('app').classList.add('hidden');
+      $('login').classList.remove('hidden');
+      $('login-message').textContent = 'Your session ended. Enter the password again.';
+      $('password').focus();
+    }
+
+    const ALL_CAPABILITIES = ['view', 'upload', 'download', 'create_folder', 'text', 'streaming'];
+
+    function can(capability) {
+      const granted = state.room?.permissions || ALL_CAPABILITIES;
+      return granted.includes(capability) || (capability === 'streaming' && granted.includes('download'));
+    }
+
+    function applyPermissions() {
+      ALL_CAPABILITIES.forEach((capability) => {
+        document.body.classList.toggle(`no-${capability}`, !can(capability));
+      });
+      if (!can('view') && state.tab !== 'text') state.tab = can('upload') ? 'upload' : 'text';
+    }
+
     function showApp() {
+      applyPermissions();
       $('login').classList.add('hidden');
       $('app').classList.remove('hidden');
       $('room-name').textContent = state.room.roomName;
+      $('mobile-room-name').textContent = state.room.roomName;
       $('device-name').textContent = `Hosted by ${state.room.deviceName}`;
-      const folderLine = `Drop folder: ${escapeHtml(dropFolderName())}.`;
+      $('mobile-device-name').textContent = state.room.deviceName;
+      document.title = `${state.room.roomName} · Erebrus Drop`;
       $('session-text').innerHTML = state.room.authRequired
-        ? `${icon('lock')} Password room. ${folderLine} Token expires when the room stops or after 2 hours.`
-        : `Open room on this local network. ${folderLine}`;
+        ? `${icon('lock')} Password-protected room. Your session lasts while the room is open (up to 2 hours).`
+        : 'Open room on this network.';
+      showView(state.tab);
       renderFolderShortcuts();
       refreshUploadTarget();
       refreshAll();
     }
 
     async function refreshAll() {
-      await Promise.all([loadFiles(), loadStorage()]);
+      try {
+        await Promise.all([can('view') ? loadFiles() : Promise.resolve(), loadStorage()]);
+      } catch (error) {
+        toast(error.message, { bad: true });
+      }
       renderMedia();
     }
 
@@ -1050,6 +1195,12 @@
       renderFiles();
       renderFolderShortcuts();
       refreshUploadTarget();
+      renderMedia();
+    }
+
+    function openPath(path) {
+      state.path = path;
+      loadFiles().catch((error) => toast(error.message, { bad: true }));
     }
 
     function defaultUploadPath() {
@@ -1080,12 +1231,15 @@
       return state.room?.hostFolderName || 'Drop folder';
     }
 
+    function displayPath(path) {
+      const scope = scopeRoot();
+      if (!inScopedMode()) return path === '/' ? 'Room' : path;
+      const rest = path.startsWith(scope) ? path.substring(scope.length) : path;
+      return rest && rest !== '/' ? `${dropFolderName()}${rest.startsWith('/') ? rest : `/${rest}`}` : dropFolderName();
+    }
+
     function refreshUploadTarget() {
-      const target = uploadTargetPath();
-      $('upload-target').textContent = target;
-      $('upload-target-help').textContent = state.path === '/'
-        ? `No child folder is selected, so uploads go to ${dropFolderName()} ${target}.`
-        : `You are browsing ${state.path}, so uploads go to this folder.`;
+      $('upload-target').textContent = displayPath(uploadTargetPath());
     }
 
     function renderBreadcrumbs() {
@@ -1096,42 +1250,40 @@
         ? state.path.substring(scope.length)
         : state.path;
       const parts = pathForParts.split('/').filter(Boolean);
-      const buttons = [`<button class="crumb-button" data-path="${scope}">${escapeHtml(label)}</button>`];
+      const buttons = [`<button class="crumb-button${parts.length ? '' : ' current'}" data-path="${escapeHtml(scope)}">${escapeHtml(label)}</button>`];
       parts.forEach((part, index) => {
         const suffix = `/${parts.slice(0, index + 1).join('/')}`;
         const path = scoped ? joinPath(scope, suffix) : suffix;
-        buttons.push(`<span class="faint">/</span><button class="crumb-button" data-path="${path}">${escapeHtml(part)}</button>`);
+        const current = index === parts.length - 1 ? ' current' : '';
+        buttons.push(`<span class="faint">/</span><button class="crumb-button${current}" data-path="${escapeHtml(path)}">${escapeHtml(part)}</button>`);
       });
       $('breadcrumbs').innerHTML = buttons.join('');
       $('breadcrumbs').querySelectorAll('[data-path]').forEach((button) => {
-        button.addEventListener('click', () => {
-          state.path = button.dataset.path;
-          loadFiles();
-        });
+        button.addEventListener('click', () => openPath(button.dataset.path));
       });
+      $('breadcrumbs').scrollLeft = $('breadcrumbs').scrollWidth;
       $('up-folder').disabled = state.path === scope || state.path === '/';
     }
 
     function renderFolderShortcuts() {
-      const shortcuts = [{ name: dropFolderName(), path: scopeRoot() }];
-      $('folder-shortcuts').innerHTML = '<h3>Drop Folder</h3>' + shortcuts.map(({ name, path }) => `
-        <div class="folder-link" data-path="${path}">
-          ${icon('folder')}<span>${name}</span>
-        </div>
-      `).join('');
+      $('folder-shortcuts').innerHTML = `<h3>Drop folder</h3>
+        <button class="folder-link" data-path="${escapeHtml(scopeRoot())}">
+          ${icon('folder')}<span>${escapeHtml(dropFolderName())}</span>
+        </button>`;
       $('folder-shortcuts').querySelectorAll('[data-path]').forEach((item) => {
         item.addEventListener('click', () => {
-          state.path = item.dataset.path;
-          loadFiles();
+          showView('files');
+          openPath(item.dataset.path);
         });
       });
     }
 
     function itemIcon(item) {
       if (item.type === 'folder') return 'folder';
-      if ((item.mimeType || '').startsWith('image/')) return 'image';
-      if ((item.mimeType || '').startsWith('video/') || (item.mimeType || '').startsWith('audio/')) return 'video';
-      if ((item.mimeType || '').startsWith('text/')) return 'text';
+      const mime = item.mimeType || '';
+      if (mime.startsWith('image/')) return 'image';
+      if (mime.startsWith('video/') || mime.startsWith('audio/')) return 'video';
+      if (mime.startsWith('text/')) return 'text';
       return 'file';
     }
 
@@ -1167,19 +1319,27 @@
       const files = selectedItems();
       const count = files.length;
       $('selection-bar').classList.toggle('hidden', count === 0);
+      document.body.classList.toggle('has-selection', count > 0);
       $('selection-count').textContent = `${count} selected`;
       $('selection-size').textContent = count ? ` · ${fmt(files.reduce((sum, item) => sum + (item.sizeBytes || 0), 0))}` : '';
+      const fileCount = state.items.filter((item) => item.type !== 'folder').length;
+      $('select-visible').disabled = fileCount === 0;
+    }
+
+    function fileUrl(item, action) {
+      return `/api/files/${encodeURIComponent(item.id)}/${action}?token=${encodeURIComponent(state.token)}`;
     }
 
     function renderFiles() {
       if (!state.items.length) {
         $('files').innerHTML = `
           <div class="empty">
+            <div class="file-icon folder" style="width: 56px; height: 56px;">${icon('folder')}</div>
             <div>
-              <div class="file-icon" style="margin: 0 auto 14px;">${icon('folder')}</div>
-              <strong>This folder is empty</strong>
-              <div class="muted">Upload files or create a folder to get started.</div>
+              <strong>No files here yet</strong>
+              <div class="muted">Files you upload will show up here.</div>
             </div>
+            <label class="btn primary needs-upload" for="upload-file">${icon('upload')}<span>Upload files</span></label>
           </div>`;
         updateSelectionBar();
         return;
@@ -1188,48 +1348,52 @@
       $('files').innerHTML = state.items.map((item) => {
         const isFolder = item.type === 'folder';
         const selected = state.selectedIds.has(item.id);
-        const open = isFolder
-          ? `<button class="file-title" data-open="${item.path}">${escapeHtml(item.name)}</button>`
-          : `<span class="file-title">${escapeHtml(item.name)}</span>`;
+        const name = escapeHtml(item.name);
+        const subtitle = isFolder ? 'Folder' : `${displayType(item)} · ${fmt(item.sizeBytes)}`;
         const action = isFolder
-          ? `<a href="/api/files/${item.id}/bundle?token=${encodeURIComponent(state.token)}&name=${encodeURIComponent(item.name)}" title="Download ${escapeHtml(item.name)} as ZIP"><button class="icon-btn" aria-label="Download ${escapeHtml(item.name)} as ZIP">${icon('download')}</button></a><button class="icon-btn" data-open="${item.path}" title="Open folder" aria-label="Open ${escapeHtml(item.name)}">${icon('folder')}</button>`
-          : `<a href="/api/files/${item.id}/download?token=${encodeURIComponent(state.token)}" title="Download ${escapeHtml(item.name)}"><button class="icon-btn" aria-label="Download ${escapeHtml(item.name)}">${icon('download')}</button></a>`;
+          ? `<a class="btn icon-btn needs-download" href="/api/files/${encodeURIComponent(item.id)}/bundle?token=${encodeURIComponent(state.token)}&name=${encodeURIComponent(item.name)}" title="Download folder as ZIP" aria-label="Download ${name} as ZIP" data-stop>${icon('download')}</a>`
+          : `<a class="btn icon-btn needs-download" href="${fileUrl(item, 'download')}" download="${name}" title="Download" aria-label="Download ${name}" data-stop>${icon('download')}</a>`;
         return `
-          <div class="file-row${selected ? ' selected' : ''}">
+          <div class="file-row${selected ? ' selected' : ''}" data-row="${escapeHtml(item.id)}">
             <div>
               ${isFolder
                 ? '<span class="select-placeholder"></span>'
-                : `<button class="select-btn${selected ? ' active' : ''}" data-select="${item.id}" title="Select ${escapeHtml(item.name)}" aria-label="Select ${escapeHtml(item.name)}">${selected ? icon('check') : ''}</button>`}
+                : `<button class="select-btn needs-download${selected ? ' active' : ''}" data-select="${escapeHtml(item.id)}" aria-pressed="${selected}" aria-label="Select ${name}" data-stop>${selected ? icon('check') : ''}</button>`}
             </div>
             <div class="file-main">
-              <div class="file-icon">${icon(itemIcon(item))}</div>
+              <div class="file-icon${isFolder ? ' folder' : ''}">${icon(itemIcon(item))}</div>
               <div class="file-meta">
-                ${open}
-                <div class="file-subtitle">${escapeHtml(item.path || state.path)}</div>
+                <span class="file-title">${name}</span>
+                <div class="file-subtitle">${escapeHtml(subtitle)}</div>
               </div>
             </div>
-            <div><span class="pill">${escapeHtml(displayType(item))}</span></div>
-            <div class="muted">${isFolder ? '-' : fmt(item.sizeBytes)}</div>
+            <div class="col-type"><span class="pill">${escapeHtml(displayType(item))}</span></div>
+            <div class="col-size muted">${isFolder ? '-' : fmt(item.sizeBytes)}</div>
             <div class="actions">${action}</div>
           </div>`;
       }).join('');
 
-      $('files').querySelectorAll('[data-select]').forEach((button) => {
-        button.addEventListener('click', () => {
-          const id = button.dataset.select;
-          if (state.selectedIds.has(id)) {
-            state.selectedIds.delete(id);
+      const byId = new Map(state.items.map((item) => [item.id, item]));
+      $('files').querySelectorAll('[data-row]').forEach((row) => {
+        row.addEventListener('click', (event) => {
+          if (event.target.closest('[data-stop]') && !event.target.closest('[data-select]')) return;
+          const item = byId.get(row.dataset.row);
+          if (!item) return;
+          if (item.type === 'folder') {
+            openPath(item.path);
+            return;
+          }
+          if (!can('download')) return;
+          if (state.selectedIds.has(item.id)) {
+            state.selectedIds.delete(item.id);
           } else {
-            state.selectedIds.add(id);
+            state.selectedIds.add(item.id);
           }
           renderFiles();
         });
       });
-      $('files').querySelectorAll('[data-open]').forEach((button) => {
-        button.addEventListener('click', () => {
-          state.path = button.dataset.open;
-          loadFiles();
-        });
+      $('files').querySelectorAll('a[data-stop]').forEach((link) => {
+        link.addEventListener('click', () => addActivity(`Downloading ${link.getAttribute('aria-label').replace(/^Download /, '')}`));
       });
       updateSelectionBar();
     }
@@ -1237,210 +1401,330 @@
     function renderMedia() {
       const media = state.items.filter((item) => item.streamable);
       $('media').innerHTML = media.length ? media.map((item) => {
-        const url = `/api/files/${item.id}/stream?token=${encodeURIComponent(state.token)}`;
+        const url = fileUrl(item, 'stream');
+        const isAudio = (item.mimeType || '').startsWith('audio/');
+        const player = isAudio
+          ? `<audio controls preload="none" src="${url}"></audio>`
+          : `<video controls playsinline preload="metadata" src="${url}#t=0.1"></video>`;
         return `
           <div class="media-card">
-            <div class="media-art">${icon('play')}</div>
+            ${player}
             <div>
               <strong>${escapeHtml(item.name)}</strong>
-              <div class="muted">${fmt(item.sizeBytes)} · ${escapeHtml(displayType(item))}</div>
+              <div class="muted">${escapeHtml(displayType(item))} · ${fmt(item.sizeBytes)}</div>
             </div>
-            <a href="${url}" target="_blank"><button class="primary">${icon('play')} Open Stream</button></a>
           </div>`;
       }).join('') : `
-        <div class="empty panel">
+        <div class="empty panel" style="grid-column: 1 / -1;">
+          <div class="file-icon" style="width: 56px; height: 56px;">${icon('play')}</div>
           <div>
-            <div class="file-icon" style="margin: 0 auto 14px;">${icon('play')}</div>
-            <strong>No streamable media here</strong>
-            <div class="muted">Audio and video files in the current folder appear here.</div>
+            <strong>No videos or music here</strong>
+            <div class="muted">Open a folder with audio or video in Files.</div>
           </div>
         </div>`;
     }
 
     async function loadStorage() {
       const storage = await request('/api/storage');
-      const used = storage.roomUsedBytes || 0;
+      state.storage = storage;
+      const free = storage.availableBytes;
       const total = storage.totalBytes || 0;
       const external = state.room?.storageSource === 'external';
       const scanStatus = storage.folderScanStatus || 'unavailable';
       const folderUsed = typeof storage.folderUsedBytes === 'number' ? storage.folderUsedBytes : null;
       const scanActive = external && isFolderScanActive(scanStatus);
-      const pctSource = external ? folderUsed : used;
-      const pct = pctSource !== null && total > 0 ? Math.min(100, Math.round((pctSource / total) * 100)) : 0;
-      const scannedAgo = relativeTime(storage.folderScannedAt);
-      const scanDetail = storage.folderScanMessage || scanLabel(scanStatus);
-      $('storage-ring').style.setProperty('--pct', `${pct * 3.6}deg`);
-      $('storage-percent').textContent = external
-        ? folderUsed !== null ? fmt(folderUsed) : scanActive ? '...' : '--'
-        : `${pct}%`;
-      $('storage-ring-label').textContent = external
-        ? folderUsed !== null ? 'folder used' : 'scanning'
-        : 'room used';
-      $('room-used').textContent = external
-        ? folderUsed !== null ? fmt(folderUsed) : scanActive ? 'Scanning...' : 'Unavailable'
-        : fmt(used);
-      $('room-used-label').textContent = external ? 'Folder size' : 'Room';
-      $('drop-used').textContent = external ? scanLabel(scanStatus) : fmt(storage.dropUsedBytes);
-      $('drop-used-label').textContent = external ? 'Scan' : 'Drop';
-      $('free-space').textContent = fmt(storage.availableBytes);
+      const used = external ? folderUsed : storage.roomUsedBytes;
+      const usedPct = typeof free === 'number' && total > 0 ? Math.min(100, Math.round(((total - free) / total) * 100)) : 0;
+      $('storage-ring').style.setProperty('--pct', `${usedPct * 3.6}deg`);
+      $('storage-percent').textContent = fmt(free);
+      $('storage-ring-label').textContent = 'free';
+      $('free-space').textContent = fmt(free);
+      $('total-space').textContent = fmt(storage.totalBytes);
       $('max-upload').textContent = fmt(storage.maxUploadBytes);
-      $('storage-text').textContent = external
-        ? folderUsed !== null
-          ? `${dropFolderName()} uses ${fmt(folderUsed)}. ${scanDetail}${scannedAgo ? ` · ${scannedAgo}` : ''}.`
-          : `${dropFolderName()} size is being scanned in the background. Transfers stay responsive while this updates.`
-        : storage.lowStorage
-        ? 'Storage is running low. Ask the host to clean up before large uploads.'
-        : 'Storage has room for transfers.';
+      $('room-used').textContent = used !== null && used !== undefined ? fmt(used) : scanActive ? '...' : '--';
+      $('room-used-label').textContent = external ? dropFolderName() : 'In room';
+      const scannedAgo = relativeTime(storage.folderScannedAt);
+      $('storage-text').textContent = storage.lowStorage
+        ? 'The host is low on space. Large uploads may not fit.'
+        : external && scannedAgo ? `Folder size checked ${scannedAgo}.` : '';
+      const freeLabel = typeof free === 'number' ? `${fmt(free)} free` : 'Space unknown';
+      for (const id of ['mobile-free', 'upload-free']) {
+        const chip = $(id);
+        chip.textContent = freeLabel;
+        chip.classList.toggle('warn', Boolean(storage.lowStorage));
+      }
       scheduleStoragePoll(scanActive);
     }
 
     function addActivity(text) {
       const node = document.createElement('div');
       node.className = 'activity-item';
-      node.innerHTML = `${icon('refresh')}<span>${escapeHtml(text)}</span>`;
+      node.innerHTML = `${icon('clock')}<span>${escapeHtml(text)}</span>`;
       $('activity').prepend(node);
-      while ($('activity').children.length > 4) $('activity').lastElementChild.remove();
+      while ($('activity').children.length > 5) $('activity').lastElementChild.remove();
     }
 
-    function uploadFileWithProgress({ file, target, sentBefore, totalBytes, startedAt, index, count }) {
+    // ---------------- Uploads ----------------
+
+    function renderQueue() {
+      const upload = state.upload || state.lastUpload;
+      if (!upload) {
+        $('upload-queue').innerHTML = '';
+        return;
+      }
+      const iconFor = { waiting: 'clock', active: 'loader', done: 'check-circle', failed: 'alert', skipped: 'x' };
+      $('upload-queue').innerHTML = upload.files.map((entry) => `
+        <div class="queue-item ${entry.status}">
+          ${icon(iconFor[entry.status])}
+          <span class="name">${escapeHtml(entry.file.name)}</span>
+          <span class="muted">${fmt(entry.file.size)}</span>
+        </div>`).join('');
+    }
+
+    function setUploadProgress({ title, sent, total, speed }) {
+      const progress = total > 0 ? Math.min(100, Math.floor((sent / total) * 100)) : 0;
+      $('upload-progress').classList.remove('hidden');
+      $('upload-progress-title').textContent = title;
+      $('upload-progress-percent').textContent = `${progress}%`;
+      $('upload-progress-fill').style.width = `${progress}%`;
+      const eta = speed > 0 && total > sent ? fmtEta((total - sent) / speed) : '';
+      $('upload-progress-detail').textContent = [
+        `${fmt(sent)} of ${fmt(total)}`,
+        speed > 0 ? `${fmt(speed)}/s` : '',
+        eta
+      ].filter(Boolean).join(' · ');
+    }
+
+    async function preflightUpload(files) {
+      const data = await request('/api/files/upload/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: files.map((file) => ({ name: file.name, size: file.size })) })
+      });
+      return data.ok === false ? (data.error || 'These files will not fit on the host.') : null;
+    }
+
+    function uploadOne(entry, target, onProgress) {
       return new Promise((resolve, reject) => {
         if (state.demo) {
-          const nextSent = sentBefore + file.size;
-          setUploadProgress({
-            title: `Uploading ${index}/${count} ${file.name}`,
-            sent: nextSent,
-            total: totalBytes,
-            speed: nextSent / Math.max((performance.now() - startedAt) / 1000, 0.001)
-          });
-          setTimeout(resolve, 160);
+          let sent = 0;
+          const step = Math.max(entry.file.size / 8, 1);
+          const timer = setInterval(() => {
+            if (state.upload?.cancelled) {
+              clearInterval(timer);
+              reject(new RequestError('Upload cancelled.', -1));
+              return;
+            }
+            sent = Math.min(entry.file.size, sent + step);
+            onProgress(sent);
+            if (sent >= entry.file.size) {
+              clearInterval(timer);
+              resolve();
+            }
+          }, 90);
           return;
         }
         const xhr = new XMLHttpRequest();
-        const url = `/api/files/upload?path=${encodeURIComponent(target)}&name=${encodeURIComponent(file.name)}`;
+        state.upload.xhr = xhr;
+        const url = `/api/files/upload?path=${encodeURIComponent(target)}&name=${encodeURIComponent(entry.file.name)}`;
         xhr.open('POST', url);
         if (state.token) xhr.setRequestHeader('Authorization', `Bearer ${state.token}`);
-        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
-        xhr.upload.onprogress = (event) => {
-          const currentSent = event.lengthComputable ? event.loaded : 0;
-          const overallSent = sentBefore + currentSent;
-          const elapsed = Math.max((performance.now() - startedAt) / 1000, 0.001);
-          setUploadProgress({
-            title: `Uploading ${index}/${count} ${file.name}`,
-            sent: overallSent,
-            total: totalBytes,
-            speed: overallSent / elapsed
-          });
-        };
+        xhr.setRequestHeader('Content-Type', entry.file.type || 'application/octet-stream');
+        xhr.upload.onprogress = (event) => onProgress(event.lengthComputable ? event.loaded : 0);
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) {
             resolve();
             return;
           }
+          let message = 'Upload failed.';
           try {
-            const data = JSON.parse(xhr.responseText || '{}');
-            reject(new Error(data.error || 'Upload failed'));
-          } catch (_) {
-            reject(new Error(xhr.responseText || 'Upload failed'));
-          }
+            message = JSON.parse(xhr.responseText || '{}').error || message;
+          } catch (_) {}
+          if (xhr.status === 401) sessionExpired();
+          reject(new RequestError(message, xhr.status));
         };
-        xhr.onerror = () => reject(new Error('Network error during upload'));
-        xhr.send(file);
+        xhr.onerror = () => reject(new RequestError('The connection dropped during upload.', 0));
+        xhr.onabort = () => reject(new RequestError('Upload cancelled.', -1));
+        xhr.send(entry.file);
       });
     }
 
-    async function uploadFiles(files) {
+    async function explainNetworkFailure(remainingBytes) {
+      // A host that runs out of space closes the connection mid-upload, which
+      // the browser reports as a network error. Check storage to say which.
+      try {
+        await loadStorage();
+        const free = state.storage?.availableBytes;
+        if (typeof free === 'number' && free < remainingBytes + 64 * 1024 * 1024) {
+          return 'The host ran out of storage. Free up space on the host and try again.';
+        }
+      } catch (_) {
+        return 'Lost connection to the room. Check Wi-Fi and that the host app is open.';
+      }
+      return 'The connection dropped during upload. Check Wi-Fi and try again.';
+    }
+
+    async function uploadFiles(fileList) {
+      const files = Array.from(fileList || []);
+      $('upload-file').value = '';
       if (!files.length) return;
-      $('upload-button').disabled = true;
-      $('upload-message').textContent = `Uploading ${files.length} file(s)...`;
+      if (state.upload) {
+        toast('An upload is already running.', { bad: true });
+        return;
+      }
+      showView('upload');
       const target = uploadTargetPath();
       const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+      state.upload = {
+        files: files.map((file) => ({ file, status: 'waiting' })),
+        cancelled: false,
+        xhr: null
+      };
+      $('drop-zone').classList.add('busy');
+      setNotice(null, '');
+      renderQueue();
+      setUploadProgress({ title: 'Checking space...', sent: 0, total: totalBytes, speed: 0 });
+
+      let problem = null;
+      try {
+        problem = await preflightUpload(files);
+      } catch (error) {
+        if (error.status === 401) {
+          finishUpload();
+          return;
+        }
+        problem = error.status === 0 ? error.message : null;
+      }
+      if (problem) {
+        state.upload.files.forEach((entry) => { entry.status = 'skipped'; });
+        finishUpload();
+        $('upload-progress').classList.add('hidden');
+        setNotice('bad', problem);
+        return;
+      }
+
       const startedAt = performance.now();
       let sentBefore = 0;
+      let done = 0;
       try {
-        for (let index = 0; index < files.length; index++) {
-          const file = files[index];
-          await uploadFileWithProgress({
-            file,
-            target,
-            sentBefore,
-            totalBytes,
-            startedAt,
-            index: index + 1,
-            count: files.length
+        for (let index = 0; index < state.upload.files.length; index++) {
+          const entry = state.upload.files[index];
+          if (state.upload.cancelled) break;
+          entry.status = 'active';
+          renderQueue();
+          const title = files.length === 1 ? `Uploading ${entry.file.name}` : `Uploading ${index + 1} of ${files.length}`;
+          await uploadOne(entry, target, (sent) => {
+            const overall = sentBefore + sent;
+            const elapsed = Math.max((performance.now() - startedAt) / 1000, 0.001);
+            setUploadProgress({ title, sent: overall, total: totalBytes, speed: overall / elapsed });
           });
-          sentBefore += file.size;
-          addActivity(`Uploaded ${file.name} to ${target}`);
+          entry.status = 'done';
+          done++;
+          sentBefore += entry.file.size;
+          renderQueue();
         }
-        const elapsed = Math.max((performance.now() - startedAt) / 1000, 0.001);
-        setUploadProgress({
-          title: `Uploaded ${files.length} file${files.length === 1 ? '' : 's'}`,
-          sent: totalBytes,
-          total: totalBytes,
-          speed: totalBytes / elapsed,
-          done: true
-        });
-        $('upload-file').value = '';
-        $('upload-message').textContent = 'Upload complete.';
-        refreshAll();
+        $('upload-progress').classList.add('hidden');
+        setNotice('good', `Uploaded ${done} file${done === 1 ? '' : 's'} to ${displayPath(target)}.`);
+        addActivity(`Uploaded ${done} file${done === 1 ? '' : 's'}`);
+        toast(`Uploaded ${done} file${done === 1 ? '' : 's'}`);
       } catch (error) {
-        $('upload-message').textContent = error.message;
+        const active = state.upload.files.find((entry) => entry.status === 'active');
+        if (active) active.status = error.status === -1 ? 'skipped' : 'failed';
+        state.upload.files.forEach((entry) => { if (entry.status === 'waiting') entry.status = 'skipped'; });
+        $('upload-progress').classList.add('hidden');
+        let message = error.message;
+        if (error.status === -1) {
+          message = done ? `Cancelled. ${done} file${done === 1 ? ' was' : 's were'} uploaded.` : 'Upload cancelled.';
+        } else if (error.status === 0) {
+          message = await explainNetworkFailure(totalBytes - sentBefore);
+        }
+        setNotice(error.status === -1 ? 'info' : 'bad', message);
       } finally {
-        $('upload-button').disabled = false;
+        finishUpload();
+        if (done) refreshAll();
+        else loadStorage().catch(() => {});
       }
     }
 
-    async function downloadSelectedFiles() {
+    function finishUpload() {
+      state.lastUpload = state.upload;
+      state.upload = null;
+      $('drop-zone').classList.remove('busy');
+      renderQueue();
+    }
+
+    function cancelUpload() {
+      if (!state.upload) return;
+      state.upload.cancelled = true;
+      state.upload.xhr?.abort();
+    }
+
+    // ---------------- Downloads ----------------
+
+    function downloadSelectedFiles() {
       const files = selectedItems();
       if (!files.length) return;
-      if (files.length === 1) {
-        addActivity(`Started download: ${files[0].name}`);
-        const link = document.createElement('a');
-        link.href = `/api/files/${files[0].id}/download?token=${encodeURIComponent(state.token)}`;
-        link.download = files[0].name;
-        link.style.display = 'none';
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        return;
-      }
-      addActivity(`Started ZIP bundle for ${files.length} files`);
-      const params = new URLSearchParams();
-      if (state.token) params.set('token', state.token);
-      params.set('name', 'erebrus-drop-selection');
-      files.forEach((file) => params.append('id', file.id));
       const link = document.createElement('a');
-      link.href = `/api/files/bundle?${params.toString()}`;
-      link.download = 'erebrus-drop-selection.zip';
+      if (files.length === 1) {
+        link.href = fileUrl(files[0], 'download');
+        link.download = files[0].name;
+        addActivity(`Downloading ${files[0].name}`);
+      } else {
+        const params = new URLSearchParams();
+        if (state.token) params.set('token', state.token);
+        params.set('name', 'erebrus-drop-selection');
+        files.forEach((file) => params.append('id', file.id));
+        link.href = `/api/files/bundle?${params.toString()}`;
+        link.download = 'erebrus-drop-selection.zip';
+        addActivity(`Downloading ${files.length} files as ZIP`);
+        toast(`Preparing a ZIP of ${files.length} files...`);
+      }
       link.style.display = 'none';
       document.body.appendChild(link);
       link.click();
       link.remove();
     }
 
+    // ---------------- Navigation ----------------
+
+    function showView(tab) {
+      state.tab = tab;
+      document.querySelectorAll('[data-tab]').forEach((item) => {
+        const active = item.dataset.tab === tab;
+        item.classList.toggle('active', active);
+        item.setAttribute('aria-current', active ? 'page' : 'false');
+      });
+      document.querySelectorAll('.view').forEach((view) => view.classList.add('hidden'));
+      $(`view-${tab}`).classList.remove('hidden');
+      document.body.classList.toggle('on-files', tab === 'files');
+      refreshUploadTarget();
+      window.scrollTo({ top: 0 });
+    }
+
+    document.querySelectorAll('[data-tab]').forEach((tab) => {
+      tab.addEventListener('click', () => showView(tab.dataset.tab));
+    });
+
+    // ---------------- Events ----------------
+
     $('login-form').addEventListener('submit', async (event) => {
       event.preventDefault();
       $('login-message').textContent = '';
+      $('login-button').disabled = true;
       try {
         await login($('password').value);
+        $('password').value = '';
       } catch (error) {
         $('login-message').textContent = error.message;
+      } finally {
+        $('login-button').disabled = false;
       }
     });
 
-    document.querySelectorAll('.tab').forEach((tab) => {
-      tab.addEventListener('click', () => {
-        document.querySelectorAll('.tab').forEach((item) => item.classList.remove('active'));
-        document.querySelectorAll('.view').forEach((view) => view.classList.add('hidden'));
-        tab.classList.add('active');
-        $(`view-${tab.dataset.tab}`).classList.remove('hidden');
-        refreshUploadTarget();
-      });
-    });
-
     $('open-upload-target').addEventListener('click', () => {
-      state.path = uploadTargetPath();
-      document.querySelector('[data-tab="files"]').click();
-      loadFiles();
+      if (!can('view')) return;
+      showView('files');
+      openPath(uploadTargetPath());
     });
 
     $('up-folder').addEventListener('click', () => {
@@ -1449,10 +1733,7 @@
       parts.pop();
       const nextPath = parts.length ? `/${parts.join('/')}` : '/';
       const scope = scopeRoot();
-      state.path = inScopedMode() && (nextPath === '/' || !nextPath.startsWith(scope))
-        ? scope
-        : nextPath;
-      loadFiles();
+      openPath(inScopedMode() && (nextPath === '/' || !nextPath.startsWith(scope)) ? scope : nextPath);
     });
 
     $('refresh-files').addEventListener('click', refreshAll);
@@ -1460,11 +1741,8 @@
       const files = state.items.filter((item) => item.type !== 'folder');
       const allSelected = files.length > 0 && files.every((item) => state.selectedIds.has(item.id));
       files.forEach((item) => {
-        if (allSelected) {
-          state.selectedIds.delete(item.id);
-        } else {
-          state.selectedIds.add(item.id);
-        }
+        if (allSelected) state.selectedIds.delete(item.id);
+        else state.selectedIds.add(item.id);
       });
       renderFiles();
     });
@@ -1473,53 +1751,112 @@
       state.selectedIds.clear();
       renderFiles();
     });
-    $('quick-upload').addEventListener('click', () => document.querySelector('[data-tab="upload"]').click());
 
-    $('create-folder').addEventListener('click', async () => {
+    function toggleNewFolder(show) {
+      $('new-folder-form').classList.toggle('hidden', !show);
+      if (show) $('folder-name').focus();
+      else $('folder-name').value = '';
+    }
+
+    $('show-new-folder').addEventListener('click', () => toggleNewFolder($('new-folder-form').classList.contains('hidden')));
+    $('cancel-new-folder').addEventListener('click', () => toggleNewFolder(false));
+    $('new-folder-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
       const name = $('folder-name').value.trim();
       if (!name) return;
-      await request('/api/folders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: state.path === '/' ? `/${name}` : `${state.path}/${name}` })
-      });
-      addActivity(`Created folder ${name}`);
-      $('folder-name').value = '';
-      refreshAll();
+      if (/[\\/]/.test(name) || name === '.' || name === '..') {
+        toast('Folder names cannot contain / or \\', { bad: true });
+        return;
+      }
+      try {
+        await request('/api/folders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: joinPath(state.path, name) })
+        });
+        addActivity(`Created folder ${name}`);
+        toast(`Created ${name}`);
+        toggleNewFolder(false);
+        refreshAll();
+      } catch (error) {
+        toast(error.message, { bad: true });
+      }
     });
 
-    $('upload-button').addEventListener('click', () => uploadFiles(Array.from($('upload-file').files || [])));
-    $('drop-zone').addEventListener('dragover', (event) => {
+    $('upload-file').addEventListener('change', () => uploadFiles($('upload-file').files));
+    $('cancel-upload').addEventListener('click', cancelUpload);
+
+    // Drag and drop anywhere on the page (desktop browsers).
+    let dragDepth = 0;
+    const hasFiles = (event) => Array.from(event.dataTransfer?.types || []).includes('Files');
+    document.addEventListener('dragenter', (event) => {
+      if (!hasFiles(event) || $('app').classList.contains('hidden')) return;
       event.preventDefault();
-      $('drop-zone').classList.add('dragging');
+      dragDepth++;
+      document.body.classList.add('dragging');
     });
-    $('drop-zone').addEventListener('dragleave', () => $('drop-zone').classList.remove('dragging'));
-    $('drop-zone').addEventListener('drop', (event) => {
+    document.addEventListener('dragover', (event) => {
+      if (hasFiles(event)) event.preventDefault();
+    });
+    document.addEventListener('dragleave', () => {
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (!dragDepth) document.body.classList.remove('dragging');
+    });
+    document.addEventListener('drop', (event) => {
+      if (!hasFiles(event)) return;
       event.preventDefault();
-      $('drop-zone').classList.remove('dragging');
-      uploadFiles(Array.from(event.dataTransfer.files || []));
+      dragDepth = 0;
+      document.body.classList.remove('dragging');
+      if ($('app').classList.contains('hidden')) return;
+      uploadFiles(event.dataTransfer.files);
     });
 
-    $('send-text').addEventListener('click', async () => {
-      const title = $('text-title').value || 'Browser text';
-      await request('/api/text', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title,
-          body: $('text-body').value,
-          source: 'browser'
-        })
-      });
-      $('text-body').value = '';
-      $('text-message').textContent = 'Text saved to the room.';
-      addActivity(`Saved text: ${title}`);
-      refreshAll();
+    $('text-body').addEventListener('input', () => {
+      $('send-text').disabled = !$('text-body').value.trim();
+    });
+    $('text-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const body = $('text-body').value;
+      if (!body.trim()) return;
+      const title = $('text-title').value.trim() || body.trim().split('\n')[0].slice(0, 40).trim() || 'Note';
+      $('send-text').disabled = true;
+      try {
+        await request('/api/text', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, body, source: 'browser' })
+        });
+        $('text-body').value = '';
+        $('text-title').value = '';
+        toast('Sent to the room');
+        addActivity(`Sent text: ${title}`);
+        refreshAll();
+      } catch (error) {
+        toast(error.message, { bad: true });
+        $('send-text').disabled = false;
+      }
     });
 
-    $('logout').addEventListener('click', () => {
-      sessionStorage.removeItem('dropToken');
+    function logout() {
+      if (state.upload && !confirm('An upload is running. Leave anyway?')) return;
+      cancelUpload();
+      try { sessionStorage.removeItem('dropToken'); } catch (_) {}
       location.reload();
+    }
+    $('logout').addEventListener('click', logout);
+    $('mobile-logout').addEventListener('click', logout);
+
+    window.addEventListener('beforeunload', (event) => {
+      if (!state.upload) return;
+      event.preventDefault();
+      event.returnValue = '';
+    });
+
+    // Phones pause background tabs; refresh when the page comes back.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && state.token && !state.upload && !$('app').classList.contains('hidden')) {
+        refreshAll();
+      }
     });
 
     installIcons();

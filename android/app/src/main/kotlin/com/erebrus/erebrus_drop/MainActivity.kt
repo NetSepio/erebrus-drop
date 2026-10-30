@@ -24,19 +24,25 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.StandardMethodCodec
 import androidx.core.content.FileProvider
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.InetAddress
 import java.net.NetworkInterface
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
 import java.util.ArrayDeque
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 class MainActivity : FlutterActivity() {
     private val channelName = "com.erebrus.drop/network"
     private val qrScannerChannelName = "com.erebrus.drop/qr_scanner"
     private val walletChannelName = "com.erebrus.drop/wallet"
     private val pickUploadFileRequest = 7317
+    private val pickReserveBytes = 128L * 1024 * 1024
     private val pickHostFolderRequest = 7318
     private val scanQrRequest = 7319
     private var hotspotReservation: WifiManager.LocalOnlyHotspotReservation? = null
@@ -68,8 +74,25 @@ class MainActivity : FlutterActivity() {
             get() = mimeType == Document.MIME_TYPE_DIR
     }
 
+    /** A Drop-folder file held open so the room can serve byte ranges in place. */
+    private class HostFileReader(
+        val descriptor: android.os.ParcelFileDescriptor,
+        val channel: FileChannel
+    )
+
+    private val hostFileReaders = ConcurrentHashMap<Int, HostFileReader>()
+    private val nextHostFileReaderId = AtomicInteger(1)
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        // Reads run on a background queue so serving video never blocks the UI.
+        val messenger = flutterEngine.dartExecutor.binaryMessenger
+        MethodChannel(
+            messenger,
+            "com.erebrus.drop/host_reader",
+            StandardMethodCodec.INSTANCE,
+            messenger.makeBackgroundTaskQueue()
+        ).setMethodCallHandler { call, result -> handleHostFileReader(call, result) }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, qrScannerChannelName).setMethodCallHandler {
             call,
             result ->
@@ -251,9 +274,48 @@ class MainActivity : FlutterActivity() {
                 result.success(null)
                 return
             }
-            result.success(uris.map { copyPickedFile(it) })
+            // Picked files are copied into the cache before upload. Check the
+            // copies fit first, and copy off the UI thread so large files do
+            // not freeze the app.
+            val needed = uris.sumOf { contentSize(it) }
+            val free = StatFs(cacheDir.path).availableBytes
+            if (needed > 0 && needed + pickReserveBytes > free) {
+                result.error(
+                    "INSUFFICIENT_STORAGE",
+                    "Not enough free space on this phone to prepare these files.",
+                    mapOf("requiredBytes" to needed, "availableBytes" to free)
+                )
+                return
+            }
+            android.os.AsyncTask.execute {
+                val copied = mutableListOf<Map<String, Any?>>()
+                try {
+                    uris.forEach { copied.add(copyPickedFile(it)) }
+                    mainHandler.post { result.success(copied) }
+                } catch (error: Exception) {
+                    copied.forEach { File(it["path"].toString()).delete() }
+                    mainHandler.post { result.error("PICK_FILE_FAILED", error.message, null) }
+                }
+            }
         } catch (error: Exception) {
             result.error("PICK_FILE_FAILED", error.message, null)
+        }
+    }
+
+    private fun contentSize(uri: Uri): Long {
+        var cursor: Cursor? = null
+        return try {
+            cursor = contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)
+            val sizeIndex = cursor?.getColumnIndex(OpenableColumns.SIZE) ?: -1
+            if (cursor != null && cursor.moveToFirst() && sizeIndex >= 0 && !cursor.isNull(sizeIndex)) {
+                cursor.getLong(sizeIndex)
+            } else {
+                0L
+            }
+        } catch (_: Exception) {
+            0L
+        } finally {
+            cursor?.close()
         }
     }
 
@@ -615,6 +677,69 @@ class MainActivity : FlutterActivity() {
         } catch (error: Exception) {
             result.error("HOST_FOLDER_COPY_FAILED", error.message, null)
         }
+    }
+
+    private fun handleHostFileReader(call: MethodCall, result: MethodChannel.Result) {
+        try {
+            when (call.method) {
+                "open" -> {
+                    val rootUri = call.argument<String>("rootUri") ?: throw IllegalArgumentException("Missing rootUri")
+                    val path = call.argument<String>("path") ?: throw IllegalArgumentException("Missing path")
+                    val document = findHostDocument(Uri.parse(rootUri), path)
+                        ?: throw IllegalArgumentException("File not found: $path")
+                    if (document.isDirectory) throw IllegalArgumentException("Folders cannot be read as files.")
+                    val descriptor = contentResolver.openFileDescriptor(document.uri, "r")
+                        ?: throw IllegalStateException("Could not open selected file.")
+                    val size = if (descriptor.statSize >= 0) descriptor.statSize else document.sizeBytes
+                    val id = nextHostFileReaderId.getAndIncrement()
+                    hostFileReaders[id] = HostFileReader(
+                        descriptor,
+                        FileInputStream(descriptor.fileDescriptor).channel
+                    )
+                    result.success(
+                        mapOf(
+                            "id" to id,
+                            "size" to size,
+                            "name" to document.name,
+                            "mimeType" to (document.mimeType ?: "application/octet-stream")
+                        )
+                    )
+                }
+                "read" -> {
+                    val id = call.argument<Int>("id") ?: throw IllegalArgumentException("Missing id")
+                    val offset = call.argument<Number>("offset")?.toLong() ?: 0L
+                    val length = (call.argument<Int>("length") ?: 0).coerceIn(0, 4 * 1024 * 1024)
+                    val reader = hostFileReaders[id] ?: throw IllegalStateException("Reader is closed.")
+                    val buffer = ByteBuffer.allocate(length)
+                    var position = offset
+                    while (buffer.hasRemaining()) {
+                        val read = reader.channel.read(buffer, position)
+                        if (read < 0) break
+                        position += read
+                    }
+                    result.success(buffer.array().copyOf(buffer.position()))
+                }
+                "close" -> {
+                    val id = call.argument<Int>("id")
+                    if (id != null) closeHostFileReader(id)
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        } catch (error: Exception) {
+            result.error("HOST_FILE_READ_FAILED", error.message, null)
+        }
+    }
+
+    override fun onDestroy() {
+        hostFileReaders.keys.toList().forEach { closeHostFileReader(it) }
+        super.onDestroy()
+    }
+
+    private fun closeHostFileReader(id: Int) {
+        val reader = hostFileReaders.remove(id) ?: return
+        runCatching { reader.channel.close() }
+        runCatching { reader.descriptor.close() }
     }
 
     private fun copyHostFileToCache(call: MethodCall, result: MethodChannel.Result) {

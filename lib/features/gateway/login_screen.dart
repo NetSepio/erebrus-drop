@@ -27,7 +27,7 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
   @override
   void initState() {
     super.initState();
-    widget.auth.signedIn.addListener(_onSignedIn);
+    widget.auth.loginRevision.addListener(_onSignedIn);
     if (!isDesktopPlatform && !widget.auth.solanaMobileDevice.value) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted) return;
@@ -38,7 +38,7 @@ class _GatewayLoginScreenState extends State<GatewayLoginScreen> {
 
   @override
   void dispose() {
-    widget.auth.signedIn.removeListener(_onSignedIn);
+    widget.auth.loginRevision.removeListener(_onSignedIn);
     super.dispose();
   }
 

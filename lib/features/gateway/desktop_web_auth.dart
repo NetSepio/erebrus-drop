@@ -98,7 +98,8 @@ class DesktopWebAuth {
       throw DesktopWebAuthException(error);
     }
 
-    final token = params['token'] ?? params['paseto'] ?? '';
+    final token =
+        params['access_token'] ?? params['token'] ?? params['paseto'] ?? '';
     final userId = params['user_id'] ?? params['userId'] ?? '';
     final wallet =
         params['wallet'] ??

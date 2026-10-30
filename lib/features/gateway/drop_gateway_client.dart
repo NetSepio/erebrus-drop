@@ -11,17 +11,18 @@ import 'package:pointycastle/export.dart';
 import 'gateway_config.dart';
 import 'gateway_http.dart';
 import 'gateway_models.dart';
+import 'gateway_session.dart';
 
 /// Client for the Erebrus gateway Drop endpoints.
 class DropGatewayClient {
-  DropGatewayClient({String? gatewayUrl, this.bearerToken, this.onUnauthorized})
+  DropGatewayClient({String? gatewayUrl, this.bearerToken, this.authorization})
     : _base = GatewayHttp.normalizeBase(gatewayUrl ?? resolveGatewayUrl()),
       _ipfsGatewayBase = GatewayHttp.normalizeBase(resolveIpfsGatewayUrl());
 
   final Uri _base;
   Uri _ipfsGatewayBase;
   String? bearerToken;
-  Future<void> Function(String token)? onUnauthorized;
+  GatewaySessionAuthorization? authorization;
 
   set token(String? value) => bearerToken = value;
 
@@ -48,7 +49,7 @@ class DropGatewayClient {
     final map = await GatewayHttp.getJson(
       GatewayHttp.apiUri(_base, path: '/api/v2/drop/nodes', query: query),
       bearerToken: bearerToken,
-      onUnauthorized: onUnauthorized,
+      authorization: authorization,
     );
     final nodes = (map['nodes'] as List?) ?? [];
     return nodes
@@ -91,7 +92,7 @@ class DropGatewayClient {
       GatewayHttp.apiUri(_base, path: '/api/v2/drop/uploads'),
       body,
       bearerToken: bearerToken,
-      onUnauthorized: onUnauthorized,
+      authorization: authorization,
     );
     return DropUploadReservation.fromJson(map);
   }
@@ -109,11 +110,11 @@ class DropGatewayClient {
     );
     final map = await GatewayHttp.putBytes(
       uri,
-      file.openRead().cast<List<int>>(),
+      () => file.openRead().cast<List<int>>(),
       contentLength: await file.length(),
       contentType: contentType ?? 'application/octet-stream',
       bearerToken: bearerToken,
-      onUnauthorized: onUnauthorized,
+      authorization: authorization,
     );
     return DropGatewayFile.fromJson(map);
   }
@@ -150,7 +151,7 @@ class DropGatewayClient {
     final map = await GatewayHttp.getJson(
       GatewayHttp.apiUri(_base, path: '/api/v2/drop/files'),
       bearerToken: bearerToken,
-      onUnauthorized: onUnauthorized,
+      authorization: authorization,
     );
     final files = (map['files'] as List?) ?? [];
     return files
@@ -164,7 +165,7 @@ class DropGatewayClient {
     final map = await GatewayHttp.getJson(
       GatewayHttp.apiUri(_base, path: '/api/v2/orgs/$orgId/drop/files'),
       bearerToken: bearerToken,
-      onUnauthorized: onUnauthorized,
+      authorization: authorization,
     );
     final files = (map['files'] as List?) ?? [];
     return files
@@ -174,7 +175,8 @@ class DropGatewayClient {
   }
 
   String _randomIdempotencyKey() {
-    final bytes = List<int>.generate(16, (_) => 0);
+    final random = Random.secure();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
     return base64Encode(bytes).replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
   }
 
@@ -224,6 +226,12 @@ class DropGatewayClient {
         break;
       } on GatewayException catch (e) {
         lastError = e;
+        if (e.statusCode == 401 ||
+            e.retryAt != null ||
+            e.errorCode == 'SESSION_CHANGED' ||
+            e.errorCode == 'SESSION_LOGIN_REQUIRED') {
+          rethrow;
+        }
         // Try the next candidate on HTTP errors (404, 403, etc.).
         if (i == candidates.length - 1) rethrow;
         continue;
@@ -296,7 +304,7 @@ class DropGatewayClient {
 
   /// Whether a download URL needs the bearer token.
   bool _needsAuthForDownload(Uri url) {
-    return url.host == _base.host &&
+    return url.origin == _base.origin &&
         (url.path.startsWith('/api/v2/drop/files/') ||
             url.path.startsWith('/api/v2/drop/uploads/'));
   }
@@ -307,31 +315,40 @@ class DropGatewayClient {
     File tempFile, {
     required bool needsAuth,
     void Function(int received, int total)? onProgress,
-  }) async {
-    final client = HttpClient();
-    client.connectionTimeout = GatewayHttp.createClient().connectionTimeout;
+  }) => GatewayHttp.protectedRequest(
+    authorization: needsAuth ? authorization : null,
+    bearerToken: needsAuth ? bearerToken : null,
+    send: (token) => _downloadAttempt(url, tempFile, token, onProgress),
+  );
+
+  Future<void> _downloadAttempt(
+    Uri url,
+    File tempFile,
+    String? token,
+    void Function(int received, int total)? onProgress,
+  ) async {
+    GatewayHttp.checkRetryAfter(url);
+    final client = GatewayHttp.createClient();
     try {
       final request = await client
           .getUrl(url)
           .timeout(const Duration(seconds: 20));
-      if (needsAuth && bearerToken != null && bearerToken!.isNotEmpty) {
-        request.headers.set(
-          HttpHeaders.authorizationHeader,
-          'Bearer $bearerToken',
-        );
+      request.followRedirects = token == null;
+      if (token != null && token.isNotEmpty) {
+        request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
       }
       final response = await request.close().timeout(
         const Duration(seconds: 60),
       );
-      if (response.statusCode >= 400) {
+      if (response.statusCode < 200 || response.statusCode >= 300) {
         final body = await utf8.decoder.bind(response).join();
-        if (response.statusCode == HttpStatus.unauthorized &&
-            needsAuth &&
-            bearerToken != null &&
-            bearerToken!.isNotEmpty) {
-          await onUnauthorized?.call(bearerToken!);
-        }
-        throw GatewayHttp.responseException(response.statusCode, body);
+        final failure = GatewayHttp.responseException(
+          response.statusCode,
+          body,
+          retryAfter: response.headers.value(HttpHeaders.retryAfterHeader),
+        );
+        GatewayHttp.recordRetryAfter(url, failure);
+        throw failure;
       }
       final sink = tempFile.openWrite();
       var received = 0;
