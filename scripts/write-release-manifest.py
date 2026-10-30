@@ -64,6 +64,8 @@ def main() -> None:
         if kind is None:
             raise SystemExit(f"::error::Unexpected release asset {path.name}")
         _, platform, store, label = kind
+        if path.suffix == ".aab":
+            label = "Android App Bundle for the Play Console (Play Store key)"
         asset = {
             "name": path.name,
             "platform": platform,
@@ -73,6 +75,7 @@ def main() -> None:
         }
         if store:
             asset["store"] = store
+            asset["format"] = path.suffix.lstrip(".")
             asset["packageName"] = PACKAGE_NAME
             if certs[store]:
                 asset["signingCertSha256"] = certs[store]

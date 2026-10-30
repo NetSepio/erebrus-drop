@@ -174,9 +174,11 @@ jobs:
 
       - run: flutter pub get
 
-      - name: Build release APKs
+      # The App Bundle is what the Play Console takes; the dApp Store takes the APK.
+      - name: Build release APKs and Play Store App Bundle
         run: |
           scripts/build.sh build-apk --flavor playstore --release
+          scripts/build.sh build-appbundle --flavor playstore --release
           scripts/build.sh build-apk --flavor dappstore --release
 
       - name: Package and verify signatures
@@ -188,6 +190,7 @@ jobs:
           mkdir -p dist
           cp build/app/outputs/flutter-apk/app-playstore-release.apk "dist/erebrus-drop-playstore-${TAG}.apk"
           cp build/app/outputs/flutter-apk/app-dappstore-release.apk "dist/erebrus-drop-dappstore-${TAG}.apk"
+          cp build/app/outputs/bundle/playstoreRelease/app-playstore-release.aab "dist/erebrus-drop-playstore-${TAG}.aab"
 
           bt=$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
           apk_cert() {
@@ -197,8 +200,12 @@ jobs:
           dappstore=$(apk_cert "dist/erebrus-drop-dappstore-${TAG}.apk")
           echo "playstore APK certificate SHA-256: ${playstore}"
           echo "dappstore APK certificate SHA-256: ${dappstore}"
-          if [[ "${playstore}" != "${EXPECTED_PLAYSTORE_SHA256}" || "${dappstore}" != "${EXPECTED_DAPPSTORE_SHA256}" ]]; then
-            echo "::error::An APK is not signed with its flavor's keystore. Check the Gradle signing configuration."
+          # An App Bundle is jar-signed; keytool prints colon-separated upper case.
+          bundle=$(keytool -printcert -jarfile "dist/erebrus-drop-playstore-${TAG}.aab" \
+            | awk '/SHA256:/ { print $2; exit }' | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          echo "playstore AAB certificate SHA-256: ${bundle}"
+          if [[ "${playstore}" != "${EXPECTED_PLAYSTORE_SHA256}" || "${dappstore}" != "${EXPECTED_DAPPSTORE_SHA256}" || "${bundle}" != "${EXPECTED_PLAYSTORE_SHA256}" ]]; then
+            echo "::error::An APK or the App Bundle is not signed with its flavor's keystore. Check the Gradle signing configuration."
             exit 1
           fi
 

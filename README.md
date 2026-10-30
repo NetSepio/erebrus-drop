@@ -249,7 +249,8 @@ GitHub Actions:
 
 - **CI** — `flutter analyze` and `flutter test` on every PR and `main` push
 - **Release** — runs when a `v{semver}` tag matching `pubspec.yaml` is pushed.
-  Builds Android APKs signed with the Play Store and dApp Store keys, plus
+  Builds Android APKs signed with the Play Store and dApp Store keys, the Play
+  Store App Bundle (`.aab`) for the Play Console, plus
   Windows `.zip` and Linux `.tar.gz` bundles (macOS `.zip` once the repo
   variable `ENABLE_MACOS_BUILD=true` and Apple signing are set up), and
   publishes a GitHub Release with `erebrus-drop-manifest-<tag>.json` (asset
