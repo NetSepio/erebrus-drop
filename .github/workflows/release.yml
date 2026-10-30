@@ -274,10 +274,13 @@ jobs:
           channel: stable
           cache: true
 
+      # Plugin system libraries: libsecret (flutter_secure_storage),
+      # json-glib (ffmpeg_kit_flutter_new_full), ayatana-appindicator (tray_manager).
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev \
+            libsecret-1-dev libjson-glib-dev libayatana-appindicator3-dev
 
       - uses: actions/setup-python@v5
         with:
